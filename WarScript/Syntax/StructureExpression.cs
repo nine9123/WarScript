@@ -21,12 +21,12 @@ namespace WarScript.Syntax
 
         public override string ToString()
         {
-            var text = $"struct: {Definition.Name}";
+            var text = $"struct {Definition.Name}";
             text += "\n";
             
             for (var i = 0; i < Definition.Arguments.Count; i++)
             {
-                text += $"\t{Definition.Arguments[i].ToString()}: {GetValue(i)}\n";
+                text += $"\targ {Definition.Arguments[i]}: {GetValue(i)}\n";
             }
             
             return text;
@@ -62,7 +62,7 @@ namespace WarScript.Syntax
                 return expression.Evaluate();
         }
 
-        // TODO
+        // TODO: Is this needed?
         /*
         public int compareTo(StructureExpression o) {
             for (String field : definition.getArguments()) {

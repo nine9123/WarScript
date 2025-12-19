@@ -9,7 +9,7 @@ namespace WarScript
     {
         public static void Main(string[] args)
         {
-            var sourceCode = File.ReadAllLines("/Users/coder/RiderProjects/WarScript/WarScript/test_script.wscript");
+            var sourceCode = File.ReadAllText("/Users/coder/RiderProjects/WarScript/WarScript/test.wscript");
 
             var lexicalParser = new LexicalParser(sourceCode);
             var tokens = lexicalParser.Parse();

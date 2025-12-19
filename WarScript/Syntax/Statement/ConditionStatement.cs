@@ -24,7 +24,7 @@ namespace WarScript.Syntax.Statement
             }
             else
             {
-                //throw new Exception($"Cannot compare non logical value {value}");
+                throw new Exception($"Cannot compare non logical value {value}");
             }
         }
     }

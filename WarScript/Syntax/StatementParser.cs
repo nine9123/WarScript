@@ -13,9 +13,9 @@ namespace WarScript.Syntax
         private readonly List<Token> _tokens;
         private int _position;
 
-        private Dictionary<string, IValue> _variables;
-        private Dictionary<string, StructureDefinition> _structures;
-
+        public readonly Dictionary<string, IValue> _variables;
+        private readonly Dictionary<string, StructureDefinition> _structures;
+        
         public StatementParser(List<Token> tokens)
         {
             _tokens = tokens;
@@ -29,6 +29,11 @@ namespace WarScript.Syntax
 
             while (_position < _tokens.Count)
             {
+                // Custom logic: Handle LineBreaks at EOF
+                SkipLineBreaks();
+                if (_position >= _tokens.Count)
+                    break;
+                
                 var statement = ParseExpression();
                 root.AddStatement(statement);
             }
@@ -38,36 +43,36 @@ namespace WarScript.Syntax
 
         private IStatement ParseExpression()
         {
-            var token = Next(new List<TokenType>() { TokenType.Variable, TokenType.Keyword });
+            var token = Next(new List<TokenType>() { TokenType.Keyword, TokenType.Variable, TokenType.Operator });
             switch (token.Type)
             {
                 case TokenType.Variable:
-                    // Skip equals
-                    Next(new List<TokenType>() { TokenType.Operator }, "=");
-
-                    IExpression value;
+                case TokenType.Operator:
+                    _position--;
                     
-                    // Check if the next token wants to create a new structure instance
-                    if (Peek(TokenType.Keyword, "new"))
-                        value = ReadInstance();
+                    var value = new ExpressionReader(this).ReadExpression();
+                    if (value is AssigmentOperator assigmentOperator &&
+                        assigmentOperator.Left is VariableExpression variableExpression)
+                    {
+                        return new AssigmentStatement(
+                            variableExpression.Name,
+                            assigmentOperator.Right,
+                            (name, v) => _variables[name] = v);
+                    }
                     else
-                        value = ReadExpression();
-
-                    return new AssignStatement(
-                        token.Value,
-                        value,
-                        (name, v) => _variables[name] = v);
-                
+                    {
+                        throw new Exception($"Unsupported statement: {value}");
+                    }
                 case TokenType.Keyword:
                     switch (token.Value)
                     {
                         case "print":
-                            var expression = ReadExpression();
+                            var expression = new ExpressionReader(this).ReadExpression();
                             return new PrintStatement(expression);
                             
                         case "if":
                             // Read condition that will be used to evaluate IF
-                            var condition = ReadExpression();
+                            var condition = new ExpressionReader(this).ReadExpression();
                             
                             // Skip start token
                             Next(new List<TokenType>() { TokenType.Keyword }, "then");
@@ -117,7 +122,6 @@ namespace WarScript.Syntax
                     }
 
                     break;
-                
                 default:
                     throw new Exception($"Statement can't start with the following lexeme {token}");
             }
@@ -125,100 +129,65 @@ namespace WarScript.Syntax
             return null;
         }
 
-        private IExpression ReadInstance()
+        public IExpression ReadInstance(Token token)
         {
-            // Skip the start token
-            Next(new List<TokenType>() { TokenType.Keyword }, "new");
-
-            var type = Next(new List<TokenType>() { TokenType.Variable });
-
-            var arguments = new List<IExpression>();
-
-            // Check if there will be a group of arguments
-            if (Peek(TokenType.GroupDivider, "["))
+            if (_structures.TryGetValue(token.Value, out var definition))
             {
-                // Skip the opening token
-                Next(new List<TokenType>() { TokenType.GroupDivider }, "[");
-
-                // Keep reading arguments until the group is closed
-                while (!Peek(TokenType.GroupDivider, "]"))
+                var arguments = new List<IExpression>();
+                
+                // Check if there will be a group of arguments
+                if (Peek(TokenType.GroupDivider, "["))
                 {
-                    var value = ReadExpression();
-                    arguments.Add(value);
+                    // Skip open square bracket
+                    Next(new List<TokenType>() { TokenType.GroupDivider }, "[");
+
+                    // Keep reading arguments until the group is closed
+                    while (!Peek(TokenType.GroupDivider, "]"))
+                    {
+                        var value = new ExpressionReader(this).ReadExpression();
+                        arguments.Add(value);
+
+                        if (Peek(TokenType.GroupDivider, ","))
+                            Next();
+                    }
+                
+                    // Skip close square bracket
+                    Next(new List<TokenType>() { TokenType.GroupDivider }, "]");
+                }
+
+                // Custom logic: to check argument count, might be removed later if tutorial has a better solution
+                if (definition.Arguments.Count != arguments.Count)
+                {
+                    var expected = "Expected";
+                    foreach (var definitionArgument in definition.Arguments)
+                    {
+                        expected += $"\n\t\t{definitionArgument}";
+                    }
+
+                    var got = "Got";
+                    foreach (var argument in arguments)
+                    {
+                        got += $"\n\t\t{argument}";
+                    }
+                    
+                    throw new Exception($"Line {token.Line}: Argument count does not match for structure {definition.Name}\n\t{expected}\n\t{got}");
                 }
                 
-                // Skip the closing token
-                Next(new List<TokenType>() { TokenType.GroupDivider }, "]");
-            }
-
-            if (_structures.TryGetValue(type.Value, out var definition))
-            {
                 return new StructureExpression(
                     definition,
                     arguments,
-                    (name) => _variables.TryGetValue(name, out var v) ? v : null);
+                    name => _variables.TryGetValue(name, out var v) ? v : null);
             }
             else
             {
-                throw new Exception($"Structure is not defined: {type.Value}");
+                throw new Exception($"Structure is not defined: {token.Value}");
             }
         }
         
-        private IExpression ReadExpression()
-        {
-            var left = NextExpression();
-
-            while (Peek(TokenType.Operator))
-            {
-                var operation = Next(new List<TokenType>() { TokenType.Operator });
-                var operatorType = operation.Value.ToOperator();
-
-                if (operatorType.HasValue)
-                {
-                    if (operatorType.Value.SupportsTwoOperands())
-                    {
-                        var right = NextExpression();
-                        left = operatorType.Value.ToOperatorExpression(left, right);
-                    }
-                    else
-                    {
-                        left = operatorType.Value.ToOperatorExpression(left);
-                    }
-                }
-            }
-            
-            return left;
-        }
-        
-        private IExpression NextExpression()
-        {
-            var token = Next(new List<TokenType>()
-            {
-                TokenType.Variable,
-                TokenType.Numeric,
-                TokenType.Logical,
-                TokenType.Text
-            });
-            
-            var value = token.Value;
-            switch (token.Type)
-            {
-                case TokenType.Numeric:
-                    return new NumericValue(int.Parse(value));
-                case TokenType.Logical:
-                    return new LogicalValue(bool.Parse(value));
-                case TokenType.Text:
-                    return new TextValue(value);
-                case TokenType.Variable:
-                default:
-                    return new VariableExpression(
-                        value,
-                        (name) => _variables.TryGetValue(name, out var v) ? v : null);
-            }
-        }
-
         private Token Next(List<TokenType> types, string expectedValue = "")
         {
+            SkipLineBreaks();
+            
             var tokenTypes = new List<TokenType>();
             tokenTypes.AddRange(types);
 
@@ -247,8 +216,25 @@ namespace WarScript.Syntax
             throw new Exception($"After {previousToken} declaration expected any of the following lexemes: {expectedType}");
         }
 
-        private bool Peek(TokenType type)
+        public Token Next()
         {
+            SkipLineBreaks();
+
+            if (_position < _tokens.Count)
+            {
+                var token = _tokens[_position];
+                _position++;
+                
+                return token;
+            }
+
+            return null;
+        }
+
+        public bool Peek(TokenType type)
+        {
+            SkipLineBreaks();
+            
             if (_position < _tokens.Count)
             {
                 var token = _tokens[_position];
@@ -257,12 +243,41 @@ namespace WarScript.Syntax
             
             return false;
         }
+        
         private bool Peek(TokenType type, string value)
         {
+            SkipLineBreaks();
+            
             if (_position < _tokens.Count)
             {
                 var token = _tokens[_position];
                 return token.Type == type && token.Value.Equals(value);
+            }
+            
+            return false;
+        }
+        
+        private void SkipLineBreaks()
+        {
+            while (_position < _tokens.Count)
+            {
+                var token = _tokens[_position];
+                if (token.Type == TokenType.LineBreak)
+                {
+                    _position++;
+                    continue;
+                }
+
+                break;
+            }
+        }
+        
+        public bool Peek(List<TokenType> types)
+        {
+            if (_position < _tokens.Count)
+            {
+                var token = _tokens[_position];
+                return types.Contains(token.Type);
             }
             
             return false;

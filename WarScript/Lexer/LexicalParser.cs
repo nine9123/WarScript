@@ -9,9 +9,9 @@ namespace WarScript.Lexer
 {
     public class LexicalParser
     {
-        private readonly string[] _sourceCode;
+        private readonly string _sourceCode;
 
-        public LexicalParser(string[] sourceCode)
+        public LexicalParser(string sourceCode)
         {
             _sourceCode = sourceCode;
         }
@@ -20,28 +20,26 @@ namespace WarScript.Lexer
         {
             var tokens = new List<Token>();
 
-            for (var line = 0; line < _sourceCode.Length; line++)
+            var currentLine = 1;
+            var position = 0;
+            
+            while (position < _sourceCode.Length)
             {
-                var sourceCodeLine = _sourceCode[line];
+                var (token, length, newLine) = NextToken(_sourceCode, position, currentLine);
                 
-                var position = 0;
-                while (position < sourceCodeLine.Length)
-                {
-                    var (token, length) = NextToken(sourceCodeLine, position, line);
+                if (token != null)
+                    tokens.Add(token);
 
-                    if (token != null)
-                        tokens.Add(token);
-                
-                    position += length;
-                }
+                currentLine = newLine;
+                position += length;
             }
 
             return tokens;
         }
 
-        private (Token?, int) NextToken(string sourceCodeLine, int position, int line)
+        private (Token?, int, int) NextToken(string sourceCode, int position, int currentLine)
         {
-            var nextToken = sourceCodeLine.Substring(position);
+            var nextToken = sourceCode.Substring(position);
             
             var tokenTypes = (TokenType[])Enum.GetValues(typeof(TokenType));
             foreach (var tokenType in tokenTypes)
@@ -53,6 +51,10 @@ namespace WarScript.Lexer
                 {
                     Token? token = null;
                     
+                    // Custom logic: Count on which line the token is
+                    if (tokenType == TokenType.LineBreak)
+                        currentLine++;
+                    
                     // Ignore whitespace, only used to divide two lexemes
                     if (tokenType != TokenType.Whitespace)
                     {
@@ -60,10 +62,10 @@ namespace WarScript.Lexer
                             ? match.Groups[1].Value // This gets the text literal without double quotes
                             : match.Value;
 
-                        token = new Token(tokenType, tokenValue, line);
+                        token = new Token(tokenType, tokenValue, currentLine);
                     }
                     
-                    return (token, match.Value.Length);
+                    return (token, match.Value.Length, currentLine);
                 }
             }
             

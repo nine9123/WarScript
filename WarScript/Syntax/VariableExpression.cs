@@ -9,11 +9,16 @@ namespace WarScript.Syntax
     {
         public string Name { get; private set; }
         public Func<string, IValue?> VariableValue { get; private set; }
+        public Action<string, IValue> VariableSetter { get; private set; }
 
-        public VariableExpression(string name, Func<string, IValue?> variableValue)
+        public VariableExpression(
+            string name,
+            Func<string, IValue?> variableValue,
+            Action<string, IValue> variableSetter)
         {
             Name = name;
             VariableValue = variableValue;
+            VariableSetter = variableSetter;
         }
 
         public IValue Evaluate()
@@ -24,6 +29,11 @@ namespace WarScript.Syntax
                 return new TextValue(Name);
 
             return value;
+        }
+
+        public void SetValue(IValue value)
+        {
+            VariableSetter(Name, value);
         }
     }
 }

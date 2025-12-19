@@ -15,7 +15,7 @@ namespace WarScript.Lexer
 
         public override string ToString()
         {
-            return $"{Type}:{Value}:{Line + 1}";
+            return $"[{Line}] {Type}:\t{Value}";
         }
     }
 }

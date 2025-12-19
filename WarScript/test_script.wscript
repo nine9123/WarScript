@@ -4,10 +4,6 @@ struct Person
     arg is_developer
 end
 
-if false! then
-    print "test"
-end
-
 struct Person2
     arg name
     arg experience
@@ -17,10 +13,16 @@ end
 result = 10 + 20 + 5 - 40
 print result
 
-person = new Person ["SomeGuy" 15 true]
+test_multiplication = 10 * 5
+print test_multiplication
+
+test_division = 10 / 5
+print test_division
+
+person = new Person ["Oleg", 15, true]
 print person
 
-human = new Person2 ["Jimmy" 45 false]
+human = new Person2 ["Jimmy", 45, false]
 print human
 
 is_jimmy_not_a_developer = human :: is_developer
@@ -30,7 +32,7 @@ if human :: is_developer == false then
     print "jimmy is not a developer"
 end
 
-human2 = new Person ["Oleg" 15 true]
+human2 = new Person ["Oleg", 15, true]
 print person
 
 if person == person then

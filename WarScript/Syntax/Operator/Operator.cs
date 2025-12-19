@@ -3,11 +3,22 @@ namespace WarScript.Syntax.Operator
     public enum Operator
     {
         Not,
+        StructureValue,
+        StructureInstance,
+        
+        Multiplication,
+        Division,
+        
         Addition,
         Subtraction,
+        
         Equality,
-        GreaterThan,
         LessThan,
-        StructureValue
+        GreaterThan,
+        
+        LeftParen,
+        RightParen,
+     
+        Assigment,
     }
 }
