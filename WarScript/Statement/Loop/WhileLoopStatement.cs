@@ -1,0 +1,33 @@
+using WarScript.Expression;
+using WarScript.Expression.Value;
+
+namespace WarScript.Statement.Loop
+{
+    public class WhileLoopStatement : AbstractLoopStatement
+    {
+        private readonly IExpression _hasNext;
+        
+        public WhileLoopStatement(int rowNumber, string blockName, IExpression hasNext) : base(rowNumber, blockName)
+        {
+            _hasNext = hasNext;
+        }
+
+        protected override void Init()
+        {
+        }
+
+        protected override bool HasNext()
+        {
+            var value = _hasNext.Evaluate();
+            return value is LogicalValue logicalValue && logicalValue.GetValue();
+        }
+
+        protected override void PreIncrement()
+        {
+        }
+
+        protected override void PostIncrement()
+        {
+        }
+    }
+}
