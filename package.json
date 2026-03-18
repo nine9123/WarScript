@@ -1,0 +1,14 @@
+{
+  "name": "com.nine9.warscript",
+  "version": "0.1.0",
+  "displayName": "WarScript",
+  "description": "WarScript is a custom scripting language with an interpreter written in C#.",
+  "unity": "6000.3",
+  "unityRelease": "2f1",
+  "author": {
+    "name": "Oleg Dammer",
+    "email": "info@play-warman.com",
+    "url": "https://play-warman.com/warscript"
+  },
+  "dependencies": {}
+}
