@@ -902,6 +902,90 @@ namespace Tests
             });
         }
 
+        [Test]
+        public void CallApi_TickHeavy_GCPressure_Sustained()
+        {
+            var (script, _) = Run(@"
+                class Entity [x, y, hp]
+                end
+                e = new Entity [0, 0, 100]
+                fun tick [dx, dy]
+                    e :: x = e :: x + dx
+                    e :: y = e :: y + dy
+                    dist = (e :: x ** 2 + e :: y ** 2) ** 0.5
+                    if dist > 100
+                        e :: hp = e :: hp - 1
+                    end
+                end
+            ");
+            var tick = script.GetFunction("tick", 2);
+            var dx = new NumericValue(script, 0.5);
+            var dy = new NumericValue(script, 0.3);
+
+            // Warmup
+            for (var i = 0; i < 1000; i++)
+                script.Call(tick, dx, dy);
+
+            // Force full collection and measure from a clean baseline
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            var memBefore = GC.GetTotalMemory(true); // true = force collection first
+
+            const int iterations = 100000;
+            for (var i = 0; i < iterations; i++)
+                script.Call(tick, dx, dy);
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            var memAfter = GC.GetTotalMemory(true);
+
+            // Survived memory is what GC couldn't free: should be near zero for a tick loop.
+            // The real allocation volume is much higher, but most is collected.
+            // We measure by forcing collections at checkpoints.
+            var survived = memAfter - memBefore;
+
+            // More accurate: measure total allocation by running in chunks
+            // and summing heap growth between forced collections.
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            const int chunkSize = 10000;
+            const int chunks = 10;
+            long totalAllocated = 0;
+
+            for (var chunk = 0; chunk < chunks; chunk++)
+            {
+                var before = GC.GetTotalMemory(true);
+
+                for (var i = 0; i < chunkSize; i++)
+                    script.Call(tick, dx, dy);
+
+                // Don't collect: measure raw heap growth
+                var after = GC.GetTotalMemory(false);
+                totalAllocated += (after - before);
+
+                // Now collect to reset for next chunk
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+            }
+
+            var bytesPerTick = totalAllocated / (double)(chunkSize * chunks);
+            var totalTicks = chunkSize * chunks;
+
+            TestContext.WriteLine($"--- Allocation Measurement ({totalTicks:N0} ticks, {chunks} chunks) ---");
+            TestContext.WriteLine($"Bytes per tick: {bytesPerTick:F1}");
+            TestContext.WriteLine($"Survived memory: {survived:N0} bytes");
+            TestContext.WriteLine("");
+            TestContext.WriteLine($"--- Projection: 200 entities @ 60fps ---");
+            TestContext.WriteLine($"Per frame: {bytesPerTick * 200:F0} bytes");
+            TestContext.WriteLine($"Per second: {bytesPerTick * 200 * 60 / 1024.0 / 1024.0:F2} MB");
+            TestContext.WriteLine($"Gen0 collection roughly every: {4.0 * 1024 * 1024 / (bytesPerTick * 200 * 60):F1} seconds (assuming 4MB nursery)");
+        }
+        
         // =====================================================================
         //  MODULE 14: INTEGRATION — Script file benchmarks
         // =====================================================================
