@@ -8,23 +8,25 @@ namespace WarScript.Statement.Loop
     {
         private readonly VariableExpression _variable;
         private readonly IExpression _lowerBound;
-        private readonly IExpression _upperBound;
-        private readonly IExpression _step;
+
+        // Reused every iteration
+        private readonly LessThanOperator _hasNextOperator;
+        private readonly AdditionOperator _stepOperator;
 
         public ForLoopStatement(WarScriptLanguage script, int rowNumber, string blockName, VariableExpression variable, IExpression lowerBound, IExpression upperBound) : base(script, rowNumber, blockName)
         {
             _variable = variable;
             _lowerBound = lowerBound;
-            _upperBound = upperBound;
-            _step = _script.DefaultStep;
+            _hasNextOperator = new LessThanOperator(_script, _variable, upperBound);
+            _stepOperator = new AdditionOperator(_script, _variable, _script.DefaultStep);
         }
         
         public ForLoopStatement(WarScriptLanguage script, int rowNumber, string blockName, VariableExpression variable, IExpression lowerBound, IExpression upperBound, IExpression step) : base(script, rowNumber, blockName)
         {
             _variable = variable;
             _lowerBound = lowerBound;
-            _upperBound = upperBound;
-            _step = step;
+            _hasNextOperator = new LessThanOperator(_script, _variable, upperBound);
+            _stepOperator = new AdditionOperator(_script, _variable, step);
         }
 
         protected override void Init()
@@ -34,8 +36,7 @@ namespace WarScript.Statement.Loop
 
         protected override bool HasNext()
         {
-            var hasNext = new LessThanOperator(_script, _variable, _upperBound);
-            var value = hasNext.Evaluate();
+            var value = _hasNextOperator.Evaluate();
             return value is LogicalValue logicalValue && logicalValue.GetValue();
         }
 
@@ -45,8 +46,7 @@ namespace WarScript.Statement.Loop
 
         protected override void PostIncrement()
         {
-            var stepOperator = new AdditionOperator(_script, _variable, _step);
-            _script.MemoryContext.GetScope().Set(_variable.Name, stepOperator.Evaluate());
+            _script.MemoryContext.GetScope().Set(_variable.Name, _stepOperator.Evaluate());
         }
     }
 }
