@@ -150,5 +150,15 @@ namespace Tests
             Assert.AreEqual("Rescuing 'A message that describes the error.'", output[1]);
             Assert.AreEqual("Ensure block", output[2]);
         }
+        
+        [Test]
+        public void ClassCreation()
+        {
+            // Covers: repeated instantiation, inheritance chains, property isolation, methods across instances, casting
+            var (script, output) = RunFile("class_creation.ws");
+
+            Assert.IsFalse(script.ExceptionContext.IsRaised(), $"Script raised an unhandled exception. Output:\n{string.Join("\n", output)}");
+            Assert.AreEqual(new[] { "all class tests passed" }, output);
+        }
     }
 }

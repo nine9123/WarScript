@@ -1,9 +1,7 @@
 #nullable enable
 
-using System.Collections;
 using System.Collections.Generic;
 using WarScript.Context;
-using WarScript.Context.Definition;
 using WarScript.Expression.Value;
 
 namespace WarScript.Expression
@@ -12,10 +10,6 @@ namespace WarScript.Expression
     {
         private readonly string _name;
         private readonly List<IExpression?> _propertiesExpressions;
-        
-        // contains Derived class and all the Base classes chain that Derived class inherits
-        private readonly Dictionary<string, ClassValue> _relations;
-
         private readonly WarScriptLanguage _script;
         
         public ClassExpression(WarScriptLanguage script, string name, List<IExpression?> propertiesExpressions)
@@ -23,28 +17,12 @@ namespace WarScript.Expression
             _script = script;
             _name = name;
             _propertiesExpressions = propertiesExpressions;
-            _relations = new Dictionary<string, ClassValue>();
-        }
-
-        private ClassExpression(WarScriptLanguage script, string name, List<IExpression?> propertiesExpressions, Dictionary<string, ClassValue> relations)
-        {
-            _script = script;
-            _name = name;
-            _propertiesExpressions = propertiesExpressions;
-            _relations = relations;
         }
 
         public IValue? Evaluate()
         {
-            // initialize class's properties
-            var values = new List<ValueReference>(_propertiesExpressions.Count);
-            foreach (var expression in _propertiesExpressions)
-            {
-                var value = ValueReference.InstanceOf(expression);
-                if (value == null) return null;
-                values.Add(value);
-            }
-            return Evaluate(values);
+            // Fresh relations dict per instantiation
+            return EvaluateWith(new Dictionary<string, ClassValue>());
         }
 
         /// <summary>
@@ -53,6 +31,25 @@ namespace WarScript.Expression
         /// <param name="classValue">instance of the parent class</param>
         public IValue? Evaluate(ClassValue classValue)
         {
+            var classDefinition = classValue.GetValue();
+            _script.DefinitionContext.PushScope(classDefinition.GetDefinitionScope());
+
+            try
+            {
+                return EvaluateWith(new Dictionary<string, ClassValue>());
+            }
+            finally
+            {
+                _script.DefinitionContext.EndScope();
+            }
+        }
+
+        /// <summary>
+        /// Shared entry point that takes a relations dict.
+        /// Base class construction calls this to share the parent's dict.
+        /// </summary>
+        private IValue? EvaluateWith(Dictionary<string, ClassValue> relations)
+        {
             // initialize class's properties
             var values = new List<ValueReference>(_propertiesExpressions.Count);
             foreach (var expression in _propertiesExpressions)
@@ -61,23 +58,7 @@ namespace WarScript.Expression
                 if (value == null) return null;
                 values.Add(value);
             }
-            
-            // set parent class's definition
-            var classDefinition = classValue.GetValue();
-            _script.DefinitionContext.PushScope(classDefinition.GetDefinitionScope());
 
-            try
-            {
-                return Evaluate(values);
-            }
-            finally
-            {
-                _script.DefinitionContext.EndScope();
-            }
-        }
-
-        private IValue? Evaluate(List<ValueReference> values)
-        {
             // get class's definition and statement
             var definition = _script.DefinitionContext.GetScope().GetClass(_name);
             if (definition == null)
@@ -90,13 +71,10 @@ namespace WarScript.Expression
             _script.MemoryContext.PushScope(classScope);
             
             // initialize constructor arguments
-            var classValue = new ClassValue(_script, definition, classScope, _relations);
-            _relations.Add(_name, classValue);
+            var classValue = new ClassValue(_script, definition, classScope, relations);
+            relations.Add(_name, classValue);
             
             // fill the missing properties with NullValue.NULL_INSTANCE
-            // class A [arg1, arg2]
-            // new A [arg1] -> new A [arg1, null]
-            // new A [arg1, arg2, arg3] -> new A [arg1, arg2]
             var valuesToSet = new ValueReference?[definition.ClassDetails.Properties.Count];
             for (var i = 0; i < definition.ClassDetails.Properties.Count; i++)
             {
@@ -108,17 +86,16 @@ namespace WarScript.Expression
             // invoke constructors of the base classes and set a ClassValue relation
             foreach (var baseType in definition.BaseTypes)
             {
-                // initialize base class's properties
-                // class A [a_arg]
-                // class B [b_arg1, b_arg2]: A [b_arg1]
                 var baseClassProperties = new List<IExpression?>();
                 foreach (var property in baseType.Properties)
                 {
                     var index = definition.ClassDetails.Properties.IndexOf(property);
                     baseClassProperties.Add(valuesToSet[index]);
                 }
-                var baseExpression = new ClassExpression(_script, baseType.Name, baseClassProperties, _relations);
-                baseExpression.Evaluate();
+                // Base class shares the SAME relations dict: calls EvaluateWith directly,
+                // never goes through public Evaluate() which would create a fresh dict.
+                var baseExpression = new ClassExpression(_script, baseType.Name, baseClassProperties);
+                baseExpression.EvaluateWith(relations);
             }
             
             try
