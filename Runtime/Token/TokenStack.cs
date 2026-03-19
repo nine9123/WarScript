@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Generic;
-using System.Linq;
 using WarScript.Exception;
 
 namespace WarScript.Token
@@ -25,17 +23,24 @@ namespace WarScript.Token
         public Token Next(TokenType type, params TokenType[] types)
         {
             SkipEmptyTokens();
-            var tokenTypes = types.Append(type);
             if (_position < _tokens.Count)
             {
                 var token = _tokens[_position];
-                if (tokenTypes.Any(t => t == token.Type))
+                if (token.Type == type)
                 {
                     _position++;
                     return token;
                 }
+                for (var i = 0; i < types.Length; i++)
+                {
+                    if (types[i] == token.Type)
+                    {
+                        _position++;
+                        return token;
+                    }
+                }
             }
-            throw new SyntaxException($"After `{Previous()}` declaration expected any of the following lexemes `{string.Join(", ", types)}`");
+            throw new SyntaxException($"After `{Previous()}` declaration expected any of the following lexemes `{type}, {string.Join(", ", types)}`");
         }
 
         /// <summary>
@@ -46,12 +51,22 @@ namespace WarScript.Token
             SkipEmptyTokens();
             if (_position < _tokens.Count)
             {
-                var allValues = values.Append(value);
                 var token = _tokens[_position];
-                if (token.Type == type && allValues.Any(v => v == token.Value))
+                if (token.Type == type)
                 {
-                    _position++;
-                    return token;
+                    if (token.Value == value)
+                    {
+                        _position++;
+                        return token;
+                    }
+                    for (var i = 0; i < values.Length; i++)
+                    {
+                        if (values[i] == token.Value)
+                        {
+                            _position++;
+                            return token;
+                        }
+                    }
                 }
             }
             throw new SyntaxException($"After `{Previous()}` declaration expected `{type}, {value}` lexeme");
@@ -87,9 +102,16 @@ namespace WarScript.Token
         {
             if (_position < _tokens.Count)
             {
-                var allValues = values.Append(value);
                 var token = _tokens[_position];
-                return token.Type == type && allValues.Any(v => v == token.Value);
+                if (token.Type != type)
+                    return false;
+                if (token.Value == value)
+                    return true;
+                for (var i = 0; i < values.Length; i++)
+                {
+                    if (values[i] == token.Value)
+                        return true;
+                }
             }
             return false;
         }
@@ -106,9 +128,14 @@ namespace WarScript.Token
         {
             if (_position < _tokens.Count)
             {
-                var tokenTypes = types.Append(type);
                 var token = _tokens[_position];
-                return tokenTypes.Any(t => t == token.Type);
+                if (token.Type == type)
+                    return true;
+                for (var i = 0; i < types.Length; i++)
+                {
+                    if (types[i] == token.Type)
+                        return true;
+                }
             }
             return false;
         }
