@@ -14,14 +14,19 @@ namespace WarScript.Context.Definition
     public class DefinitionScope
     {
         /// <summary>
-        /// Classes defined in the block
+        /// Classes defined in the block: lookup by name
         /// </summary>
-        private readonly List<ClassDefinition> _classes;
+        private readonly Dictionary<string, ClassDefinition> _classes;
 
         /// <summary>
         /// Functions declared in the block
         /// </summary>
         public readonly List<FunctionDefinition> Functions;
+
+        /// <summary>
+        /// Function lookup
+        /// </summary>
+        private readonly Dictionary<(string name, int argCount), FunctionDefinition> _functionIndex;
 
         /// <summary>
         /// Parent DefinitionScope to access the structures defined in outer blocks of code
@@ -33,8 +38,9 @@ namespace WarScript.Context.Definition
         public DefinitionScope(WarScriptLanguage script, DefinitionScope? parent)
         {
             _script = script;
-            _classes = new List<ClassDefinition>();
+            _classes = new Dictionary<string, ClassDefinition>();
             Functions = new List<FunctionDefinition>();
+            _functionIndex = new Dictionary<(string, int), FunctionDefinition>();
             _parent = parent;
         }
 
@@ -44,11 +50,8 @@ namespace WarScript.Context.Definition
         /// <param name="name">name of the class</param>
         public ClassDefinition? GetClass(string name)
         {
-            foreach (var classDefinition in _classes)
-            {
-                if (classDefinition.ClassDetails.Name == name)
-                    return classDefinition;
-            }
+            if (_classes.TryGetValue(name, out var classDefinition))
+                return classDefinition;
 
             return _parent?.GetClass(name);
         }
@@ -58,7 +61,7 @@ namespace WarScript.Context.Definition
         /// </summary>
         public void AddClass(ClassDefinition classDefinition)
         {
-            _classes.Add(classDefinition);
+            _classes[classDefinition.ClassDetails.Name] = classDefinition;
         }
 
         /// <summary>
@@ -69,14 +72,8 @@ namespace WarScript.Context.Definition
         /// <returns></returns>
         public FunctionDefinition? GetFunction(string name, int argumentsSize)
         {
-            foreach (var functionDefinition in Functions)
-            {
-                if (functionDefinition.Details.Name == name &&
-                    functionDefinition.Details.Arguments.Count == argumentsSize)
-                {
-                    return functionDefinition;
-                }
-            }
+            if (_functionIndex.TryGetValue((name, argumentsSize), out var functionDefinition))
+                return functionDefinition;
 
             return _parent?.GetFunction(name, argumentsSize);
         }
@@ -106,6 +103,7 @@ namespace WarScript.Context.Definition
                 _script.Logger?.Invoke(_script, $"Shadowing native function '{functionDefinition.Details.Name}'");
             
             Functions.Add(functionDefinition);
+            _functionIndex[(functionDefinition.Details.Name, functionDefinition.Details.Arguments.Count)] = functionDefinition;
         }
 
         /// <summary>
@@ -114,7 +112,7 @@ namespace WarScript.Context.Definition
         /// </summary>
         public void CopyLocalDefinitionsTo(DefinitionScope target)
         {
-            foreach (var classDefinition in _classes)
+            foreach (var classDefinition in _classes.Values)
                 target.AddClass(classDefinition);
 
             foreach (var functionDefinition in Functions)
