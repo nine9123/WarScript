@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using WarScript.Context;
 using WarScript.Expression;
 using WarScript.Expression.Value;
@@ -25,7 +24,7 @@ namespace WarScript.Expression.Operator
             if (left is NumericValue leftNum && right is NumericValue rightNum)
                 return new NumericValue(_script, leftNum.GetValue() - rightNum.GetValue());
 
-            return new TextValue(_script, Regex.Replace(left.ToString(), right.ToString(), ""));
+            return new TextValue(_script, left.ToString().Replace(right.ToString(), ""));
         }
     }
 }
