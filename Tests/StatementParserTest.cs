@@ -109,7 +109,11 @@ namespace Tests
         {
             var (_, output) = TestHelper.Run(@"
                 x = 0
-                if false and (x = 1) == 1
+                fun set_x[]
+                    x = 1
+                    return true
+                end
+                if false and set_x[]
                     print ""branch taken""
                 end
                 print x

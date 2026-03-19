@@ -377,10 +377,13 @@ namespace Tests
         [Test]
         public void ShortCircuitAndSkipsRight()
         {
-            // The assignment inside the condition should never execute
             var (_, output) = TestHelper.Run(@"
                 x = 0
-                result = false and (x = 1) == 1
+                fun set_x []
+                    x = 1
+                    return true
+                end
+                result = false and set_x []
                 print x
             ");
             Assert.AreEqual(new[] { "0" }, output);
@@ -391,13 +394,17 @@ namespace Tests
         {
             var (_, output) = TestHelper.Run(@"
                 x = 0
-                result = true or (x = 1) == 1
+                fun set_x []
+                    x = 1
+                    return true
+                end
+                result = true or set_x []
                 print x
             ");
             Assert.AreEqual(new[] { "0" }, output);
         }
 
-        // ── Comparison ──
+        // Comparison
 
         [Test]
         public void EqualsAndNotEquals()
@@ -420,7 +427,7 @@ namespace Tests
             Assert.AreEqual(new[] { "True", "True" }, output);
         }
 
-        // ── String Concatenation ──
+        // String Concatenation
 
         [Test]
         public void StringConcat()
@@ -436,7 +443,7 @@ namespace Tests
             Assert.AreEqual(new[] { "age: 25" }, output);
         }
 
-        // ── Exception Handling ──
+        // Exception Handling
 
         [Test]
         public void RaiseAndRescue()
@@ -477,7 +484,7 @@ namespace Tests
             Assert.AreEqual(new[] { "ok" }, output);
         }
 
-        // ── Native Function Binding ──
+        // Native Function Binding
 
         [Test]
         public void NativeFunctionBinding()
@@ -491,8 +498,7 @@ namespace Tests
                         args =>
                         {
                             var n = NativeHelper.Arg<NumericValue>(args, 0);
-                            // Need a script reference for NumericValue — use null since
-                            // we only care about the numeric result for printing
+                            // Need a script reference for NumericValue: use null since we only care about the numeric result for printing
                             return new NumericValue(null, n.GetValue() * 2);
                         },
                         "Doubles a number", "NumericValue"));
@@ -500,7 +506,7 @@ namespace Tests
             Assert.AreEqual(new[] { "42" }, output);
         }
 
-        // ── Call API (game engine tick entry point) ──
+        // Call API (game engine tick entry point)
 
         [Test]
         public void CallFunctionFromEngine()

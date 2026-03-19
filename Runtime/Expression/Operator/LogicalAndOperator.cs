@@ -12,13 +12,23 @@ namespace WarScript.Expression.Operator
         {
             var left = Left.Evaluate();
             if (left == null) return null;
-            var right = Right.Evaluate();
-            if (right == null) return null;
 
-            if (left is LogicalValue leftLog && right is LogicalValue rightLog)
-                return new LogicalValue(_script, leftLog.GetValue() && rightLog.GetValue());
+            // Short-circuit: if left is false, result is false without evaluating right
+            if (left is LogicalValue leftLog)
+            {
+                if (!leftLog.GetValue())
+                    return new LogicalValue(_script, false);
 
-            return _script.ExceptionContext.RaiseException($"Unable to perform AND operator for non logical values `{left}`, `{right}`");
+                var right = Right.Evaluate();
+                if (right == null) return null;
+
+                if (right is LogicalValue rightLog)
+                    return new LogicalValue(_script, rightLog.GetValue());
+
+                return _script.ExceptionContext.RaiseException($"Unable to perform AND operator for non logical values `{left}`, `{right}`");
+            }
+
+            return _script.ExceptionContext.RaiseException($"Unable to perform AND operator for non logical value `{left}`");
         }
     }
 }
