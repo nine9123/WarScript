@@ -13,6 +13,14 @@ namespace WarScript
     /// </summary>
     public class LexicalParser
     {
+        // TODO: Track age of cached tokens.
+        // TODO: Have maximum amount of cached tokens.
+        // TODO: Throw out oldest token list when limit is reached.
+        /// <summary>
+        /// Cache tokens generated from source code
+        /// </summary>
+        private static readonly Dictionary<string, List<Token.Token>> Cache = new();
+
         // Pre-compiled regex patterns
         private static readonly (TokenType Type, Regex Pattern)[] CompiledPatterns;
 
@@ -38,8 +46,14 @@ namespace WarScript
         /// </summary>
         public static List<Token.Token> Parse(string sourceCode)
         {
+            if (Cache.TryGetValue(sourceCode, out var tokens))
+                return tokens;
+            
             var parser = new LexicalParser(sourceCode);
             parser.Parse();
+
+            Cache[sourceCode] = parser._tokens;
+            
             return parser._tokens;
         }
 
