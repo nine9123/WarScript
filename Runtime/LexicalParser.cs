@@ -13,6 +13,22 @@ namespace WarScript
     /// </summary>
     public class LexicalParser
     {
+        // Pre-compiled regex patterns
+        private static readonly (TokenType Type, Regex Pattern)[] CompiledPatterns;
+
+        static LexicalParser()
+        {
+            var tokenTypes = (TokenType[])System.Enum.GetValues(typeof(TokenType));
+            CompiledPatterns = new (TokenType, Regex)[tokenTypes.Length];
+            for (var i = 0; i < tokenTypes.Length; i++)
+            {
+                var t = tokenTypes[i];
+                CompiledPatterns[i] = (t, new Regex(
+                    @"\G(?:" + t.GetRegex() + ")",
+                    RegexOptions.Compiled));
+            }
+        }
+
         private readonly List<Token.Token> _tokens;
         private readonly string _source;
         private int _rowNumber;
@@ -45,12 +61,11 @@ namespace WarScript
         // Returns the number of characters consumed (i.e. the length of the matched text).
         private int NextToken(int position)
         {
-            var remaining = _source.Substring(position);
-
-            foreach (TokenType tokenType in System.Enum.GetValues(typeof(TokenType)))
+            for (var i = 0; i < CompiledPatterns.Length; i++)
             {
-                var pattern = new Regex("^(?:" + tokenType.GetRegex() + ")");
-                var match = pattern.Match(remaining);
+                var (tokenType, pattern) = CompiledPatterns[i];
+                // Match at exact position
+                var match = pattern.Match(_source, position);
 
                 if (match.Success)
                 {
