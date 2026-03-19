@@ -1,278 +1,154 @@
+using System.Collections.Generic;
+using System.IO;
+using System.Runtime.CompilerServices;
+using NUnit.Framework;
+using WarScript;
+
 namespace Tests
 {
+    /// <summary>
+    /// Integration tests that execute full .ws script files.
+    ///
+    /// Scripts that only use asserts produce no output: a passing test means
+    /// every assert in the script evaluated to true without raising an exception.
+    /// Scripts that use print are checked against expected output.
+    ///
+    /// Place .ws files in Tests/resources/
+    /// </summary>
+    [TestFixture]
     public class WarScriptLanguageTest
     {
-        /*
-        private static string GetResourcePath(string resourceName)
+        private static string GetResourcePath(
+            string resourceName,
+            [CallerFilePath] string sourceFilePath = "")
         {
-            // Look for test resources relative to the test assembly location
-            var assemblyDir = Path.GetDirectoryName(typeof(ToyLanguageTest).Assembly.Location);
-            return Path.Combine(assemblyDir!, "resources", resourceName);
+            // sourceFilePath is the absolute path to THIS .cs file at compile time.
+            // The resources/ folder sits next to it in the same directory.
+            var testDir = Path.GetDirectoryName(sourceFilePath)!;
+            var path = Path.Combine(testDir, "resources", resourceName);
+            if (File.Exists(path))
+                return path;
+
+            // Fallback: relative to working directory (dotnet test from Tests/)
+            path = Path.Combine("resources", resourceName);
+            if (File.Exists(path))
+                return path;
+
+            throw new FileNotFoundException(
+                $"Test resource '{resourceName}' not found. " +
+                $"Looked in: {Path.Combine(testDir, "resources")}");
         }
 
-        [Fact]
+        /// <summary>
+        /// Runs a .ws script file and captures all logger output
+        /// (both print statements and unhandled exception stack traces).
+        /// </summary>
+        private static (WarScriptLanguage script, List<string> output) RunFile(string resourceName)
+        {
+            var path = GetResourcePath(resourceName);
+            var sourceCode = File.ReadAllText(path);
+            var scriptName = Path.GetFileName(path);
+
+            var output = new List<string>();
+            var script = new WarScriptLanguage(
+                scriptName: scriptName,
+                sourceCode: sourceCode,
+                setupGlobalScope: _ => { },
+                fileResolver: null,
+                logger: (s, msg) => output.Add(msg));
+
+            return (script, output);
+        }
+
+        /// <summary>
+        /// Runs a script that uses only asserts — any output means something
+        /// went wrong (an unhandled exception was logged).
+        /// </summary>
+        private static void RunAssertOnlyScript(string resourceName)
+        {
+            var (script, output) = RunFile(resourceName);
+            Assert.IsFalse(script.ExceptionContext.IsRaised(),
+                $"Script '{resourceName}' raised an unhandled exception");
+            Assert.IsEmpty(output,
+                $"Script '{resourceName}' produced unexpected output:\n{string.Join("\n", output)}");
+        }
+
+        // ── Assert-only scripts (empty output = all asserts passed) ──
+
+        [Test]
         public void IsSameTree()
         {
-            var path = GetResourcePath("is_same_tree.toy");
-
-            var outputStream = new MemoryStream();
-
-            var originalOut = Console.Out;
-            var originalErr = Console.Error;
-
-            try
-            {
-                Console.SetOut(new StreamWriter(outputStream) { AutoFlush = true });
-                Console.SetError(new StreamWriter(outputStream) { AutoFlush = true });
-
-                var lang = new WarScriptLanguage();
-                lang.Execute(path);
-
-                var output = Encoding.UTF8.GetString(outputStream.ToArray());
-                Assert.Equal("", output);
-            }
-            finally
-            {
-                Console.SetOut(originalOut);
-                Console.SetError(originalErr);
-            }
+            RunAssertOnlyScript("is_same_tree.ws");
         }
 
-        [Fact]
+        [Test]
         public void BinarySearch()
         {
-            var path = GetResourcePath("binary_search.toy");
-
-            var outputStream = new MemoryStream();
-
-            var originalOut = Console.Out;
-            var originalErr = Console.Error;
-
-            try
-            {
-                Console.SetOut(new StreamWriter(outputStream) { AutoFlush = true });
-                Console.SetError(new StreamWriter(outputStream) { AutoFlush = true });
-
-                var lang = new WarScriptLanguage();
-                lang.Execute(path);
-
-                var output = Encoding.UTF8.GetString(outputStream.ToArray());
-                Assert.Equal("", output);
-            }
-            finally
-            {
-                Console.SetOut(originalOut);
-                Console.SetError(originalErr);
-            }
+            RunAssertOnlyScript("binary_search.ws");
         }
 
-        [Fact]
+        [Test]
         public void BubbleSort()
         {
-            var path = GetResourcePath("bubble_sort.toy");
-
-            var outputStream = new MemoryStream();
-
-            var originalOut = Console.Out;
-            var originalErr = Console.Error;
-
-            try
-            {
-                Console.SetOut(new StreamWriter(outputStream) { AutoFlush = true });
-                Console.SetError(new StreamWriter(outputStream) { AutoFlush = true });
-
-                var lang = new WarScriptLanguage();
-                lang.Execute(path);
-
-                var output = Encoding.UTF8.GetString(outputStream.ToArray());
-                Assert.Equal("", output);
-            }
-            finally
-            {
-                Console.SetOut(originalOut);
-                Console.SetError(originalErr);
-            }
+            RunAssertOnlyScript("bubble_sort.ws");
         }
 
-        [Fact]
+        [Test]
         public void Stack()
         {
-            var path = GetResourcePath("stack.toy");
-
-            var outputStream = new MemoryStream();
-
-            var originalOut = Console.Out;
-            var originalErr = Console.Error;
-
-            try
-            {
-                Console.SetOut(new StreamWriter(outputStream) { AutoFlush = true });
-                Console.SetError(new StreamWriter(outputStream) { AutoFlush = true });
-
-                var lang = new WarScriptLanguage();
-                lang.Execute(path);
-
-                var output = Encoding.UTF8.GetString(outputStream.ToArray());
-                Assert.Equal("", output);
-            }
-            finally
-            {
-                Console.SetOut(originalOut);
-                Console.SetError(originalErr);
-            }
+            RunAssertOnlyScript("stack.ws");
         }
 
-        [Fact]
+        [Test]
         public void InstanceOf()
         {
-            var path = GetResourcePath("instance_of.toy");
-
-            var outputStream = new MemoryStream();
-
-            var originalOut = Console.Out;
-            var originalErr = Console.Error;
-
-            try
-            {
-                Console.SetOut(new StreamWriter(outputStream) { AutoFlush = true });
-                Console.SetError(new StreamWriter(outputStream) { AutoFlush = true });
-
-                var lang = new WarScriptLanguage();
-                lang.Execute(path);
-
-                var output = Encoding.UTF8.GetString(outputStream.ToArray());
-                Assert.Equal("", output);
-            }
-            finally
-            {
-                Console.SetOut(originalOut);
-                Console.SetError(originalErr);
-            }
+            RunAssertOnlyScript("instance_of.ws");
         }
 
-        [Fact]
+        [Test]
         public void CastType()
         {
-            var path = GetResourcePath("cast_type.toy");
-
-            var outputStream = new MemoryStream();
-
-            var originalOut = Console.Out;
-            var originalErr = Console.Error;
-
-            try
-            {
-                Console.SetOut(new StreamWriter(outputStream) { AutoFlush = true });
-                Console.SetError(new StreamWriter(outputStream) { AutoFlush = true });
-
-                var lang = new WarScriptLanguage();
-                lang.Execute(path);
-
-                var output = Encoding.UTF8.GetString(outputStream.ToArray());
-                Assert.Equal("", output);
-            }
-            finally
-            {
-                Console.SetOut(originalOut);
-                Console.SetError(originalErr);
-            }
+            RunAssertOnlyScript("cast_type.ws");
         }
 
-        [Fact]
+        [Test]
         public void Calculator()
         {
-            var path = GetResourcePath("calculator.toy");
-
-            var outputStream = new MemoryStream();
-
-            var originalOut = Console.Out;
-            var originalErr = Console.Error;
-
-            try
-            {
-                Console.SetOut(new StreamWriter(outputStream) { AutoFlush = true });
-                Console.SetError(new StreamWriter(outputStream) { AutoFlush = true });
-
-                var lang = new WarScriptLanguage();
-                lang.Execute(path);
-
-                var output = Encoding.UTF8.GetString(outputStream.ToArray());
-                Assert.Equal("", output);
-            }
-            finally
-            {
-                Console.SetOut(originalOut);
-                Console.SetError(originalErr);
-            }
+            RunAssertOnlyScript("calculator.ws");
         }
 
-        [Fact]
+        // Scripts with expected output
+
+        [Test]
         public void RaiseException()
         {
-            var path = GetResourcePath("raise_exception.toy");
+            var (_, output) = RunFile("raise_exception.ws");
 
-            var outputStream = new MemoryStream();
+            // The script has an unhandled exception — the logger receives:
+            // 1. "Do something useful ..." (from print in do_something)
+            // 2. The full exception + stack trace (from ExceptionContext.PrintStackTrace)
+            Assert.AreEqual(2, output.Count, $"Unexpected output:\n{string.Join("\n", output)}");
+            Assert.AreEqual("Do something useful ...", output[0]);
 
-            var originalOut = Console.Out;
-            var originalErr = Console.Error;
-
-            try
-            {
-                Console.SetOut(new StreamWriter(outputStream) { AutoFlush = true });
-                Console.SetError(new StreamWriter(outputStream) { AutoFlush = true });
-
-                var lang = new WarScriptLanguage();
-                lang.Execute(path);
-
-                var output = Encoding.UTF8.GetString(outputStream.ToArray());
-                Assert.Equal(
-                    "Do something useful ...\n" +
-                    "MyBusinessException [ message = A message that describes the error. ]\n" +
-                    "    at do_something_else:14\n" +
-                    "    at perform_business_operation:5\n" +
-                    "    at raise_exception.toy:1\n",
-                    output
-                );
-            }
-            finally
-            {
-                Console.SetOut(originalOut);
-                Console.SetError(originalErr);
-            }
+            // The exception printout includes the class ToString and the stack trace.
+            // It arrives as a single logger call from PrintStackTrace.
+            var exceptionOutput = output[1];
+            Assert.That(exceptionOutput, Does.Contain("WarScript.Context.Definition.ClassDefinition"));
+            Assert.That(exceptionOutput, Does.Contain("at do_something_else:"));
+            Assert.That(exceptionOutput, Does.Contain("at perform_business_operation:"));
+            Assert.That(exceptionOutput, Does.Contain("at raise_exception.ws:"));
         }
 
-        [Fact]
+        [Test]
         public void HandleException()
         {
-            var path = GetResourcePath("handle_exception.toy");
+            var (_, output) = RunFile("handle_exception.ws");
 
-            var outputStream = new MemoryStream();
-
-            var originalOut = Console.Out;
-            var originalErr = Console.Error;
-
-            try
-            {
-                Console.SetOut(new StreamWriter(outputStream) { AutoFlush = true });
-                Console.SetError(new StreamWriter(outputStream) { AutoFlush = true });
-
-                var lang = new WarScriptLanguage();
-                lang.Execute(path);
-
-                var output = Encoding.UTF8.GetString(outputStream.ToArray());
-                Assert.Equal(
-                    "Do something useful ...\n" +
-                    "Rescuing 'A message that describes the error.'\n" +
-                    "Ensure block\n",
-                    output
-                );
-            }
-            finally
-            {
-                Console.SetOut(originalOut);
-                Console.SetError(originalErr);
-            }
+            // The script handles the exception in rescue + ensure blocks
+            Assert.AreEqual(3, output.Count, $"Unexpected output:\n{string.Join("\n", output)}");
+            Assert.AreEqual("Do something useful ...", output[0]);
+            Assert.AreEqual("Rescuing 'A message that describes the error.'", output[1]);
+            Assert.AreEqual("Ensure block", output[2]);
         }
-        */
     }
 }
