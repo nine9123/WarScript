@@ -3,7 +3,7 @@ namespace WarScript.Token
     /// <summary>
     /// Token (lexeme) details
     /// </summary>
-    public class Token
+    public readonly struct Token
     {
         /// <summary>
         /// Type of the token

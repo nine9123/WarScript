@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -91,15 +92,39 @@ namespace Tests
             return result;
         }
 
+        private static readonly StringBuilder ResultLog = new StringBuilder();
+        
         private static void Report(BenchmarkResult r)
         {
-            TestContext.WriteLine(
-                $"[{r.Name}]  " +
-                $"\nmin={r.MinMs:F3}ms  " +
-                $"\nmedian={r.MedianMs:F3}ms  " +
-                $"\navg={r.AvgMs:F3}ms  " +
-                $"\nmax={r.MaxMs:F3}ms  " +
-                $"\nstddev={r.StdDevMs:F3}ms");
+            var line = $"[{r.Name}]  " +
+                       $"\nmin={r.MinMs:F3}ms  " +
+                       $"\nmedian={r.MedianMs:F3}ms  " +
+                       $"\navg={r.AvgMs:F3}ms  " +
+                       $"\nmax={r.MaxMs:F3}ms  " +
+                       $"\nstddev={r.StdDevMs:F3}ms";
+
+            TestContext.WriteLine(line);
+            ResultLog.AppendLine(line);
+        }
+
+        [OneTimeSetUp]
+        public void Setup()
+        {
+            ResultLog.Clear();
+        }
+        
+        [OneTimeTearDown]
+        public void ExportResults()
+        {
+            if (ResultLog.Length == 0) return;
+
+            var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+            var path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                $"warscript_bench_{timestamp}.txt");
+
+            File.WriteAllText(path, ResultLog.ToString());
+            TestContext.WriteLine($"Results saved to: {path}");
         }
 
         private static (WarScriptLanguage script, List<string> output) Run(string source)
