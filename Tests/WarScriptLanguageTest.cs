@@ -1,12 +1,8 @@
-using Xunit;
-using System.IO;
-using System.Text;
-using WarScript;
-
-namespace ToyLanguage.Tests
+namespace WarScript
 {
-    public class ToyLanguageTest
+    public class WarScriptLanguageTest
     {
+        /*
         private static string GetResourcePath(string resourceName)
         {
             // Look for test resources relative to the test assembly location
@@ -277,5 +273,6 @@ namespace ToyLanguage.Tests
                 Console.SetError(originalErr);
             }
         }
+        */
     }
 }

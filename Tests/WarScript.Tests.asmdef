@@ -1,0 +1,5 @@
+{
+    "name": "WarScript.Tests",
+    "references": ["WarScript.Runtime"],
+    "includePlatforms": ["Editor"]
+}
