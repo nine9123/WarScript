@@ -8,7 +8,7 @@ namespace WarScript.Context
     /// </summary>
     public class BreakContext
     {
-        private BreakScope _scope = new BreakScope();
+        private readonly BreakScope _scope = new BreakScope();
 
         /// <summary>
         /// Get current <see cref="BreakScope"/>
@@ -23,7 +23,7 @@ namespace WarScript.Context
         /// </summary>
         public void Reset()
         {
-            _scope = new BreakScope();
+            _scope.Reset();
         }
     }
 }

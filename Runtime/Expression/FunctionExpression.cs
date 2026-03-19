@@ -83,7 +83,7 @@ namespace WarScript.Expression
             }
         }
 
-        private IValue Evaluate(List<IValue> values)
+        private IValue? Evaluate(List<IValue> values)
         {
             // get function's definition and statement
             var definition = _script.DefinitionContext.GetScope().GetFunction(Name, values.Count);

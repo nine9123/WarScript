@@ -1,3 +1,5 @@
+#nullable enable
+
 using WarScript.Expression.Value;
 
 namespace WarScript.Context
@@ -10,7 +12,7 @@ namespace WarScript.Context
     public class ReturnScope
     {
         public bool Invoked { get; private set; }
-        public IValue Result { get; private set; }
+        public IValue? Result { get; private set; }
 
         /// <summary>
         /// Notify current scope that <b>return</b> statement invoked
@@ -19,6 +21,15 @@ namespace WarScript.Context
         {
             Invoked = true;
             Result = result;
+        }
+
+        /// <summary>
+        /// Reset the scope for reuse
+        /// </summary>
+        public void Reset()
+        {
+            Invoked = false;
+            Result = null;
         }
     }
 }

@@ -8,7 +8,7 @@ namespace WarScript.Context
     /// </summary>
     public class NextContext
     {
-        private NextScope _scope = new NextScope();
+        private readonly NextScope _scope = new NextScope();
 
         /// <summary>
         /// Get current <see cref="NextScope"/>
@@ -23,7 +23,7 @@ namespace WarScript.Context
         /// </summary>
         public void Reset()
         {
-            _scope = new NextScope();
+            _scope.Reset();
         }
     }
 }
