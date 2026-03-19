@@ -1,60 +1,54 @@
-using System;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
-using WarScript.Expression.Operator;
 
 namespace WarScript.Expression.Operator.Extensions
 {
     public static class OperatorExtension
     {
-        // Order matters — more specific patterns must come before broader ones,
-        // mirroring the Java enum declaration order so regex precedence is preserved.
-        // e.g. NestedClassInstance (:: new) before ClassProperty (::)
-        //      FloorDivision (//) before Division (/)
-        //      Exponentiation (**) before Multiplication (*)
-        private static readonly List<(string Pattern, Operator Op)> OperatorPatterns = new List<(string Pattern, Operator Op)>()
+        // Order matters: more specific patterns must come before broader ones
+        private static readonly Dictionary<string, Operator> OperatorMap = new Dictionary<string, Operator>()
         {
-            ("!",           Operator.Not),
-            ("new",         Operator.ClassInstance),
-            (":{2}\\s+new", Operator.NestedClassInstance),
-            (":{2}",        Operator.ClassProperty),
-            ("as",          Operator.ClassCast),
-            ("is",          Operator.ClassInstanceOf),
+            { "!",    Operator.Not },
+            { "new",  Operator.ClassInstance },
+            { "::",   Operator.ClassProperty },
+            { "as",   Operator.ClassCast },
+            { "is",   Operator.ClassInstanceOf },
 
-            ("\\*{2}",      Operator.Exponentiation),
-            ("\\*",         Operator.Multiplication),
-            ("//",          Operator.FloorDivision),
-            ("/",           Operator.Division),
-            ("%",           Operator.Modulo),
+            { "**",   Operator.Exponentiation },
+            { "*",    Operator.Multiplication },
+            { "//",   Operator.FloorDivision },
+            { "/",    Operator.Division },
+            { "%",    Operator.Modulo },
 
-            ("\\+",         Operator.Addition),
-            ("-",           Operator.Subtraction),
+            { "+",    Operator.Addition },
+            { "-",    Operator.Subtraction },
 
-            ("==",          Operator.Equals),
-            ("!=",          Operator.NotEquals),
-            ("<=",          Operator.LessThanOrEqualTo),
-            ("<",           Operator.LessThan),
-            (">=",          Operator.GreaterThanOrEqualTo),
-            (">",           Operator.GreaterThan),
+            { "==",   Operator.Equals },
+            { "!=",   Operator.NotEquals },
+            { "<=",   Operator.LessThanOrEqualTo },
+            { "<",    Operator.LessThan },
+            { ">=",   Operator.GreaterThanOrEqualTo },
+            { ">",    Operator.GreaterThan },
 
-            ("\\(",         Operator.LeftParen),
-            ("\\)",         Operator.RightParen),
+            { "(",    Operator.LeftParen },
+            { ")",    Operator.RightParen },
 
-            ("and",         Operator.LogicalAnd),
-            ("or",          Operator.LogicalOr),
+            { "and",  Operator.LogicalAnd },
+            { "or",   Operator.LogicalOr },
 
-            ("<<",          Operator.ArrayAppend),
-            ("=",           Operator.Assignment),
+            { "<<",   Operator.ArrayAppend },
+            { "=",    Operator.Assignment },
         };
 
-        // Mirrors Java's String.matches() which anchors the entire string
         public static Operator ToOperator(this string value)
         {
-            foreach (var (pattern, op) in OperatorPatterns)
-            {
-                if (Regex.IsMatch(value, $"^(?:{pattern})$"))
-                    return op;
-            }
+            if (OperatorMap.TryGetValue(value, out var op))
+                return op;
+
+            // Handle ":: new" with variable whitespace from the lexer
+            var trimmed = value.Trim();
+            if (trimmed == ":: new" || (trimmed.StartsWith("::") && trimmed.EndsWith("new")))
+                return Operator.NestedClassInstance;
+
             throw new System.Exception($"Cannot parse '{value}' to an operator");
         }
 
@@ -108,7 +102,7 @@ namespace WarScript.Expression.Operator.Extensions
                 Operator.ClassProperty        => 7,
                 Operator.ClassCast            => 7,
                 Operator.ClassInstanceOf      => 7,
-                Operator.ArrayValue => 7,
+                Operator.ArrayValue           => 7,
 
                 Operator.Exponentiation       => 6,
                 Operator.Multiplication       => 6,
@@ -138,8 +132,6 @@ namespace WarScript.Expression.Operator.Extensions
                 _ => throw new System.Exception($"Operator {op} has no defined precedence")
             };
 
-        // Mirrors Java: getPrecedence().compareTo(o.getPrecedence()) >= 0
-        // >= (not >) is required for correct left-associative shunting-yard behaviour
         public static bool GreaterThan(this Operator op, Operator other) =>
             op.GetPrecedence().CompareTo(other.GetPrecedence()) >= 0;
     }
