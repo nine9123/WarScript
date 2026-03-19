@@ -1,4 +1,4 @@
-using System.Linq;
+using System;
 using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
@@ -32,6 +32,16 @@ namespace WarScript.Expression.Operator
     
     public static class StringExtensions
     {
-        public static string Repeat(this string s, int count) => new string[count].Aggregate("", (acc, _) => acc + s);
+        public static string Repeat(this string s, int count)
+        {
+            if (count <= 0 || s.Length == 0) return string.Empty;
+            if (count == 1) return s;
+
+            return string.Create(s.Length * count, s, (span, src) =>
+            {
+                for (var i = 0; i < span.Length; i += src.Length)
+                    src.AsSpan().CopyTo(span.Slice(i));
+            });
+        }
     }
 }
