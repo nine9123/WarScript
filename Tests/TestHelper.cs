@@ -4,7 +4,7 @@ using WarScript;
 using WarScript.Context.Definition;
 using WarScript.Expression.Value;
 
-namespace WarScript.Tests
+namespace Tests
 {
     /// <summary>
     /// Convenience helpers for spinning up a WarScriptLanguage instance in tests.

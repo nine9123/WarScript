@@ -1,9 +1,10 @@
 using System.Collections.Generic;
 using NUnit.Framework;
+using WarScript;
 using WarScript.Context.Definition;
 using WarScript.Expression.Value;
 
-namespace WarScript.Tests
+namespace Tests
 {
     [TestFixture]
     public class ExecutionTests

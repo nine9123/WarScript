@@ -2,7 +2,7 @@ using NUnit.Framework;
 using WarScript.Expression.Operator;
 using WarScript.Expression.Operator.Extensions;
 
-namespace WarScript.Tests
+namespace Tests
 {
     [TestFixture]
     public class OperatorTests

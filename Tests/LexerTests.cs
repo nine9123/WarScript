@@ -2,7 +2,7 @@ using NUnit.Framework;
 using WarScript;
 using WarScript.Token;
 
-namespace WarScript.Tests
+namespace Tests
 {
     [TestFixture]
     public class LexerTests

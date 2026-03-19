@@ -1,4 +1,4 @@
-namespace WarScript
+namespace Tests
 {
     public class WarScriptLanguageTest
     {
