@@ -4,6 +4,7 @@ namespace WarScript.Expression.Operator
     {
         // Precedence 7 - unary / class ops
         Not,
+        Negate,
         ClassInstance,
         NestedClassInstance,
         ClassProperty,

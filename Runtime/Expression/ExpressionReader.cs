@@ -46,6 +46,8 @@ namespace WarScript.Expression
 
         private IExpression ReadExpression()
         {
+            var lastWasOperand = false;
+            
             while (HasNextToken())
             {
                 var token = Tokens.Next();
@@ -53,6 +55,11 @@ namespace WarScript.Expression
                 {
                     case TokenType.Operator:
                         var op = token.Value.ToOperator();
+                        
+                        // '-' after an operand is subtraction, otherwise it's negation
+                        if (op == Operator.Operator.Subtraction && !lastWasOperand)
+                            op = Operator.Operator.Negate;
+                        
                         switch (op)
                         {
                             case Operator.Operator.LeftParen:
@@ -63,6 +70,7 @@ namespace WarScript.Expression
                                 while (_operators.Count > 0 && _operators.Peek() != Operator.Operator.LeftParen)
                                     ApplyTopOperator();
                                 _operators.Pop(); // pop left bracket
+                                lastWasOperand = true; // (...) acts as an operand
                                 break;
                             default:
                                 // until top operator has greater or equal precedence

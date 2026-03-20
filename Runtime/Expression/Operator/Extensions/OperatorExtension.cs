@@ -59,6 +59,7 @@ namespace WarScript.Expression.Operator.Extensions
             {
                 Operator.Not           => new NotOperator(script, operand),
                 Operator.ClassInstance => new ClassInstanceOperator(script, operand),
+                Operator.Negate        => new NegateOperator(script, operand),
                 _ => throw new System.Exception($"Operator {op} is not a unary operator")
             };
 
@@ -99,12 +100,13 @@ namespace WarScript.Expression.Operator.Extensions
         public static bool IsBinary(this Operator op) => !IsUnary(op);
 
         public static bool IsUnary(this Operator op) =>
-            op is Operator.Not || op is Operator.ClassInstance;
+            op is Operator.Not || op is Operator.ClassInstance || op is Operator.Negate;
 
         public static int GetPrecedence(this Operator op) =>
             op switch
             {
                 Operator.Not                  => 7,
+                Operator.Negate               => 7,
                 Operator.ClassInstance        => 7,
                 Operator.NestedClassInstance  => 7,
                 Operator.ClassProperty        => 7,

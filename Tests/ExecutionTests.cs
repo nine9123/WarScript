@@ -741,5 +741,81 @@ namespace Tests
             ");
             Assert.AreEqual(new[] { "45" }, output);
         }
+        
+        // ── Unary Minus ──
+
+        [Test]
+        public void UnaryMinus_NegativeLiteral()
+        {
+            // This works — lexer parses -5 as a single negative numeric token
+            var (_, output) = TestHelper.Run("test", "print -5");
+            Assert.AreEqual(new[] { "-5" }, output);
+        }
+
+        [Test]
+        public void UnaryMinus_NegateVariable()
+        {
+            // This is the broken case — needs unary minus operator
+            var (_, output) = TestHelper.Run("test", @"
+                x = 5
+                y = -x
+                print y
+            ");
+            Assert.AreEqual(new[] { "-5" }, output);
+        }
+
+        [Test]
+        public void UnaryMinus_InExpression()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                x = 5
+                y = 10 + -x
+                print y
+            ");
+            Assert.AreEqual(new[] { "5" }, output);
+        }
+
+        [Test]
+        public void UnaryMinus_NegateParenthesized()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                y = -(3 + 4)
+                print y
+            ");
+            Assert.AreEqual(new[] { "-7" }, output);
+        }
+
+        [Test]
+        public void UnaryMinus_NegativeLiteralInArray()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                arr = {1, -2, 3}
+                print arr{1}
+            ");
+            Assert.AreEqual(new[] { "-2" }, output);
+        }
+
+        [Test]
+        public void UnaryMinus_NegateFunctionResult()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                fun five []
+                    return 5
+                end
+                print -five []
+            ");
+            Assert.AreEqual(new[] { "-5" }, output);
+        }
+
+        [Test]
+        public void UnaryMinus_DoubleNegation()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                x = 5
+                y = -(-x)
+                print y
+            ");
+            Assert.AreEqual(new[] { "5" }, output);
+        }
     }
 }
