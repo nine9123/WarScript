@@ -630,5 +630,116 @@ namespace Tests
             ");
             Assert.AreEqual(new[] { "hello world" }, output);
         }
+        
+        // ── Compound Assignment ──
+
+        [Test]
+        public void CompoundAddition()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                x = 10
+                x += 5
+                print x
+            ");
+            Assert.AreEqual(new[] { "15" }, output);
+        }
+
+        [Test]
+        public void CompoundSubtraction()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                x = 10
+                x -= 3
+                print x
+            ");
+            Assert.AreEqual(new[] { "7" }, output);
+        }
+
+        [Test]
+        public void CompoundMultiplication()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                x = 10
+                x *= 4
+                print x
+            ");
+            Assert.AreEqual(new[] { "40" }, output);
+        }
+
+        [Test]
+        public void CompoundDivision()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                x = 10
+                x /= 4
+                print x
+            ");
+            Assert.AreEqual(new[] { "2.5" }, output);
+        }
+
+        [Test]
+        public void CompoundAssignmentChained()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                x = 100
+                x += 10
+                x -= 5
+                x *= 2
+                x /= 5
+                print x
+            ");
+            Assert.AreEqual(new[] { "42" }, output);
+        }
+
+        [Test]
+        public void CompoundAssignmentInWhileLoop()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                count = 100
+                loop count > 0
+                    count -= 10
+                end
+                print count
+            ");
+            Assert.AreEqual(new[] { "0" }, output);
+        }
+
+        [Test]
+        public void CompoundAssignmentWithExpression()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                x = 10
+                x += 2 * 3
+                print x
+            ");
+            Assert.AreEqual(new[] { "16" }, output);
+        }
+
+        [Test]
+        public void CompoundAssignmentArrayElement()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                arr = {10, 20, 30}
+                arr{1} += 5
+                print arr{1}
+            ");
+            Assert.AreEqual(new[] { "25" }, output);
+        }
+
+        [Test]
+        public void CompoundAssignmentInsideFunction()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                fun accumulate [n]
+                    total = 0
+                    loop i in 0..n
+                        total += i
+                    end
+                    return total
+                end
+                print accumulate [10]
+            ");
+            Assert.AreEqual(new[] { "45" }, output);
+        }
     }
 }
