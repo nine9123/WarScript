@@ -16,7 +16,6 @@ namespace WarScript.Expression.Value
 
         public ClassValue(WarScriptLanguage script, ClassDefinition definition, MemoryScope memoryScope, Dictionary<string, ClassValue> relations) : base(script, definition)
         {
-            _script = script;
             MemoryScope = memoryScope;
             Relations = relations;
         }

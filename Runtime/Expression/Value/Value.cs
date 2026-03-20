@@ -6,12 +6,12 @@ namespace WarScript.Expression.Value
     {
         private T _value;
 
-        protected WarScriptLanguage _script;
+        protected readonly WarScriptLanguage _script;
 
-        public Value(WarScriptLanguage script, T value)
+        protected Value(WarScriptLanguage script, T value)
         {
             _script = script;
-            SetValue(value);
+            _value = value;
         }
 
         public override string ToString()
@@ -29,7 +29,7 @@ namespace WarScript.Expression.Value
             return _value;
         }
 
-        public void SetValue(T value)
+        protected void SetValue(T value)
         {
             _value = value;
         }
