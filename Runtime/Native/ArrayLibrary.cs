@@ -10,7 +10,7 @@ namespace WarScript.Native
         {
             // arr_remove_at [array, index] — removes element at index, returns it
             scope.AddFunction(new NativeFunctionDefinition(
-                new FunctionDetails("arr_remove_at", new List<string> { "arr", "index" }),
+                new FunctionDetails("Array_remove_at", new List<string> { "arr", "index" }),
                 args =>
                 {
                     var arr = NativeHelper.Arg<ArrayValue>(args, 0);
@@ -29,7 +29,7 @@ namespace WarScript.Native
 
             // arr_remove [array, value] — removes first occurrence, returns true/false
             scope.AddFunction(new NativeFunctionDefinition(
-                new FunctionDetails("arr_remove", new List<string> { "arr", "value" }),
+                new FunctionDetails("Array_remove", new List<string> { "arr", "value" }),
                 args =>
                 {
                     var arr = NativeHelper.Arg<ArrayValue>(args, 0);
@@ -54,7 +54,7 @@ namespace WarScript.Native
 
             // arr_length [array] — returns count
             scope.AddFunction(new NativeFunctionDefinition(
-                new FunctionDetails("arr_length", new List<string> { "arr" }),
+                new FunctionDetails("Array_length", new List<string> { "arr" }),
                 args =>
                 {
                     var arr = NativeHelper.Arg<ArrayValue>(args, 0);
@@ -64,7 +64,7 @@ namespace WarScript.Native
 
             // arr_contains [array, value] — returns true/false
             scope.AddFunction(new NativeFunctionDefinition(
-                new FunctionDetails("arr_contains", new List<string> { "arr", "value" }),
+                new FunctionDetails("Array_contains", new List<string> { "arr", "value" }),
                 args =>
                 {
                     var arr = NativeHelper.Arg<ArrayValue>(args, 0);
@@ -82,7 +82,7 @@ namespace WarScript.Native
 
             // arr_index_of [array, value] — returns index or -1
             scope.AddFunction(new NativeFunctionDefinition(
-                new FunctionDetails("arr_index_of", new List<string> { "arr", "value" }),
+                new FunctionDetails("Array_index_of", new List<string> { "arr", "value" }),
                 args =>
                 {
                     var arr = NativeHelper.Arg<ArrayValue>(args, 0);
@@ -101,7 +101,7 @@ namespace WarScript.Native
 
             // arr_clear [array] — empties the array
             scope.AddFunction(new NativeFunctionDefinition(
-                new FunctionDetails("arr_clear", new List<string> { "arr" }),
+                new FunctionDetails("Array_clear", new List<string> { "arr" }),
                 args =>
                 {
                     var arr = NativeHelper.Arg<ArrayValue>(args, 0);
@@ -112,7 +112,7 @@ namespace WarScript.Native
 
             // arr_pop [array] — removes and returns last element
             scope.AddFunction(new NativeFunctionDefinition(
-                new FunctionDetails("arr_pop", new List<string> { "arr" }),
+                new FunctionDetails("Array_pop", new List<string> { "arr" }),
                 args =>
                 {
                     var arr = NativeHelper.Arg<ArrayValue>(args, 0);
@@ -130,7 +130,7 @@ namespace WarScript.Native
 
             // arr_insert [array, index, value] — inserts at position
             scope.AddFunction(new NativeFunctionDefinition(
-                new FunctionDetails("arr_insert", new List<string> { "arr", "index", "value" }),
+                new FunctionDetails("Array_insert", new List<string> { "arr", "index", "value" }),
                 args =>
                 {
                     var arr = NativeHelper.Arg<ArrayValue>(args, 0);
@@ -148,7 +148,7 @@ namespace WarScript.Native
                 "ArrayValue"));
             
             scope.AddFunction(new NativeFunctionDefinition(
-                new FunctionDetails("arr_copy", new List<string> { "arr" }),
+                new FunctionDetails("Array_copy", new List<string> { "arr" }),
                 args =>
                 {
                     var arr = NativeHelper.Arg<ArrayValue>(args, 0);
