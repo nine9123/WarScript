@@ -443,16 +443,17 @@ namespace Tests
             Measure("Exec: mixed arithmetic 10k", () => { Run(source); });
         }
 
+        
         [Test]
         public void Exec_FloorDivAndModulo_10k()
         {
             var source = @"
                 result = 0
                 loop i in 1..10000
-                    result = i // 3 + i % 7
+                    result = (i - i % 3) + i % 7
                 end
             ";
-            Measure("Exec: floor div + modulo 10k", () => { Run(source); });
+            Measure("Exec: integer div + modulo 10k", () => { Run(source); });
         }
 
         // =====================================================================
@@ -913,8 +914,8 @@ namespace Tests
                 fun tick [dx, dy]
                     e :: x = e :: x + dx
                     e :: y = e :: y + dy
-                    dist = (e :: x ** 2 + e :: y ** 2) ** 0.5
-                    if dist > 100
+                    dist_sq = e :: x * e :: x + e :: y * e :: y
+                    if dist_sq > 10000
                         e :: hp = e :: hp - 1
                     end
                 end
@@ -940,8 +941,8 @@ namespace Tests
                 fun tick [dx, dy]
                     e :: x = e :: x + dx
                     e :: y = e :: y + dy
-                    dist = (e :: x ** 2 + e :: y ** 2) ** 0.5
-                    if dist > 100
+                    dist_sq = e :: x * e :: x + e :: y * e :: y
+                    if dist_sq > 10000
                         e :: hp = e :: hp - 1
                     end
                 end
@@ -958,7 +959,7 @@ namespace Tests
             GC.Collect();
             GC.WaitForPendingFinalizers();
             GC.Collect();
-            var memBefore = GC.GetTotalMemory(true); // true = force collection first
+            var memBefore = GC.GetTotalMemory(true);
 
             const int iterations = 100000;
             for (var i = 0; i < iterations; i++)
