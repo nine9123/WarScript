@@ -53,6 +53,15 @@ namespace WarScript
         public readonly DefinitionScope GlobalDefinitionScope;
         public readonly MemoryScope GlobalMemoryScope;
         
+        // ── Coroutine support ──
+        private readonly List<Coroutine> _coroutines = new();
+        private int _nextCoroutineId = 1;
+
+        // Yield state — set by YieldStatement.Execute(), read by Coroutine.Resume()
+        public bool IsYielded { get; private set; }
+        public YieldType YieldedType { get; private set; }
+        public double YieldedWaitDuration { get; private set; }
+        
         /// <param name="scriptName">Name of the script (used in error messages)</param>
         /// <param name="sourceCode">Source code to execute</param>
         /// <param name="fileResolver">Callback to read imported files by path. Null disables imports</param>
@@ -163,5 +172,98 @@ namespace WarScript
         {
             return _definitionScope.ContainsFunction(functionName, argumentsSize);
         }
+        
+        public void SetYielded(YieldType type, double waitDuration, Expression.IExpression condition)
+        {
+            IsYielded = true;
+            YieldedType = type;
+            YieldedWaitDuration = waitDuration;
+        }
+
+        public void ClearYield()
+        {
+            IsYielded = false;
+            YieldedType = YieldType.NextTick;
+            YieldedWaitDuration = 0;
+        }
+        
+        /// <summary>
+        /// Starts a coroutine from a named function. Returns a coroutine ID.
+        /// The first segment executes immediately.
+        /// </summary>
+        public int StartCoroutine(string functionName, IValue[] args, bool loop = false)
+        {
+            var argCount = args?.Length ?? 0;
+            var function = _definitionScope.GetFunction(functionName, argCount);
+            if (function == null)
+            {
+                ExceptionContext.RaiseException(
+                    $"Coroutine function '{functionName}' with {argCount} arguments is not defined");
+                return -1;
+            }
+
+            var id = _nextCoroutineId++;
+            var coroutine = new Coroutine(
+                this, function, _definitionScope, _memoryScope,
+                args ?? System.Array.Empty<IValue>(), loop, id);
+
+            _coroutines.Add(coroutine);
+
+            // Execute first segment immediately
+            coroutine.Resume();
+
+            return id;
+        }
+
+        /// <summary>
+        /// Stops a coroutine by ID.
+        /// </summary>
+        public bool StopCoroutine(int id)
+        {
+            for (var i = _coroutines.Count - 1; i >= 0; i--)
+            {
+                if (_coroutines[i].Id == id)
+                {
+                    _coroutines.RemoveAt(i);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Stops all active coroutines.
+        /// </summary>
+        public void StopAllCoroutines()
+        {
+            _coroutines.Clear();
+        }
+
+        /// <summary>
+        /// Called by the engine each frame. Checks yield conditions and
+        /// resumes ready coroutines. Returns the number of active coroutines.
+        /// </summary>
+        public int TickCoroutines(double dt)
+        {
+            for (var i = _coroutines.Count - 1; i >= 0; i--)
+            {
+                var co = _coroutines[i];
+
+                if (!co.IsReady(dt))
+                    continue;
+
+                co.Resume();
+
+                if (co.IsComplete)
+                    _coroutines.RemoveAt(i);
+            }
+
+            return _coroutines.Count;
+        }
+
+        /// <summary>
+        /// Number of active coroutines.
+        /// </summary>
+        public int ActiveCoroutineCount => _coroutines.Count;
     }
 }

@@ -32,6 +32,9 @@ namespace WarScript.Statement
                 // Stop the execution in case ReturnStatement is invoked
                 if (_script.ReturnContext.GetScope().Invoked)
                     return;
+                
+                if (_script.IsYielded)
+                    return;
             }
         }
     }

@@ -98,6 +98,7 @@ namespace WarScript
                 case "raise":   ParseRaiseExceptionStatement(token);  break;
                 case "begin":   ParseHandleExceptionStatement(token); break;
                 case "import":  ParseImportStatement(token);          break;
+                case "yield":   ParseYieldStatement(token);           break;
                 default:
                     throw new SyntaxException($"Failed to parse a keyword: {token.Value}");
             }
@@ -346,6 +347,34 @@ namespace WarScript
             var pathToken = Tokens.Next(TokenType.Text);
             var statement = new ImportStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName, pathToken.Value);
             _compositeStatement.AddStatement(statement);
+        }
+        
+        private void ParseYieldStatement(Token.Token rowToken)
+        {
+            YieldType yieldType;
+            IExpression expression = null;
+
+            // Check for "wait" or "until" as contextual words (they remain valid variable names elsewhere)
+            if (Tokens.PeekSameLine(TokenType.Variable, "wait"))
+            {
+                Tokens.Next(); // consume "wait"
+                yieldType = YieldType.Wait;
+                expression = ExpressionReader.ReadExpression(_script, Tokens);
+            }
+            else if (Tokens.PeekSameLine(TokenType.Variable, "until"))
+            {
+                Tokens.Next(); // consume "until"
+                yieldType = YieldType.Until;
+                expression = ExpressionReader.ReadExpression(_script, Tokens);
+            }
+            else
+            {
+                yieldType = YieldType.NextTick;
+            }
+
+            _compositeStatement.AddStatement(
+                new YieldStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName,
+                    yieldType, expression));
         }
     }
 }

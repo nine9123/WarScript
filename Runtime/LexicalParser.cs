@@ -319,6 +319,7 @@ namespace WarScript
                 case "next": case "assert": case "raise":
                 case "begin": case "rescue": case "ensure":
                 case "import":
+                case "yield":
                     return Token.TokenType.Keyword;
 
                 // Word-operators

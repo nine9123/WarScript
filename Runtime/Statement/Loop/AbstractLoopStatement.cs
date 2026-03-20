@@ -50,6 +50,9 @@ namespace WarScript.Statement.Loop
                             // Stop the execution in case BreakStatement is invoked
                             if (_script.BreakContext.GetScope().Invoked)
                                 return;
+                            
+                            if (_script.IsYielded)
+                                return;
 
                             // Jump to the next iteration in case NextStatement is invoked
                             if (_script.NextContext.GetScope().Invoked)
@@ -65,6 +68,10 @@ namespace WarScript.Statement.Loop
                         // Increment the counter even if the NextStatement is called
                         PostIncrement();
                     }
+                    
+                    // Break the outer while loop if yielded
+                    if (_script.IsYielded)
+                        break;
                 }
             }
             finally

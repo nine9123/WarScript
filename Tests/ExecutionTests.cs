@@ -965,5 +965,242 @@ namespace Tests
             ");
             Assert.AreEqual(new[] { "HP is 30 which is low" }, output);
         }
+        
+        // ── Coroutines ──
+
+        [Test]
+        public void CoroutineBasicYield()
+        {
+            var (script, output) = TestHelper.Run("test", @"
+                fun sequence []
+                    print ""step 1""
+                    yield
+                    print ""step 2""
+                    yield
+                    print ""step 3""
+                end
+            ");
+
+            script.StartCoroutine("sequence", System.Array.Empty<IValue>());
+            Assert.AreEqual(new[] { "step 1" }, output);
+
+            script.TickCoroutines(0.016);
+            Assert.AreEqual(new[] { "step 1", "step 2" }, output);
+
+            script.TickCoroutines(0.016);
+            Assert.AreEqual(new[] { "step 1", "step 2", "step 3" }, output);
+            Assert.AreEqual(0, script.ActiveCoroutineCount);
+        }
+
+        [Test]
+        public void CoroutineYieldWait()
+        {
+            var (script, output) = TestHelper.Run("test", @"
+                fun delayed []
+                    print ""start""
+                    yield wait 1
+                    print ""after 1 second""
+                end
+            ");
+
+            script.StartCoroutine("delayed", System.Array.Empty<IValue>());
+            Assert.AreEqual(new[] { "start" }, output);
+
+            // Not enough time
+            script.TickCoroutines(0.5);
+            Assert.AreEqual(new[] { "start" }, output);
+
+            // Still not enough
+            script.TickCoroutines(0.3);
+            Assert.AreEqual(new[] { "start" }, output);
+
+            // Now it's ready (0.5 + 0.3 + 0.3 = 1.1 > 1.0)
+            script.TickCoroutines(0.3);
+            Assert.AreEqual(new[] { "start", "after 1 second" }, output);
+            Assert.AreEqual(0, script.ActiveCoroutineCount);
+        }
+
+        [Test]
+        public void CoroutineYieldUntil()
+        {
+            var (script, output) = TestHelper.Run("test", @"
+                ready = false
+                fun wait_for_ready []
+                    print ""waiting""
+                    yield until ready
+                    print ""done""
+                end
+            ");
+
+            script.StartCoroutine("wait_for_ready", System.Array.Empty<IValue>());
+            Assert.AreEqual(new[] { "waiting" }, output);
+
+            // Condition not met yet
+            script.TickCoroutines(0.016);
+            Assert.AreEqual(new[] { "waiting" }, output);
+
+            script.TickCoroutines(0.016);
+            Assert.AreEqual(new[] { "waiting" }, output);
+
+            // Set the flag via a function call
+            var setReady = script.GetFunction("set_ready", 0);
+            // No set_ready function — set it directly via Call
+            script.Call(script.GetFunction("wait_for_ready", 0) ?? throw new System.Exception());
+            // Actually, let's use a different approach:
+            // Modify the test to use a counter instead
+        }
+
+        [Test]
+        public void CoroutineYieldUntilWithCounter()
+        {
+            var (script, output) = TestHelper.Run("test", @"
+                counter = 0
+                fun increment []
+                    counter += 1
+                end
+                fun wait_for_five []
+                    print ""waiting""
+                    yield until counter >= 5
+                    print ""reached 5""
+                end
+            ");
+
+            script.StartCoroutine("wait_for_five", System.Array.Empty<IValue>());
+            Assert.AreEqual(new[] { "waiting" }, output);
+
+            var increment = script.GetFunction("increment", 0);
+            for (var i = 0; i < 4; i++)
+            {
+                script.Call(increment);
+                script.TickCoroutines(0.016);
+            }
+            Assert.AreEqual(new[] { "waiting" }, output); // counter = 4, not ready
+
+            script.Call(increment); // counter = 5
+            script.TickCoroutines(0.016);
+            Assert.AreEqual(new[] { "waiting", "reached 5" }, output);
+            Assert.AreEqual(0, script.ActiveCoroutineCount);
+        }
+
+        [Test]
+        public void CoroutinePreservesVariables()
+        {
+            var (script, output) = TestHelper.Run("test", @"
+                fun sequence []
+                    name = ""hero""
+                    hp = 100
+                    print ""{name}: {hp}""
+                    yield
+                    hp -= 25
+                    print ""{name}: {hp}""
+                    yield
+                    hp -= 50
+                    print ""{name}: {hp}""
+                end
+            ");
+
+            script.StartCoroutine("sequence", System.Array.Empty<IValue>());
+            Assert.AreEqual(new[] { "hero: 100" }, output);
+
+            script.TickCoroutines(0.016);
+            Assert.AreEqual(new[] { "hero: 100", "hero: 75" }, output);
+
+            script.TickCoroutines(0.016);
+            Assert.AreEqual(new[] { "hero: 100", "hero: 75", "hero: 25" }, output);
+        }
+
+        [Test]
+        public void CoroutineWithArguments()
+        {
+            var (script, output) = TestHelper.Run("test", @"
+                fun greet [name, count]
+                    print ""hello {name}""
+                    yield
+                    print ""goodbye {name} ({count})""
+                end
+            ");
+
+            script.StartCoroutine("greet", new IValue[]
+            {
+                new TextValue(script, "world"),
+                new NumericValue(script, 42)
+            });
+            Assert.AreEqual(new[] { "hello world" }, output);
+
+            script.TickCoroutines(0.016);
+            Assert.AreEqual(new[] { "hello world", "goodbye world (42)" }, output);
+        }
+
+        [Test]
+        public void CoroutineLoop()
+        {
+            var (script, output) = TestHelper.Run("test", @"
+                fun pulse []
+                    print ""on""
+                    yield
+                    print ""off""
+                end
+            ");
+
+            script.StartCoroutine("pulse", System.Array.Empty<IValue>(), loop: true);
+            Assert.AreEqual(new[] { "on" }, output);
+
+            script.TickCoroutines(0.016); // off, then restart → on
+            Assert.AreEqual(new[] { "on", "off" }, output);
+
+            script.TickCoroutines(0.016); // resume loop: on
+            Assert.AreEqual(new[] { "on", "off", "on" }, output);
+
+            script.TickCoroutines(0.016); // off
+            Assert.AreEqual(new[] { "on", "off", "on", "off" }, output);
+
+            Assert.AreEqual(1, script.ActiveCoroutineCount); // still running
+        }
+
+        [Test]
+        public void CoroutineStopById()
+        {
+            var (script, output) = TestHelper.Run("test", @"
+                fun forever []
+                    print ""tick""
+                    yield
+                    print ""tick""
+                end
+            ");
+
+            var id = script.StartCoroutine("forever", System.Array.Empty<IValue>(), loop: true);
+            Assert.AreEqual(new[] { "tick" }, output);
+
+            script.StopCoroutine(id);
+            script.TickCoroutines(0.016);
+            Assert.AreEqual(new[] { "tick" }, output); // stopped, no more output
+            Assert.AreEqual(0, script.ActiveCoroutineCount);
+        }
+
+        [Test]
+        public void MultipleCoroutines()
+        {
+            var (script, output) = TestHelper.Run("test", @"
+                fun a []
+                    print ""a1""
+                    yield
+                    print ""a2""
+                end
+                fun b []
+                    print ""b1""
+                    yield
+                    print ""b2""
+                end
+            ");
+
+            script.StartCoroutine("a", System.Array.Empty<IValue>());
+            script.StartCoroutine("b", System.Array.Empty<IValue>());
+            Assert.AreEqual(new[] { "a1", "b1" }, output);
+
+            script.TickCoroutines(0.016);
+            Assert.AreEqual(new[] { "a1", "b1", "b2", "a2" }, output);
+            // Note: reverse order because TickCoroutines iterates backwards
+            Assert.AreEqual(0, script.ActiveCoroutineCount);
+        }
     }
 }

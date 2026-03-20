@@ -96,5 +96,19 @@ namespace WarScript.Context
                 return this;
             return _parent == null ? null : _parent.FindScope(name);
         }
+        
+        /// <summary>
+        /// Returns all local variables in this scope (not parent scopes).
+        /// Used by coroutines to save state at yield points.
+        /// </summary>
+        public Dictionary<string, IValue> GetAllLocals()
+        {
+            var result = new Dictionary<string, IValue>();
+            foreach (var kvp in _variables)
+            {
+                result[kvp.Key] = kvp.Value.Value;
+            }
+            return result;
+        }
     }
 }
