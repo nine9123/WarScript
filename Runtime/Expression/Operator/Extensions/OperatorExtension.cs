@@ -13,9 +13,7 @@ namespace WarScript.Expression.Operator.Extensions
             { "as",   Operator.ClassCast },
             { "is",   Operator.ClassInstanceOf },
 
-            { "**",   Operator.Exponentiation },
             { "*",    Operator.Multiplication },
-            { "//",   Operator.FloorDivision },
             { "/",    Operator.Division },
             { "%",    Operator.Modulo },
 
@@ -71,9 +69,7 @@ namespace WarScript.Expression.Operator.Extensions
                 Operator.Subtraction          => new SubtractionOperator(script, left, right),
                 Operator.Multiplication       => new MultiplicationOperator(script, left, right),
                 Operator.Division             => new DivisionOperator(script, left, right),
-                Operator.FloorDivision        => new FloorDivisionOperator(script, left, right),
                 Operator.Modulo               => new ModuloOperator(script, left, right),
-                Operator.Exponentiation       => new ExponentiationOperator(script, left, right),
                 Operator.Equals               => new EqualsOperator(script, left, right),
                 Operator.NotEquals            => new NotEqualsOperator(script, left, right),
                 Operator.LessThan             => new LessThanOperator(script, left, right),
@@ -116,10 +112,8 @@ namespace WarScript.Expression.Operator.Extensions
                 Operator.ClassInstanceOf      => 7,
                 Operator.ArrayValue           => 7,
 
-                Operator.Exponentiation       => 6,
                 Operator.Multiplication       => 6,
                 Operator.Division             => 6,
-                Operator.FloorDivision        => 6,
                 Operator.Modulo               => 6,
 
                 Operator.Addition             => 5,

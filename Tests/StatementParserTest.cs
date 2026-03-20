@@ -3,6 +3,7 @@ using NUnit.Framework;
 using WarScript;
 using WarScript.Context.Definition;
 using WarScript.Expression.Value;
+using WarScript.Native;
 
 namespace Tests
 {
@@ -12,14 +13,14 @@ namespace Tests
         [Test]
         public void Print_Numeric_Expression()
         {
-            var (_, output) = TestHelper.Run("print 2 + 3");
+            var (_, output) = TestHelper.Run("test", "print 2 + 3");
             Assert.AreEqual(new[] { "5" }, output);
         }
 
         [Test]
         public void Variable_Assignment_And_Retrieval()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 x = 10
                 print x
             ");
@@ -29,7 +30,7 @@ namespace Tests
         [Test]
         public void Function_Definition_And_Call()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 fun add [a, b]
                     return a + b
                 end
@@ -41,7 +42,7 @@ namespace Tests
         [Test]
         public void For_Loop_Accumulates()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 sum = 0
                 loop i in 0..5
                     sum = sum + i
@@ -54,15 +55,18 @@ namespace Tests
         [Test]
         public void Class_Properties_And_Methods()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 class Vec2 [x, y]
                     fun length []
-                        return (x ** 2 + y ** 2) ** 0.5
+                        return pow[(pow[x, 2] + pow[y, 2]), 0.5]
                     end
                 end
                 v = new Vec2 [3, 4]
                 print v :: length []
-            ");
+            ", delegate(WarScriptLanguage script, DefinitionScope scope)
+            {
+                MathLibrary.Register(script, scope);
+            });
             Assert.AreEqual(new[] { "5" }, output);
         }
 
@@ -93,7 +97,7 @@ namespace Tests
         [Test]
         public void Exception_Is_Caught_In_Rescue()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 begin
                     raise ""boom""
                     print ""unreachable""
@@ -107,7 +111,7 @@ namespace Tests
         [Test]
         public void Short_Circuit_And_Skips_Right()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 x = 0
                 fun set_x[]
                     x = 1

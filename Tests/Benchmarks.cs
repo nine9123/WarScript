@@ -129,7 +129,7 @@ namespace Tests
 
         private static (WarScriptLanguage script, List<string> output) Run(string source)
         {
-            return TestHelper.Run(source);
+            return TestHelper.Run("test", source);
         }
 
         /// <summary>
@@ -517,7 +517,7 @@ namespace Tests
             ";
             Measure("Exec: native function call 10k", () =>
             {
-                TestHelper.Run(source, delegate(DefinitionScope scope)
+                TestHelper.Run("test", source, delegate(WarScriptLanguage script, DefinitionScope scope)
                 {
                     scope.AddFunction(new NativeFunctionDefinition(
                         new FunctionDetails("native_add", new List<string> { "a", "b" }),
@@ -525,7 +525,7 @@ namespace Tests
                         {
                             var a = NativeHelper.Arg<NumericValue>(args, 0);
                             var b = NativeHelper.Arg<NumericValue>(args, 1);
-                            return new NumericValue(null, a.GetValue() + b.GetValue());
+                            return new NumericValue(script, a.GetValue() + b.GetValue());
                         },
                         "", ""));
                 });

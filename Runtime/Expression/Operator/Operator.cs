@@ -12,10 +12,8 @@ namespace WarScript.Expression.Operator
         ArrayValue,
 
         // Precedence 6 - multiplicative
-        Exponentiation,
         Multiplication,
         Division,
-        FloorDivision,
         Modulo,
 
         // Precedence 5 - additive

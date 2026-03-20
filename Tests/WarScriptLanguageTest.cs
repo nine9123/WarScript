@@ -1,8 +1,11 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
 using NUnit.Framework;
 using WarScript;
+using WarScript.Context.Definition;
+using WarScript.Native;
 
 namespace Tests
 {
@@ -18,55 +21,18 @@ namespace Tests
     [TestFixture]
     public class WarScriptLanguageTest
     {
-        private static string GetResourcePath(
-            string resourceName,
-            [CallerFilePath] string sourceFilePath = "")
-        {
-            // sourceFilePath is the absolute path to THIS .cs file at compile time.
-            // The resources/ folder sits next to it in the same directory.
-            var testDir = Path.GetDirectoryName(sourceFilePath)!;
-            var path = Path.Combine(testDir, "resources", resourceName);
-            if (File.Exists(path))
-                return path;
-
-            // Fallback: relative to working directory (dotnet test from Tests/)
-            path = Path.Combine("resources", resourceName);
-            if (File.Exists(path))
-                return path;
-
-            throw new FileNotFoundException(
-                $"Test resource '{resourceName}' not found. " +
-                $"Looked in: {Path.Combine(testDir, "resources")}");
-        }
-
-        /// <summary>
-        /// Runs a .ws script file and captures all logger output
-        /// (both print statements and unhandled exception stack traces).
-        /// </summary>
-        private static (WarScriptLanguage script, List<string> output) RunFile(string resourceName)
-        {
-            var path = GetResourcePath(resourceName);
-            var sourceCode = File.ReadAllText(path);
-            var scriptName = Path.GetFileName(path);
-
-            var output = new List<string>();
-            var script = new WarScriptLanguage(
-                scriptName: scriptName,
-                sourceCode: sourceCode,
-                fileResolver: null,
-                logger: (s, msg) => output.Add(msg));
-            script.Run();
-
-            return (script, output);
-        }
-
         /// <summary>
         /// Runs a script that uses only asserts — any output means something
         /// went wrong (an unhandled exception was logged).
         /// </summary>
         private static void RunAssertOnlyScript(string resourceName)
         {
-            var (script, output) = RunFile(resourceName);
+            var (script, output) = TestHelper.RunFile(resourceName,
+                delegate(WarScriptLanguage script, DefinitionScope scope)
+                {
+                    MathLibrary.Register(script, scope);
+                });
+            
             Assert.IsFalse(script.ExceptionContext.IsRaised(),
                 $"Script '{resourceName}' raised an unhandled exception");
             Assert.IsEmpty(output,
@@ -122,7 +88,7 @@ namespace Tests
         [Test]
         public void RaiseException()
         {
-            var (_, output) = RunFile("raise_exception.ws");
+            var (_, output) = TestHelper.RunFile("raise_exception.ws");
 
             // The script has an unhandled exception — the logger receives:
             // 1. "Do something useful ..." (from print in do_something)
@@ -142,7 +108,7 @@ namespace Tests
         [Test]
         public void HandleException()
         {
-            var (_, output) = RunFile("handle_exception.ws");
+            var (_, output) = TestHelper.RunFile("handle_exception.ws");
 
             // The script handles the exception in rescue + ensure blocks
             Assert.AreEqual(3, output.Count, $"Unexpected output:\n{string.Join("\n", output)}");
@@ -155,7 +121,7 @@ namespace Tests
         public void ClassCreation()
         {
             // Covers: repeated instantiation, inheritance chains, property isolation, methods across instances, casting
-            var (script, output) = RunFile("class_creation.ws");
+            var (script, output) = TestHelper.RunFile("class_creation.ws");
 
             Assert.IsFalse(script.ExceptionContext.IsRaised(), $"Script raised an unhandled exception. Output:\n{string.Join("\n", output)}");
             Assert.AreEqual(new[] { "all class tests passed" }, output);

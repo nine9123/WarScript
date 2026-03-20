@@ -3,6 +3,7 @@ using NUnit.Framework;
 using WarScript;
 using WarScript.Context.Definition;
 using WarScript.Expression.Value;
+using WarScript.Native;
 
 namespace Tests
 {
@@ -14,63 +15,49 @@ namespace Tests
         [Test]
         public void Addition()
         {
-            var (_, output) = TestHelper.Run("print 2 + 3");
+            var (_, output) = TestHelper.Run("test", "print 2 + 3");
             Assert.AreEqual(new[] { "5" }, output);
         }
 
         [Test]
         public void Subtraction()
         {
-            var (_, output) = TestHelper.Run("print 10 - 4");
+            var (_, output) = TestHelper.Run("test", "print 10 - 4");
             Assert.AreEqual(new[] { "6" }, output);
         }
 
         [Test]
         public void Multiplication()
         {
-            var (_, output) = TestHelper.Run("print 3 * 7");
+            var (_, output) = TestHelper.Run("test", "print 3 * 7");
             Assert.AreEqual(new[] { "21" }, output);
         }
 
         [Test]
         public void Division()
         {
-            var (_, output) = TestHelper.Run("print 15 / 4");
+            var (_, output) = TestHelper.Run("test", "print 15 / 4");
             Assert.AreEqual(new[] { "3.75" }, output);
-        }
-
-        [Test]
-        public void FloorDivision()
-        {
-            var (_, output) = TestHelper.Run("print 15 // 4");
-            Assert.AreEqual(new[] { "3" }, output);
         }
 
         [Test]
         public void Modulo()
         {
-            var (_, output) = TestHelper.Run("print 10 % 3");
+            var (_, output) = TestHelper.Run("test", "print 10 % 3");
             Assert.AreEqual(new[] { "1" }, output);
-        }
-
-        [Test]
-        public void Exponentiation()
-        {
-            var (_, output) = TestHelper.Run("print 2 ** 10");
-            Assert.AreEqual(new[] { "1024" }, output);
         }
 
         [Test]
         public void StringRepeat()
         {
-            var (_, output) = TestHelper.Run("print \"ab\" * 3");
+            var (_, output) = TestHelper.Run("test", "print \"ab\" * 3");
             Assert.AreEqual(new[] { "ababab" }, output);
         }
 
         [Test]
         public void StringSubtraction()
         {
-            var (_, output) = TestHelper.Run("print \"hello world\" - \"world\"");
+            var (_, output) = TestHelper.Run("test", "print \"hello world\" - \"world\"");
             Assert.AreEqual(new[] { "hello " }, output);
         }
 
@@ -79,7 +66,7 @@ namespace Tests
         [Test]
         public void VariableAssignmentAndRetrieval()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 x = 10
                 print x
             ");
@@ -89,7 +76,7 @@ namespace Tests
         [Test]
         public void InnerScopeShadowsOuter()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 x = 1
                 if true
                     x = 2
@@ -102,7 +89,7 @@ namespace Tests
         [Test]
         public void NullDefault()
         {
-            var (_, output) = TestHelper.Run("print x");
+            var (_, output) = TestHelper.Run("test", "print x");
             Assert.AreEqual(new[] { "null" }, output);
         }
 
@@ -111,7 +98,7 @@ namespace Tests
         [Test]
         public void IfTrue()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 if true
                     print ""yes""
                 end
@@ -122,7 +109,7 @@ namespace Tests
         [Test]
         public void IfFalseElse()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 if false
                     print ""yes""
                 else
@@ -135,7 +122,7 @@ namespace Tests
         [Test]
         public void ElifChain()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 x = 5
                 if x > 10
                     print ""big""
@@ -153,7 +140,7 @@ namespace Tests
         [Test]
         public void WhileLoop()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 i = 0
                 loop i < 3
                     print i
@@ -166,7 +153,7 @@ namespace Tests
         [Test]
         public void ForLoop()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 sum = 0
                 loop i in 0..5
                     sum = sum + i
@@ -179,7 +166,7 @@ namespace Tests
         [Test]
         public void ForLoopWithStep()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 loop i in 0..10 by 3
                     print i
                 end
@@ -190,7 +177,7 @@ namespace Tests
         [Test]
         public void IterableLoop()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 arr = {10, 20, 30}
                 loop item in arr
                     print item
@@ -202,7 +189,7 @@ namespace Tests
         [Test]
         public void BreakStatement()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 loop i in 0..10
                     if i == 3
                         break
@@ -216,7 +203,7 @@ namespace Tests
         [Test]
         public void NextStatement()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 loop i in 0..5
                     if i == 2
                         next
@@ -232,7 +219,7 @@ namespace Tests
         [Test]
         public void FunctionDefinitionAndCall()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 fun add [a, b]
                     return a + b
                 end
@@ -244,7 +231,7 @@ namespace Tests
         [Test]
         public void FunctionRecursion()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 fun factorial [n]
                     if n <= 1
                         return 1
@@ -261,7 +248,7 @@ namespace Tests
         [Test]
         public void ClassPropertyAccess()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 class Point [x, y]
                 end
                 p = new Point [3, 4]
@@ -274,22 +261,25 @@ namespace Tests
         [Test]
         public void ClassMethod()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 class Vec2 [x, y]
                     fun length []
-                        return (x ** 2 + y ** 2) ** 0.5
+                        return pow[pow[x, 2] + pow[y, 2], 0.5]
                     end
                 end
                 v = new Vec2 [3, 4]
                 print v :: length []
-            ");
+            ", delegate(WarScriptLanguage script, DefinitionScope scope)
+            {
+                MathLibrary.Register(script, scope);
+            });
             Assert.AreEqual(new[] { "5" }, output);
         }
 
         [Test]
         public void ClassPropertyMutation()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 class Box [value]
                 end
                 b = new Box [10]
@@ -302,7 +292,7 @@ namespace Tests
         [Test]
         public void ClassInheritance()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 class Animal [name]
                     fun speak []
                         return name + "" speaks""
@@ -321,7 +311,7 @@ namespace Tests
         [Test]
         public void ArrayCreationAndAccess()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 arr = {10, 20, 30}
                 print arr{0}
                 print arr{2}
@@ -332,7 +322,7 @@ namespace Tests
         [Test]
         public void ArrayAppend()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 arr = {1, 2}
                 arr << 3
                 print arr
@@ -343,7 +333,7 @@ namespace Tests
         [Test]
         public void ArrayConcatenation()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 a = {1, 2}
                 b = {3, 4}
                 print a + b
@@ -356,28 +346,28 @@ namespace Tests
         [Test]
         public void LogicalAnd()
         {
-            var (_, output) = TestHelper.Run("print true and false");
+            var (_, output) = TestHelper.Run("test", "print true and false");
             Assert.AreEqual(new[] { "False" }, output);
         }
 
         [Test]
         public void LogicalOr()
         {
-            var (_, output) = TestHelper.Run("print false or true");
+            var (_, output) = TestHelper.Run("test", "print false or true");
             Assert.AreEqual(new[] { "True" }, output);
         }
 
         [Test]
         public void LogicalNot()
         {
-            var (_, output) = TestHelper.Run("print !true");
+            var (_, output) = TestHelper.Run("test", "print !true");
             Assert.AreEqual(new[] { "False" }, output);
         }
 
         [Test]
         public void ShortCircuitAndSkipsRight()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 x = 0
                 fun set_x []
                     x = 1
@@ -392,7 +382,7 @@ namespace Tests
         [Test]
         public void ShortCircuitOrSkipsRight()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 x = 0
                 fun set_x []
                     x = 1
@@ -409,7 +399,7 @@ namespace Tests
         [Test]
         public void EqualsAndNotEquals()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 print 5 == 5
                 print 5 != 3
                 print ""a"" == ""a""
@@ -420,7 +410,7 @@ namespace Tests
         [Test]
         public void NullEquality()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 print null == null
                 print null != 5
             ");
@@ -432,14 +422,14 @@ namespace Tests
         [Test]
         public void StringConcat()
         {
-            var (_, output) = TestHelper.Run("print \"hello\" + \" \" + \"world\"");
+            var (_, output) = TestHelper.Run("test", "print \"hello\" + \" \" + \"world\"");
             Assert.AreEqual(new[] { "hello world" }, output);
         }
 
         [Test]
         public void StringAndNumericConcat()
         {
-            var (_, output) = TestHelper.Run("print \"age: \" + 25");
+            var (_, output) = TestHelper.Run("test", "print \"age: \" + 25");
             Assert.AreEqual(new[] { "age: 25" }, output);
         }
 
@@ -448,7 +438,7 @@ namespace Tests
         [Test]
         public void RaiseAndRescue()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 begin
                     raise ""boom""
                     print ""unreachable""
@@ -462,7 +452,7 @@ namespace Tests
         [Test]
         public void EnsureAlwaysRuns()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 begin
                     raise ""error""
                 rescue e
@@ -477,7 +467,7 @@ namespace Tests
         [Test]
         public void AssertPasses()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 assert 1 == 1
                 print ""ok""
             ");
@@ -489,20 +479,11 @@ namespace Tests
         [Test]
         public void NativeFunctionBinding()
         {
-            var (_, output) = TestHelper.Run(
-                "print double [21]", delegate(DefinitionScope scope)
-                {
-                    scope.AddFunction(new NativeFunctionDefinition(
-                        new FunctionDetails("double", new List<string> { "n" }),
-                        args =>
-                        {
-                            var n = NativeHelper.Arg<NumericValue>(args, 0);
-                            // Need a script reference for NumericValue: use null since we only care about the numeric result for printing
-                            return new NumericValue(null, n.GetValue() * 2);
-                        },
-                        "Doubles a number", "NumericValue"));
-                });
-            Assert.AreEqual(new[] { "42" }, output);
+            var (_, output) = TestHelper.Run("test", "print max [21, 2]", delegate(WarScriptLanguage script, DefinitionScope scope)
+            {
+                MathLibrary.Register(script, scope);
+            });
+            Assert.AreEqual(new[] { "21" }, output);
         }
 
         // Call API (game engine tick entry point)
@@ -510,7 +491,7 @@ namespace Tests
         [Test]
         public void CallFunctionFromEngine()
         {
-            var (script, output) = TestHelper.Run(@"
+            var (script, output) = TestHelper.Run("test", @"
                 counter = 0
                 fun tick []
                     counter = counter + 1
@@ -531,7 +512,7 @@ namespace Tests
         [Test]
         public void CallFunctionWithArguments()
         {
-            var (script, output) = TestHelper.Run(@"
+            var (script, output) = TestHelper.Run("test", @"
                 fun greet [name]
                     print ""hello "" + name
                 end
@@ -546,7 +527,7 @@ namespace Tests
         [Test]
         public void StatePersistsBetweenCalls()
         {
-            var (script, output) = TestHelper.Run(@"
+            var (script, output) = TestHelper.Run("test", @"
                 sum = 0
                 fun add [n]
                     sum = sum + n
@@ -572,7 +553,7 @@ namespace Tests
         [Test]
         public void CompoundAdditionAssignment()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 x = 10
                 x += 5
                 print x
@@ -583,7 +564,7 @@ namespace Tests
         [Test]
         public void CompoundSubtractionAssignment()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 x = 10
                 x -= 3
                 print x
@@ -594,7 +575,7 @@ namespace Tests
         [Test]
         public void CompoundMultiplicationAssignment()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 x = 10
                 x *= 4
                 print x
@@ -605,7 +586,7 @@ namespace Tests
         [Test]
         public void CompoundDivisionAssignment()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 x = 10
                 x /= 4
                 print x
@@ -616,7 +597,7 @@ namespace Tests
         [Test]
         public void CompoundAssignmentInLoop()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 sum = 0
                 loop i in 0..5
                     sum += i
@@ -629,7 +610,7 @@ namespace Tests
         [Test]
         public void CompoundAssignmentOnClassProperty()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 class Entity [hp]
                 end
                 e = new Entity [100]
@@ -642,7 +623,7 @@ namespace Tests
         [Test]
         public void CompoundAssignmentStringConcat()
         {
-            var (_, output) = TestHelper.Run(@"
+            var (_, output) = TestHelper.Run("test", @"
                 msg = ""hello""
                 msg += "" world""
                 print msg

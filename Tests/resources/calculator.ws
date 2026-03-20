@@ -24,7 +24,7 @@ end
 
 class Exp [m, n]
     fun exp
-        return m ** n
+        return pow[m, n]
     end
 end
 

@@ -19,7 +19,7 @@ namespace Tests
         [Test]
         public void Operator_Tokens_All_Recognized()
         {
-            var ops = new[] { "+", "-", "*", "/", "==", "!=", "<=", ">=", "<", ">", "**", "//" };
+            var ops = new[] { "+", "-", "*", "/", "==", "!=", "<=", ">=", "<", ">", "+=", "-=", "/=", "*=" };
             foreach (var op in ops)
             {
                 var tokens = LexicalParser.Parse($"1 {op} 2");

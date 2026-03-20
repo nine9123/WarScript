@@ -126,8 +126,6 @@ namespace WarScript
                 var two = _source.Substring(_pos, 2);
                 switch (two)
                 {
-                    case "**":
-                    case "//":
                     case "==":
                     case "!=":
                     case ">=":
