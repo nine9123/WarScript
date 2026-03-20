@@ -217,7 +217,8 @@ namespace Tests
 
             Measure("Parser: flat statements (200 lines)", () =>
             {
-                var script = new WarScriptLanguage("bench", "", _ => { }, null, null);
+                var script = new WarScriptLanguage("bench", "", null, null);
+                script.Run();
                 script.DefinitionContext.PushScope(script.DefinitionContext.NewScope());
                 script.MemoryContext.PushScope(script.MemoryContext.NewScope());
                 try
@@ -249,7 +250,8 @@ namespace Tests
 
             Measure("Parser: nested conditions (50 if blocks)", () =>
             {
-                var script = new WarScriptLanguage("bench", "", _ => { }, null, null);
+                var script = new WarScriptLanguage("bench", "", null, null);
+                script.Run();
                 script.DefinitionContext.PushScope(script.DefinitionContext.NewScope());
                 script.MemoryContext.PushScope(script.MemoryContext.NewScope());
                 try
@@ -280,7 +282,8 @@ namespace Tests
 
             Measure("Parser: function definitions (100 functions)", () =>
             {
-                var script = new WarScriptLanguage("bench", "", _ => { }, null, null);
+                var script = new WarScriptLanguage("bench", "", null, null);
+                script.Run();
                 script.DefinitionContext.PushScope(script.DefinitionContext.NewScope());
                 script.MemoryContext.PushScope(script.MemoryContext.NewScope());
                 try
@@ -514,7 +517,7 @@ namespace Tests
             ";
             Measure("Exec: native function call 10k", () =>
             {
-                TestHelper.Run(source, setupScope: scope =>
+                TestHelper.Run(source, delegate(DefinitionScope scope)
                 {
                     scope.AddFunction(new NativeFunctionDefinition(
                         new FunctionDetails("native_add", new List<string> { "a", "b" }),
@@ -1034,8 +1037,7 @@ namespace Tests
 
             Measure($"Script file: {resourceName}", () =>
             {
-                new WarScriptLanguage(
-                    resourceName, sourceCode, _ => { }, null, null);
+                new WarScriptLanguage(resourceName, sourceCode, null, null).Run();
             });
         }
 

@@ -73,19 +73,19 @@ namespace Tests
             var script = new WarScriptLanguage(
                 "test",
                 "print double [21]",
-                scope =>
-                {
-                    scope.AddFunction(new NativeFunctionDefinition(
-                        new FunctionDetails("double", new List<string> { "n" }),
-                        args =>
-                        {
-                            var n = NativeHelper.Arg<NumericValue>(args, 0);
-                            return new NumericValue(null, n.GetValue() * 2);
-                        },
-                        "Doubles a number", "NumericValue"));
-                },
                 null,
                 (s, msg) => output.Add(msg));
+
+            script.GlobalDefinitionScope.AddFunction(new NativeFunctionDefinition(
+                new FunctionDetails("double", new List<string> { "n" }),
+                args =>
+                {
+                    var n = NativeHelper.Arg<NumericValue>(args, 0);
+                    return new NumericValue(null, n.GetValue() * 2);
+                },
+                "Doubles a number", "NumericValue"));
+            
+            script.Run();
 
             Assert.AreEqual(new[] { "42" }, output);
         }

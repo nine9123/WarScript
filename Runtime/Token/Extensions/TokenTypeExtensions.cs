@@ -18,7 +18,7 @@ namespace WarScript.Token.Extensions
                     return @"[\s\t]";
 
                 case TokenType.Keyword:
-                    return @"(if|elif|else|end|print|class|fun|return|loop|in|by|break|next|assert|raise|begin|rescue|ensure|import)(?=\s|$)(?!_)";
+                    return @"(if|elif|else|end|print|class|fun|return|loop|in|by|break|next|assert|raise|begin|rescue|ensure|import)(?=[,\s\]\)\}]|$)(?!_)";
 
                 case TokenType.GroupDivider:
                     // [ ] , { } .. :  (single colon, not double)
@@ -32,10 +32,10 @@ namespace WarScript.Token.Extensions
                     return @"([-]?(?=[.]?[0-9])[0-9]*(?![.]{2})[.]?[0-9]*)";
 
                 case TokenType.Null:
-                    return @"(null)(?=,|\s|$)(?!_)";
+                    return @"(null)(?=[,\s\]\)\}]|$)(?!_)";
 
                 case TokenType.This:
-                    return @"(this)(?=,|\s|$)(?!_)";
+                    return @"(this)(?=[,\s\]\)\}]|$)(?!_)";
 
                 case TokenType.Text:
                     return "\"([^\"]*)\"";
@@ -43,7 +43,7 @@ namespace WarScript.Token.Extensions
                 case TokenType.Operator:
                     // Order matters: longer/more specific patterns before shorter ones
                     // e.g. ** before *, // before /, :: new before ::, >=  before >, <= and << before <, == and != before = and !
-                    return @"(\+|-|\*{1,2}|/{1,2}|%|>=?|<=|<{1,2}|={1,2}|!=|!|:{2}\s+new|:{2}|\(|\)|(new|and|or|as|is)(?=\s|$)(?!_))";
+                    return @"(\+|-|\*{1,2}|/{1,2}|%|>=?|<=|<{1,2}|={1,2}|!=|!|:{2}\s+new|:{2}|\(|\)|(new|and|or|as|is)(?=[,\s\]\)\}]|$)(?!_))";
 
                 case TokenType.Variable:
                     return "[a-zA-Z_]+[a-zA-Z0-9_]*";

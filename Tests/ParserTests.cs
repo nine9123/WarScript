@@ -20,7 +20,8 @@ namespace Tests
             // Create a minimal script instance for context access.
             // Empty source means the constructor lexes/parses/executes nothing.
             // After construction the context stacks are empty, so we push our own scopes.
-            _script = new WarScriptLanguage("test", "", _ => { }, null, null);
+            _script = new WarScriptLanguage("test", "", null, null);
+            _script.Run();
             _script.DefinitionContext.PushScope(_script.DefinitionContext.NewScope());
             _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
         }

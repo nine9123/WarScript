@@ -48,15 +48,18 @@ namespace WarScript
 
         public readonly string ScriptName;
 
+        private readonly List<Token.Token> _tokens;
+
+        public readonly DefinitionScope GlobalDefinitionScope;
+        public readonly MemoryScope GlobalMemoryScope;
+        
         /// <param name="scriptName">Name of the script (used in error messages)</param>
         /// <param name="sourceCode">Source code to execute</param>
-        /// <param name="setupGlobalScope">Callback to register native functions/classes</param>
         /// <param name="fileResolver">Callback to read imported files by path. Null disables imports</param>
         /// <param name="logger">Callback to log print messages</param>
         public WarScriptLanguage(
             string scriptName,
             string sourceCode,
-            Action<DefinitionScope> setupGlobalScope,
             Func<string, string?>? fileResolver,
             Action<WarScriptLanguage, string>? logger)
         {
@@ -75,31 +78,35 @@ namespace WarScript
             ClassInstanceContext = new ClassInstanceContext();
             DefaultStep = new NumericValue(this, 1.0);
             
-            var tokens = LexicalParser.Parse(sourceCode);
+            _tokens = LexicalParser.Parse(sourceCode);
 
-            // Native scope — holds native bindings from setupGlobalScope
+            // Native scope: holds native bindings
             var nativeDefinitionScope = DefinitionContext.NewScope();
             var nativeMemoryScope = MemoryContext.NewScope();
 
             DefinitionContext.PushScope(nativeDefinitionScope);
             MemoryContext.PushScope(nativeMemoryScope);
 
-            setupGlobalScope.Invoke(DefinitionContext.GetScope());
+            GlobalDefinitionScope = nativeDefinitionScope;
+            GlobalMemoryScope = nativeMemoryScope;
 
-            // User scope — child of native scope, so user definitions shadow natives
+            // User scope: child of native scope. User definitions shadow natives
             _definitionScope = DefinitionContext.NewScope();
             _memoryScope = MemoryContext.NewScope();
 
             DefinitionContext.EndScope();
             MemoryContext.EndScope();
+        }
 
+        public void Run()
+        {
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
 
             try
             {
-                var statement = new CompositeStatement(this, null, scriptName);
-                StatementParser.Parse(this, tokens, statement);
+                var statement = new CompositeStatement(this, null, ScriptName);
+                StatementParser.Parse(this, _tokens, statement);
                 statement.Execute();
             }
             finally
@@ -142,6 +149,7 @@ namespace WarScript
             finally
             {
                 MemoryContext.EndScope(); // function argument scope
+                
                 DefinitionContext.EndScope();
                 MemoryContext.EndScope();
                 ReturnContext.Reset();

@@ -490,8 +490,7 @@ namespace Tests
         public void NativeFunctionBinding()
         {
             var (_, output) = TestHelper.Run(
-                "print double [21]",
-                setupScope: scope =>
+                "print double [21]", delegate(DefinitionScope scope)
                 {
                     scope.AddFunction(new NativeFunctionDefinition(
                         new FunctionDetails("double", new List<string> { "n" }),

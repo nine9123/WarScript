@@ -53,9 +53,9 @@ namespace Tests
             var script = new WarScriptLanguage(
                 scriptName: scriptName,
                 sourceCode: sourceCode,
-                setupGlobalScope: _ => { },
                 fileResolver: null,
                 logger: (s, msg) => output.Add(msg));
+            script.Run();
 
             return (script, output);
         }

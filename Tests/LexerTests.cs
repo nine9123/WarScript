@@ -362,5 +362,33 @@ namespace Tests
             Assert.AreEqual("# a is equal to 5", tokens[count].Value);
             Assert.AreEqual(2, tokens[count].RowNumber);
         }
+        
+        [Test]
+        public void ThisBeforeClosingBracket()
+        {
+            var tokens = LexicalParser.Parse("arr_remove[objects, this]");
+            var thisToken = tokens.Find(t => t.Value == "this");
+            Assert.IsNotNull(thisToken);
+            Assert.AreEqual(TokenType.This, thisToken.Type,
+                "this before ] was lexed as Variable instead of This");
+        }
+
+        [Test]
+        public void NullBeforeClosingBracket()
+        {
+            var tokens = LexicalParser.Parse("call[null]");
+            var nullToken = tokens.Find(t => t.Value == "null");
+            Assert.IsNotNull(nullToken);
+            Assert.AreEqual(TokenType.Null, nullToken.Type,
+                "null before ] was lexed as Variable instead of Null");
+        }
+
+        [Test]
+        public void KeywordsBeforeClosingBracket()
+        {
+            var tokens = LexicalParser.Parse("if this and true]");
+            var andToken = tokens.Find(t => t.Value == "and");
+            Assert.AreEqual(TokenType.Operator, andToken.Type);
+        }
     }
 }

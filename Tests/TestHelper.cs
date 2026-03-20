@@ -23,9 +23,13 @@ namespace Tests
             var script = new WarScriptLanguage(
                 scriptName: "test",
                 sourceCode: source,
-                setupGlobalScope: scope => setupScope?.Invoke(scope),
                 fileResolver: fileResolver,
                 logger: (s, msg) => output.Add(msg));
+            
+            setupScope?.Invoke(script.GlobalDefinitionScope);
+            
+            script.Run();
+            
             return (script, output);
         }
 
@@ -41,7 +45,7 @@ namespace Tests
             IValue[] args = null,
             Action<DefinitionScope> setupScope = null)
         {
-            var (script, output) = Run(source, setupScope);
+            var (script, output) = Run(source);
             var fn = script.GetFunction(functionName, argCount);
             if (fn != null)
                 script.Call(fn, args ?? Array.Empty<IValue>());
