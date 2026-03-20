@@ -64,6 +64,7 @@ namespace WarScript.Expression
                         {
                             case Operator.Operator.LeftParen:
                                 _operators.Push(op);
+                                lastWasOperand = false;
                                 break;
                             case Operator.Operator.RightParen:
                                 // until left bracket is not reached
@@ -77,6 +78,7 @@ namespace WarScript.Expression
                                 while (_operators.Count > 0 && _operators.Peek().GreaterThan(op))
                                     ApplyTopOperator();
                                 _operators.Push(op);
+                                lastWasOperand = false;
                                 break;
                         }
                         break;
@@ -119,6 +121,7 @@ namespace WarScript.Expression
                                 break;
                         }
                         _operands.Push(operand);
+                        lastWasOperand = true;
                         break;
                 }
             }
@@ -128,7 +131,7 @@ namespace WarScript.Expression
 
             return _operands.Count == 0 ? _script.Null : _operands.Pop();
         }
-
+        
         private void ApplyTopOperator()
         {
             var op = _operators.Pop();
