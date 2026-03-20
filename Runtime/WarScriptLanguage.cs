@@ -173,7 +173,7 @@ namespace WarScript
             return _definitionScope.ContainsFunction(functionName, argumentsSize);
         }
         
-        public void SetYielded(YieldType type, double waitDuration, Expression.IExpression condition)
+        public void SetYielded(YieldType type, double waitDuration)
         {
             IsYielded = true;
             YieldedType = type;

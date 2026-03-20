@@ -37,7 +37,7 @@ namespace WarScript.Statement
                     waitDuration = num.GetValue();
             }
 
-            _script.SetYielded(YieldType, waitDuration, Expression);
+            _script.SetYielded(YieldType, waitDuration);
         }
     }
 }
