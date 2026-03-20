@@ -146,6 +146,15 @@ namespace WarScript.Native
                 },
                 "Inserts value at index.",
                 "ArrayValue"));
+            
+            scope.AddFunction(new NativeFunctionDefinition(
+                new FunctionDetails("arr_copy", new List<string> { "arr" }),
+                args =>
+                {
+                    var arr = NativeHelper.Arg<ArrayValue>(args, 0);
+                    return new ArrayValue(script, new List<IValue>(arr.GetValue()));
+                },
+                "Returns a shallow copy of the array.", "ArrayValue"));
         }
     }
 }
