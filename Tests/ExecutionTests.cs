@@ -817,5 +817,153 @@ namespace Tests
             ");
             Assert.AreEqual(new[] { "5" }, output);
         }
+        
+        // ── String Interpolation ──
+
+        [Test]
+        public void InterpolationSimpleVariable()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                name = ""world""
+                print ""hello {name}""
+            ");
+            Assert.AreEqual(new[] { "hello world" }, output);
+        }
+
+        [Test]
+        public void InterpolationMultipleVariables()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                name = ""Steve""
+                age = 25
+                print ""{name} is {age} years old""
+            ");
+            Assert.AreEqual(new[] { "Steve is 25 years old" }, output);
+        }
+
+        [Test]
+        public void InterpolationWithExpression()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                x = 5
+                print ""value: {x + 1}""
+            ");
+            Assert.AreEqual(new[] { "value: 6" }, output);
+        }
+
+        [Test]
+        public void InterpolationWithClassProperty()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                class Entity [name, hp]
+                end
+                e = new Entity [""Hero"", 100]
+                print ""{e :: name} has {e :: hp} hp""
+            ");
+            Assert.AreEqual(new[] { "Hero has 100 hp" }, output);
+        }
+
+        [Test]
+        public void InterpolationWithFunctionCall()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                fun double [n]
+                    return n * 2
+                end
+                print ""result: {double [5]}""
+            ");
+            Assert.AreEqual(new[] { "result: 10" }, output);
+        }
+
+        [Test]
+        public void InterpolationAtStart()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                x = 42
+                print ""{x} is the answer""
+            ");
+            Assert.AreEqual(new[] { "42 is the answer" }, output);
+        }
+
+        [Test]
+        public void InterpolationAtEnd()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                x = 42
+                print ""the answer is {x}""
+            ");
+            Assert.AreEqual(new[] { "the answer is 42" }, output);
+        }
+
+        [Test]
+        public void InterpolationOnly()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                x = 42
+                print ""{x}""
+            ");
+            Assert.AreEqual(new[] { "42" }, output);
+        }
+
+        [Test]
+        public void InterpolationNested()
+        {
+            // Array access inside interpolation — tests brace depth tracking
+            var (_, output) = TestHelper.Run("test", @"
+                arr = {10, 20, 30}
+                print ""value: {arr{1}}""
+            ");
+            Assert.AreEqual(new[] { "value: 20" }, output);
+        }
+
+        [Test]
+        public void InterpolationNoExpression()
+        {
+            // Plain string with no {} — unchanged behavior
+            var (_, output) = TestHelper.Run("test", "print \"hello world\"");
+            Assert.AreEqual(new[] { "hello world" }, output);
+        }
+
+        [Test]
+        public void InterpolationEmpty()
+        {
+            var (_, output) = TestHelper.Run("test", "print \"\"");
+            Assert.AreEqual(new[] { "" }, output);
+        }
+
+        [Test]
+        public void InterpolationComplex()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                class Unit [name, hp, max_hp]
+                end
+                u = new Unit [""Warrior"", 75, 100]
+                print ""{u :: name}: {u :: hp}/{u :: max_hp}""
+            ");
+            Assert.AreEqual(new[] { "Warrior: 75/100" }, output);
+        }
+
+        [Test]
+        public void InterpolationInAssignment()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                name = ""Steve""
+                msg = ""hello {name}""
+                print msg
+            ");
+            Assert.AreEqual(new[] { "hello Steve" }, output);
+        }
+
+        [Test]
+        public void InterpolationWithComparison()
+        {
+            var (_, output) = TestHelper.Run("test", @"
+                hp = 30
+                max_hp = 100
+                status = ""HP is {hp} which is low""
+                print status
+            ");
+            Assert.AreEqual(new[] { "HP is 30 which is low" }, output);
+        }
     }
 }

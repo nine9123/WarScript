@@ -96,13 +96,7 @@ namespace WarScript
             // ── String literal ──
             if (c == '"')
             {
-                _pos++; // skip opening quote
-                var start = _pos;
-                while (!AtEnd && Current != '"')
-                    _pos++;
-                var value = _source.Substring(start, _pos - start);
-                _pos++; // skip closing quote
-                _tokens.Add(new Token.Token(Token.TokenType.Text, value, _row));
+                ScanString();
                 return;
             }
 
@@ -197,6 +191,81 @@ namespace WarScript
             }
 
             throw new SyntaxException($"Unexpected character '{c}' at line {_row}");
+        }
+        
+        private void ScanString()
+        {
+            _pos++; // skip opening quote
+            var start = _pos;
+            var hasInterpolation = false;
+            var isFirstSegment = true;
+
+            while (!AtEnd && Current != '"')
+            {
+                if (Current == '{')
+                {
+                    hasInterpolation = true;
+
+                    // Emit the text segment before the { (if non-empty)
+                    if (_pos > start)
+                    {
+                        if (!isFirstSegment)
+                            _tokens.Add(new Token.Token(TokenType.Operator, "+", _row));
+                        _tokens.Add(new Token.Token(TokenType.Text, _source.Substring(start, _pos - start), _row));
+                        isFirstSegment = false;
+                    }
+
+                    _pos++; // skip {
+
+                    // Collect expression content, tracking brace depth
+                    var exprStart = _pos;
+                    var depth = 1;
+                    while (!AtEnd && depth > 0)
+                    {
+                        if (Current == '{') depth++;
+                        else if (Current == '}') depth--;
+                        if (depth > 0) _pos++;
+                    }
+
+                    var exprSource = _source.Substring(exprStart, _pos - exprStart);
+                    _pos++; // skip closing }
+
+                    // Emit: + ( <expression tokens> )
+                    if (!isFirstSegment)
+                        _tokens.Add(new Token.Token(TokenType.Operator, "+", _row));
+                    _tokens.Add(new Token.Token(TokenType.Operator, "(", _row));
+
+                    // Recursively lex the expression
+                    var innerParser = new LexicalParser(exprSource);
+                    innerParser._row = _row;
+                    innerParser.Scan();
+                    foreach (var token in innerParser._tokens)
+                        _tokens.Add(token);
+
+                    _tokens.Add(new Token.Token(TokenType.Operator, ")", _row));
+                    isFirstSegment = false;
+
+                    // Next text segment starts after the }
+                    start = _pos;
+                }
+                else
+                {
+                    _pos++;
+                }
+            }
+
+            // Emit trailing text segment (or the whole string if no interpolation)
+            if (!hasInterpolation)
+            {
+                _tokens.Add(new Token.Token(TokenType.Text, _source.Substring(start, _pos - start), _row));
+            }
+            else if (_pos > start)
+            {
+                _tokens.Add(new Token.Token(TokenType.Operator, "+", _row));
+                _tokens.Add(new Token.Token(TokenType.Text, _source.Substring(start, _pos - start), _row));
+            }
+
+            _pos++; // skip closing quote
         }
 
         private void ScanNumber()
