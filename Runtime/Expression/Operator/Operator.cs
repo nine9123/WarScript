@@ -41,5 +41,9 @@ namespace WarScript.Expression.Operator
         // Precedence 0 - lowest
         ArrayAppend,
         Assignment,
+        AdditionAssignment,
+        SubtractionAssignment,
+        MultiplicationAssignment,
+        DivisionAssignment,
     }
 }

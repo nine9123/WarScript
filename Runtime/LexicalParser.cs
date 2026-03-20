@@ -133,6 +133,10 @@ namespace WarScript
                     case ">=":
                     case "<=":
                     case "<<":
+                    case "+=":
+                    case "-=":
+                    case "*=":
+                    case "/=":
                         _tokens.Add(new Token.Token(Token.TokenType.Operator, two, _row));
                         _pos += 2;
                         return;

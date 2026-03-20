@@ -37,6 +37,10 @@ namespace WarScript.Expression.Operator.Extensions
 
             { "<<",   Operator.ArrayAppend },
             { "=",    Operator.Assignment },
+            { "+=",   Operator.AdditionAssignment },
+            { "-=",   Operator.SubtractionAssignment },
+            { "*=",   Operator.MultiplicationAssignment },
+            { "/=",   Operator.DivisionAssignment },
         };
 
         public static Operator ToOperator(this string value)
@@ -85,6 +89,14 @@ namespace WarScript.Expression.Operator.Extensions
                 Operator.NestedClassInstance  => new NestedClassInstanceOperator(script, left, right),
                 Operator.ArrayAppend          => new ArrayAppendOperator(script, left, right),
                 Operator.ArrayValue           => new ArrayValueOperator(script, left, right),
+                Operator.AdditionAssignment       => new AssignmentOperator(script, left,
+                    new AdditionOperator(script, left, right)),
+                Operator.SubtractionAssignment    => new AssignmentOperator(script, left,
+                    new SubtractionOperator(script, left, right)),
+                Operator.MultiplicationAssignment => new AssignmentOperator(script, left,
+                    new MultiplicationOperator(script, left, right)),
+                Operator.DivisionAssignment       => new AssignmentOperator(script, left,
+                    new DivisionOperator(script, left, right)),
                 _ => throw new System.Exception($"Operator {op} is not a binary operator")
             };
 
@@ -128,6 +140,10 @@ namespace WarScript.Expression.Operator.Extensions
 
                 Operator.ArrayAppend          => 0,
                 Operator.Assignment           => 0,
+                Operator.AdditionAssignment       => 0,
+                Operator.SubtractionAssignment    => 0,
+                Operator.MultiplicationAssignment => 0,
+                Operator.DivisionAssignment       => 0,
 
                 _ => throw new System.Exception($"Operator {op} has no defined precedence")
             };

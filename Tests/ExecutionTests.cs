@@ -568,5 +568,86 @@ namespace Tests
             // check that no exceptions were raised and the script is healthy
             Assert.IsFalse(script.ExceptionContext.IsRaised());
         }
+        
+        [Test]
+        public void CompoundAdditionAssignment()
+        {
+            var (_, output) = TestHelper.Run(@"
+                x = 10
+                x += 5
+                print x
+            ");
+            Assert.AreEqual(new[] { "15" }, output);
+        }
+
+        [Test]
+        public void CompoundSubtractionAssignment()
+        {
+            var (_, output) = TestHelper.Run(@"
+                x = 10
+                x -= 3
+                print x
+            ");
+            Assert.AreEqual(new[] { "7" }, output);
+        }
+
+        [Test]
+        public void CompoundMultiplicationAssignment()
+        {
+            var (_, output) = TestHelper.Run(@"
+                x = 10
+                x *= 4
+                print x
+            ");
+            Assert.AreEqual(new[] { "40" }, output);
+        }
+
+        [Test]
+        public void CompoundDivisionAssignment()
+        {
+            var (_, output) = TestHelper.Run(@"
+                x = 10
+                x /= 4
+                print x
+            ");
+            Assert.AreEqual(new[] { "2.5" }, output);
+        }
+
+        [Test]
+        public void CompoundAssignmentInLoop()
+        {
+            var (_, output) = TestHelper.Run(@"
+                sum = 0
+                loop i in 0..5
+                    sum += i
+                end
+                print sum
+            ");
+            Assert.AreEqual(new[] { "10" }, output);
+        }
+
+        [Test]
+        public void CompoundAssignmentOnClassProperty()
+        {
+            var (_, output) = TestHelper.Run(@"
+                class Entity [hp]
+                end
+                e = new Entity [100]
+                e :: hp -= 25
+                print e :: hp
+            ");
+            Assert.AreEqual(new[] { "75" }, output);
+        }
+
+        [Test]
+        public void CompoundAssignmentStringConcat()
+        {
+            var (_, output) = TestHelper.Run(@"
+                msg = ""hello""
+                msg += "" world""
+                print msg
+            ");
+            Assert.AreEqual(new[] { "hello world" }, output);
+        }
     }
 }
