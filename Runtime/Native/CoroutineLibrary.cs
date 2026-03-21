@@ -18,7 +18,7 @@ namespace WarScript.Native
                         ? arr.GetValue().ToArray()
                         : System.Array.Empty<IValue>();
                     var id = script.StartCoroutine(name, fnArgs, false);
-                    return script.GetNumeric(id);
+                    return new NumericValue(script, id);
                 },
                 "Starts a coroutine. Returns coroutine ID.", "NumericValue"));
 
@@ -32,7 +32,7 @@ namespace WarScript.Native
                         ? arr.GetValue().ToArray()
                         : System.Array.Empty<IValue>();
                     var id = script.StartCoroutine(name, fnArgs, true);
-                    return script.GetNumeric(id);
+                    return new NumericValue(script, id);
                 },
                 "Starts a looping coroutine. Returns coroutine ID.", "NumericValue"));
 

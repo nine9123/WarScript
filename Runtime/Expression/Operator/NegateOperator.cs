@@ -12,7 +12,7 @@ namespace WarScript.Expression.Operator
             if (value == null) return null;
 
             if (value is NumericValue numericValue)
-                return _script.GetNumeric(-numericValue.GetValue());
+                return new NumericValue(_script, -numericValue.GetValue());
 
             return _script.ExceptionContext.RaiseException(
                 $"Unable to negate non-numeric value `{value}`");

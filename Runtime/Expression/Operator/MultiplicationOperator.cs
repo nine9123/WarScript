@@ -18,7 +18,7 @@ namespace WarScript.Expression.Operator
                 return _script.ExceptionContext.RaiseException($"Unable to perform multiplication for NULL values `{left}`, `{right}`");
 
             if (left is NumericValue leftNum && right is NumericValue rightNum)
-                return _script.GetNumeric(leftNum.GetValue() * rightNum.GetValue());
+                return new NumericValue(_script, leftNum.GetValue() * rightNum.GetValue());
 
             if (left is NumericValue leftNumOnly)
                 return new TextValue(_script, right.ToString().Repeat((int)leftNumOnly.GetValue()));

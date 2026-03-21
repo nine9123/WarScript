@@ -19,7 +19,7 @@ namespace WarScript.Expression.Operator
 
             if (left is NumericValue leftNumericValue && right is NumericValue rightNumericValue)
             {
-                return _script.GetNumeric(leftNumericValue.GetValue() + rightNumericValue.GetValue());
+                return new NumericValue(_script, leftNumericValue.GetValue() + rightNumericValue.GetValue());
             }
             else if (left is ArrayValue || right is ArrayValue)
             {

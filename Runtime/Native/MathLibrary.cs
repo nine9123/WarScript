@@ -15,7 +15,7 @@ namespace WarScript.Native
                 {
                     var b = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
                     var e = NativeHelper.Arg<NumericValue>(args, 1).GetValue();
-                    return script.GetNumeric(Math.Pow(b, e));
+                    return new NumericValue(script, Math.Pow(b, e));
                 },
                 "Returns base raised to the power of exp.", "NumericValue"));
 
@@ -24,7 +24,7 @@ namespace WarScript.Native
                 args =>
                 {
                     var n = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    return script.GetNumeric(Math.Sqrt(n));
+                    return new NumericValue(script, Math.Sqrt(n));
                 },
                 "Returns the square root of n.", "NumericValue"));
 
@@ -33,7 +33,7 @@ namespace WarScript.Native
                 args =>
                 {
                     var n = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    return script.GetNumeric(Math.Floor(n));
+                    return new NumericValue(script, Math.Floor(n));
                 },
                 "Rounds down to nearest integer.", "NumericValue"));
 
@@ -42,7 +42,7 @@ namespace WarScript.Native
                 args =>
                 {
                     var n = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    return script.GetNumeric(Math.Ceiling(n));
+                    return new NumericValue(script, Math.Ceiling(n));
                 },
                 "Rounds up to nearest integer.", "NumericValue"));
 
@@ -51,7 +51,7 @@ namespace WarScript.Native
                 args =>
                 {
                     var n = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    return script.GetNumeric(Math.Round(n));
+                    return new NumericValue(script, Math.Round(n));
                 },
                 "Rounds to nearest integer.", "NumericValue"));
 
@@ -60,7 +60,7 @@ namespace WarScript.Native
                 args =>
                 {
                     var n = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    return script.GetNumeric(Math.Abs(n));
+                    return new NumericValue(script, Math.Abs(n));
                 },
                 "Returns absolute value.", "NumericValue"));
 
@@ -70,7 +70,7 @@ namespace WarScript.Native
                 {
                     var a = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
                     var b = NativeHelper.Arg<NumericValue>(args, 1).GetValue();
-                    return script.GetNumeric(Math.Min(a, b));
+                    return new NumericValue(script, Math.Min(a, b));
                 },
                 "Returns the smaller of two values.", "NumericValue"));
 
@@ -80,7 +80,7 @@ namespace WarScript.Native
                 {
                     var a = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
                     var b = NativeHelper.Arg<NumericValue>(args, 1).GetValue();
-                    return script.GetNumeric(Math.Max(a, b));
+                    return new NumericValue(script, Math.Max(a, b));
                 },
                 "Returns the larger of two values.", "NumericValue"));
 
@@ -91,7 +91,7 @@ namespace WarScript.Native
                     var n = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
                     var lo = NativeHelper.Arg<NumericValue>(args, 1).GetValue();
                     var hi = NativeHelper.Arg<NumericValue>(args, 2).GetValue();
-                    return script.GetNumeric(Math.Max(lo, Math.Min(hi, n)));
+                    return new NumericValue(script, Math.Max(lo, Math.Min(hi, n)));
                 },
                 "Clamps n between lo and hi.", "NumericValue"));
 
@@ -100,7 +100,7 @@ namespace WarScript.Native
                 args =>
                 {
                     var n = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    return script.GetNumeric(Math.Sign(n));
+                    return new NumericValue(script, Math.Sign(n));
                 },
                 "Returns -1, 0, or 1.", "NumericValue"));
 
@@ -111,7 +111,7 @@ namespace WarScript.Native
                     var a = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
                     var b = NativeHelper.Arg<NumericValue>(args, 1).GetValue();
                     var t = NativeHelper.Arg<NumericValue>(args, 2).GetValue();
-                    return script.GetNumeric(a + (b - a) * t);
+                    return new NumericValue(script, a + (b - a) * t);
                 },
                 "Linear interpolation from a to b by t.", "NumericValue"));
         }
