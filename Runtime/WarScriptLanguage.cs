@@ -53,6 +53,13 @@ namespace WarScript
         public readonly DefinitionScope GlobalDefinitionScope;
         public readonly MemoryScope GlobalMemoryScope;
         
+        /// <summary>
+        /// The user-level memory scope where script globals live.
+        /// Standalone function calls parent their scope here so that
+        /// recursive calls get isolated locals while retaining global access.
+        /// </summary>
+        public MemoryScope UserMemoryScope => _memoryScope;
+        
         // ── Coroutine support ──
         private readonly List<Coroutine> _coroutines = new();
         private int _nextCoroutineId = 1;

@@ -180,5 +180,13 @@ namespace Tests
         {
             RunAssertOnlyScript("test_deep_algo_misc.ws");
         }
+
+        // ── Bug 6 regression: recursive functions with local variables ──
+
+        [Test]
+        public void DeepRecursiveLocals()
+        {
+            RunAssertOnlyScriptWithMath("test_deep_recursive_locals.ws");
+        }
     }
 }

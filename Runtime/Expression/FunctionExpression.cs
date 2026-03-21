@@ -30,7 +30,7 @@ namespace WarScript.Expression
                 if (value == null) return null;
                 values.Add(value);
             }
-            return Evaluate(values);
+            return Evaluate(values, isClassMethod: false);
         }
 
         /// <summary>
@@ -73,7 +73,7 @@ namespace WarScript.Expression
             try
             {
                 // proceed function
-                return Evaluate(values);
+                return Evaluate(values, isClassMethod: true);
             }
             finally
             {
@@ -83,7 +83,7 @@ namespace WarScript.Expression
             }
         }
 
-        private IValue? Evaluate(List<IValue> values)
+        private IValue? Evaluate(List<IValue> values, bool isClassMethod)
         {
             // get function's definition and statement
             var definition = _script.DefinitionContext.GetScope().GetFunction(Name, values.Count);
@@ -119,7 +119,16 @@ namespace WarScript.Expression
             var details = definition.Details;
             
             // set new memory scope
-            _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
+            // Class methods: parent to current scope (class instance scope)
+            //   so they can access constructor parameters
+            // Standalone functions: parent to the user-level scope
+            //   so recursive calls get isolated locals and can't clobber
+            //   each other's variables via MemoryScope.Set's parent walk-up
+            if (isClassMethod)
+                _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
+            else
+                _script.MemoryContext.PushScope(
+                    new MemoryScope(_script, _script.UserMemoryScope));
 
             try
             {

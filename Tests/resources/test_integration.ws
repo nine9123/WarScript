@@ -328,12 +328,13 @@ fun tree_depth [node]
     if node == null
         return 0
     end
-    # Recursive calls inlined to avoid variable clobbering
-    # (known language limitation: MemoryScope.Set walks parent scopes)
-    if tree_depth [node :: left] > tree_depth [node :: right]
-        return tree_depth [node :: left] + 1
+    # Bug 6 fixed: recursive locals no longer clobber each other
+    left_d = tree_depth [node :: left]
+    right_d = tree_depth [node :: right]
+    if left_d > right_d
+        return left_d + 1
     end
-    return tree_depth [node :: right] + 1
+    return right_d + 1
 end
 
 leaf = new TreeNode2 [4, null, null]
