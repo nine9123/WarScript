@@ -16,7 +16,7 @@ namespace WarScript.Expression.Operator
             if (right == null) return null;
 
             if (left is NumericValue leftNum && right is NumericValue rightNum)
-                return new NumericValue(_script, leftNum.GetValue() / rightNum.GetValue());
+                return _script.GetNumeric(leftNum.GetValue() / rightNum.GetValue());
 
             return _script.ExceptionContext.RaiseException($"Unable to divide non numeric values `{left}` and `{right}`");
         }

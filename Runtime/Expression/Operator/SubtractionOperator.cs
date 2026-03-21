@@ -22,7 +22,7 @@ namespace WarScript.Expression.Operator
                 return _script.ExceptionContext.RaiseException($"Unable to perform subtraction for NULL values `{left}`, `{right}`");
 
             if (left is NumericValue leftNum && right is NumericValue rightNum)
-                return new NumericValue(_script, leftNum.GetValue() - rightNum.GetValue());
+                return _script.GetNumeric(leftNum.GetValue() - rightNum.GetValue());
 
             return new TextValue(_script, left.ToString().Replace(right.ToString(), ""));
         }

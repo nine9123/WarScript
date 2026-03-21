@@ -93,7 +93,7 @@ namespace WarScript.Expression
                         switch (token.Type)
                         {
                             case TokenType.Numeric:
-                                operand = new NumericValue(_script, double.Parse(value));
+                                operand = _script.GetNumeric(double.Parse(value));
                                 break;
                             case TokenType.Logical:
                                 operand = bool.Parse(value) ? _script.LogicalTrue : _script.LogicalFalse;

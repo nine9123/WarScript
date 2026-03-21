@@ -20,6 +20,11 @@ namespace WarScript
         public readonly LogicalValue LogicalFalse;
         public readonly NumericValue NumericZero;
         public readonly NumericValue NumericOne;
+
+        // ── Small integer cache: avoids allocation for loop counters, indices, etc. ──
+        private const int NumericCacheLow = -1;
+        private const int NumericCacheHigh = 255;
+        private readonly NumericValue[] _numericCache;
         public readonly DefinitionContext DefinitionContext;
         public readonly MemoryContext MemoryContext;
         public readonly ExceptionContext ExceptionContext;
@@ -65,6 +70,24 @@ namespace WarScript
         /// recursive calls get isolated locals while retaining global access.
         /// </summary>
         public MemoryScope UserMemoryScope => _memoryScope;
+
+        /// <summary>
+        /// Returns a cached NumericValue for small integers (-1..255),
+        /// or allocates a new one for values outside that range.
+        /// Call this instead of <c>new NumericValue(script, value)</c>
+        /// on any hot path.
+        /// </summary>
+        public NumericValue GetNumeric(double value)
+        {
+            // Check if it's an integer in cache range
+            if (value % 1 == 0)
+            {
+                var i = (int)value;
+                if (i >= NumericCacheLow && i <= NumericCacheHigh)
+                    return _numericCache[i - NumericCacheLow];
+            }
+            return new NumericValue(this, value);
+        }
         
         // ── Coroutine support ──
         private readonly List<Coroutine> _coroutines = new();
@@ -93,8 +116,13 @@ namespace WarScript
             This = new ThisValue(this);
             LogicalTrue = new LogicalValue(this, true);
             LogicalFalse = new LogicalValue(this, false);
-            NumericZero = new NumericValue(this, 0.0);
-            NumericOne = new NumericValue(this, 1.0);
+            
+            // Pre-allocate small integer cache (-1 to 255)
+            _numericCache = new NumericValue[NumericCacheHigh - NumericCacheLow + 1];
+            for (int i = NumericCacheLow; i <= NumericCacheHigh; i++)
+                _numericCache[i - NumericCacheLow] = new NumericValue(this, i);
+            NumericZero = _numericCache[0 - NumericCacheLow];
+            NumericOne = _numericCache[1 - NumericCacheLow];
             DefinitionContext = new DefinitionContext(this);
             MemoryContext = new MemoryContext(this);
             ExceptionContext = new ExceptionContext(this);

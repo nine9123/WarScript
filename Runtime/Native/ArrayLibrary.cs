@@ -58,7 +58,7 @@ namespace WarScript.Native
                 args =>
                 {
                     var arr = NativeHelper.Arg<ArrayValue>(args, 0);
-                    return new NumericValue(script, arr.GetValue().Count);
+                    return script.GetNumeric(arr.GetValue().Count);
                 },
                 "Returns array length.", "NumericValue"));
 
@@ -92,9 +92,9 @@ namespace WarScript.Native
                     for (var i = 0; i < list.Count; i++)
                     {
                         if (list[i] != null && list[i].Equals(value))
-                            return new NumericValue(script, i);
+                            return script.GetNumeric(i);
                     }
-                    return new NumericValue(script, -1);
+                    return script.GetNumeric(-1);
                 },
                 "Returns index of first occurrence, or -1.",
                 "NumericValue"));
