@@ -20,15 +20,33 @@ namespace WarScript.Context
         /// <summary>
         /// Parent MemoryScope to access the variables defined in outer scopes
         /// </summary>
-        private readonly MemoryScope _parent;
+        private MemoryScope _parent;
 
         private readonly WarScriptLanguage _script;
-        
-        public MemoryScope(WarScriptLanguage script, MemoryScope parent)
+
+        /// <summary>
+        /// Whether this scope can be returned to the object pool on EndScope.
+        /// False for class instance scopes that outlive the scope stack.
+        /// </summary>
+        internal bool Poolable;
+
+        public MemoryScope(WarScriptLanguage script, MemoryScope parent, bool poolable = true)
         {
             _script = script;
             _variables = new Dictionary<string, ValueReference>();
             _parent = parent;
+            Poolable = poolable;
+        }
+
+        /// <summary>
+        /// Reset this scope for reuse from the pool.
+        /// Clears all variables and sets a new parent.
+        /// </summary>
+        internal void Reset(MemoryScope parent)
+        {
+            _variables.Clear();
+            _parent = parent;
+            Poolable = true;
         }
 
         /// <summary>

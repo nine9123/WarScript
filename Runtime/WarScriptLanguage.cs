@@ -137,6 +137,7 @@ namespace WarScript
             // Native scope: holds native bindings
             var nativeDefinitionScope = DefinitionContext.NewScope();
             var nativeMemoryScope = MemoryContext.NewScope();
+            nativeMemoryScope.Poolable = false; // long-lived, stored in GlobalMemoryScope
 
             DefinitionContext.PushScope(nativeDefinitionScope);
             MemoryContext.PushScope(nativeMemoryScope);
@@ -147,6 +148,7 @@ namespace WarScript
             // User scope: child of native scope. User definitions shadow natives
             _definitionScope = DefinitionContext.NewScope();
             _memoryScope = MemoryContext.NewScope();
+            _memoryScope.Poolable = false; // long-lived, reused across Run() calls
 
             DefinitionContext.EndScope();
             MemoryContext.EndScope();

@@ -128,7 +128,7 @@ namespace WarScript.Expression
                 _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
             else
                 _script.MemoryContext.PushScope(
-                    new MemoryScope(_script, _script.UserMemoryScope));
+                    _script.MemoryContext.NewScope(_script.UserMemoryScope));
 
             try
             {

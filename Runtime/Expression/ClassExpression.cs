@@ -67,7 +67,7 @@ namespace WarScript.Expression
             var classStatement = definition.Statement;
             
             // set separate scope
-            var classScope = new MemoryScope(_script, null);
+            var classScope = new MemoryScope(_script, null, poolable: false);
             _script.MemoryContext.PushScope(classScope);
             
             // initialize constructor arguments
