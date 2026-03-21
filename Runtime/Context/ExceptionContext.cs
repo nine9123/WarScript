@@ -39,6 +39,7 @@ namespace WarScript.Context
         {
             Exception = new Exception.Exception(value, new List<Statement.Statement>());
             _state = State.Raised;
+            _script.HaltFlags |= WarScriptLanguage.HaltFlag.Exception;
             return null;
         }
 
@@ -59,6 +60,7 @@ namespace WarScript.Context
         {
             Exception = null;
             _state = State.None;
+            _script.HaltFlags &= ~WarScriptLanguage.HaltFlag.Exception;
         }
 
         /// <summary>

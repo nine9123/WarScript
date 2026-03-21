@@ -135,6 +135,7 @@ namespace WarScript
                 _script.MemoryContext.EndScope();
                 _script.DefinitionContext.EndScope();
                 _script.ReturnContext.Reset();
+                _script.HaltFlags &= ~WarScriptLanguage.HaltFlag.Return;
 
                 if (_script.ExceptionContext.IsRaised())
                     _script.ExceptionContext.PrintStackTrace();

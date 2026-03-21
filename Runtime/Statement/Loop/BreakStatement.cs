@@ -11,6 +11,7 @@ namespace WarScript.Statement.Loop
         public override void Execute()
         {
             _script.BreakContext.GetScope().Invoke();
+            _script.HaltFlags |= WarScriptLanguage.HaltFlag.Break;
         }
     }
 }

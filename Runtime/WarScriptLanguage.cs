@@ -25,6 +25,21 @@ namespace WarScript
         private const int NumericCacheLow = -1;
         private const int NumericCacheHigh = 255;
         private readonly NumericValue[] _numericCache;
+
+        // ── Consolidated halt flags for fast abort checking ──
+        // Instead of checking 3-5 separate properties per statement,
+        // the hot path does a single `if (HaltFlags != 0)` check.
+        [System.Flags]
+        public enum HaltFlag
+        {
+            None      = 0,
+            Exception = 1,
+            Return    = 2,
+            Break     = 4,
+            Next      = 8,
+            Yield     = 16,
+        }
+        public HaltFlag HaltFlags;
         public readonly DefinitionContext DefinitionContext;
         public readonly MemoryContext MemoryContext;
         public readonly ExceptionContext ExceptionContext;
@@ -80,6 +95,7 @@ namespace WarScript
         public NumericValue GetNumeric(double value)
         {
             // Check if it's an integer in cache range
+            // ReSharper disable once CompareOfFloatsByEqualityOperator
             if (value % 1 == 0)
             {
                 var i = (int)value;
@@ -172,6 +188,9 @@ namespace WarScript
 
                 if (ExceptionContext.IsRaised())
                     ExceptionContext.PrintStackTrace();
+                
+                // Clean slate after script completes
+                HaltFlags = HaltFlag.None;
             }
         }
 
@@ -209,9 +228,12 @@ namespace WarScript
                 DefinitionContext.EndScope();
                 MemoryContext.EndScope();
                 ReturnContext.Reset();
+                HaltFlags &= ~HaltFlag.Return;
 
                 if (ExceptionContext.IsRaised())
                     ExceptionContext.PrintStackTrace();
+                
+                HaltFlags = HaltFlag.None;
             }
         }
 
@@ -223,6 +245,7 @@ namespace WarScript
         public void SetYielded(YieldType type, double waitDuration)
         {
             IsYielded = true;
+            HaltFlags |= HaltFlag.Yield;
             YieldedType = type;
             YieldedWaitDuration = waitDuration;
         }
@@ -230,6 +253,7 @@ namespace WarScript
         public void ClearYield()
         {
             IsYielded = false;
+            HaltFlags &= ~HaltFlag.Yield;
             YieldedType = YieldType.NextTick;
             YieldedWaitDuration = 0;
         }

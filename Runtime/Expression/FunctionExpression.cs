@@ -22,11 +22,10 @@ namespace WarScript.Expression
 
         public IValue? Evaluate()
         {
-            // initialize function arguments
             var values = new List<IValue>(ArgumentExpression.Count);
-            foreach (var expression in ArgumentExpression)
+            for (int i = 0; i < ArgumentExpression.Count; i++)
             {
-                var value = expression.Evaluate();
+                var value = ArgumentExpression[i].Evaluate();
                 if (value == null) return null;
                 values.Add(value);
             }
@@ -39,11 +38,10 @@ namespace WarScript.Expression
         /// <param name="classValue">instance of class where the function is placed in</param>
         public IValue? Evaluate(ClassValue classValue)
         {
-            // initialize function arguments
             var values = new List<IValue>(ArgumentExpression.Count);
-            foreach (var expression in ArgumentExpression)
+            for (int i = 0; i < ArgumentExpression.Count; i++)
             {
-                var value = expression.Evaluate();
+                var value = ArgumentExpression[i].Evaluate();
                 if (value == null) return null;
                 values.Add(value);
             }
@@ -149,6 +147,7 @@ namespace WarScript.Expression
                 // release function memory and return context
                 _script.MemoryContext.EndScope();
                 _script.ReturnContext.Reset();
+                _script.HaltFlags &= ~WarScriptLanguage.HaltFlag.Return;
             }
         }
 

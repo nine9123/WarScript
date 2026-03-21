@@ -68,6 +68,10 @@ namespace WarScript.Statement
                     _script.ExceptionContext.Disable();
                 }
                 
+                // Save and clear HaltFlags so ensure block executes fully
+                var savedFlags = _script.HaltFlags;
+                _script.HaltFlags = WarScriptLanguage.HaltFlag.None;
+                
                 _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
                 try
                 {
@@ -76,6 +80,10 @@ namespace WarScript.Statement
                 finally
                 {
                     _script.MemoryContext.EndScope();
+                    
+                    // Restore flags (ensure doesn't suppress the original halt)
+                    _script.HaltFlags = savedFlags;
+                    
                     if (raised)
                     {
                         // Continue to accumulate stack trace
