@@ -77,8 +77,8 @@ sm :: add_transition ["running", "idle"]
 assert sm :: current_state == "idle"
 assert sm :: can_transition ["walking"]
 
-can_run = sm :: can_transition ["running"]
-assert !can_run
+# Bug 2 fix: !obj :: method now parses as !(obj :: method)
+assert !sm :: can_transition ["running"]
 
 assert sm :: go ["walking"]
 assert sm :: current_state == "walking"
@@ -86,8 +86,7 @@ assert sm :: current_state == "walking"
 assert sm :: go ["running"]
 assert sm :: current_state == "running"
 
-can_walk = sm :: go ["walking"]
-assert !can_walk
+assert !sm :: go ["walking"]
 assert sm :: current_state == "running"
 
 assert sm :: go ["idle"]
@@ -273,12 +272,11 @@ class Queue []
         if this :: size == 0
             raise "Queue is empty"
         end
-        d = this :: data
-        item = d{0}
+        # Bug 4 fix: this :: data{0} now works directly
+        item = this :: data{0}
         new_data = {}
         loop i in 1..this :: size
-            d = this :: data
-            new_data << d{i}
+            new_data << this :: data{i}
         end
         this :: data = new_data
         this :: size -= 1
@@ -289,8 +287,7 @@ class Queue []
         if this :: size == 0
             return null
         end
-        d = this :: data
-        return d{0}
+        return this :: data{0}
     end
 
     fun is_empty []
@@ -331,8 +328,8 @@ fun tree_depth [node]
     if node == null
         return 0
     end
-    # inline recursive calls — storing them in variables
-    # would clobber the outer call due to scope walk-up
+    # Recursive calls inlined to avoid variable clobbering
+    # (known language limitation: MemoryScope.Set walks parent scopes)
     if tree_depth [node :: left] > tree_depth [node :: right]
         return tree_depth [node :: left] + 1
     end

@@ -46,9 +46,12 @@ assert s{2} == "l"
 assert s{3} == "l"
 assert s{4} == "o"
 
-# ── Indexing single char strings ──
+# ── Indexing single char strings (Bug 5 fix: literal indexing) ──
 single_char = "x"
 assert single_char{0} == "x"
+assert "hello"{0} == "h"
+assert "hello"{4} == "o"
+assert "abc"{1} == "b"
 
 # ── String equality ──
 assert "abc" == "abc"

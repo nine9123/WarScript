@@ -21,20 +21,16 @@ cat = new Cat
 assert cat is Cat
 assert cat is Mammal
 assert cat is Animal
-cat_is_reptile = cat is Reptile
-assert !cat_is_reptile
-cat_is_lizard = cat is Lizard
-assert !cat_is_lizard
+assert !(cat is Reptile)
+assert !(cat is Lizard)
 
 # ── Instanceof with multi-inheritance ──
 lizard = new Lizard
 assert lizard is Lizard
 assert lizard is Reptile
 assert lizard is Animal
-liz_is_mammal = lizard is Mammal
-assert !liz_is_mammal
-liz_is_cat = lizard is Cat
-assert !liz_is_cat
+assert !(lizard is Mammal)
+assert !(lizard is Cat)
 
 # ── Instanceof in conditions (pre-declare) ──
 my_animal = new Cat
@@ -108,10 +104,8 @@ assert student is User
 assert student is Person
 
 # ── Instanceof for unrelated types ──
-stu_is_cat = student is Cat
-assert !stu_is_cat
-stu_is_animal = student is Animal
-assert !stu_is_animal
+assert !(student is Cat)
+assert !(student is Animal)
 
 # ── Multiple instances: cast isolation ──
 s1 = new Student ["s1@test", "S1"]
@@ -178,5 +172,5 @@ result2 = cat is Reptile or lizard is Reptile
 assert result2
 
 # ── Instanceof with negation ──
-cat_not_reptile = cat is Reptile
-assert !cat_not_reptile
+assert !(cat is Reptile)
+assert !(cat is Lizard) and (lizard is Reptile)

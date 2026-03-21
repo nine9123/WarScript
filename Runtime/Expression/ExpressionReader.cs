@@ -75,7 +75,11 @@ namespace WarScript.Expression
                                 break;
                             default:
                                 // until top operator has greater or equal precedence
-                                while (_operators.Count > 0 && _operators.Peek().GreaterThan(op))
+                                // Never pop past a LeftParen — it is only removed by
+                                // the matching RightParen case above.
+                                while (_operators.Count > 0
+                                       && _operators.Peek() != Operator.Operator.LeftParen
+                                       && _operators.Peek().GreaterThan(op))
                                     ApplyTopOperator();
                                 _operators.Push(op);
                                 lastWasOperand = false;
@@ -96,6 +100,14 @@ namespace WarScript.Expression
                                 break;
                             case TokenType.Text:
                                 operand = new TextValue(_script, value);
+                                // allow indexing on string literals: "hello"{0}
+                                if (Tokens.PeekSameLine(TokenType.GroupDivider, "{"))
+                                {
+                                    Tokens.Next(TokenType.GroupDivider, "{");
+                                    var textIndex = ReadExpression(_script, this);
+                                    Tokens.Next(TokenType.GroupDivider, "}");
+                                    operand = new ArrayValueOperator(_script, operand, textIndex);
+                                }
                                 break;
                             case TokenType.GroupDivider when token.Value == "{":
                                 operand = ReadArrayInstance();

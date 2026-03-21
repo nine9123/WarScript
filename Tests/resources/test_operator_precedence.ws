@@ -70,11 +70,10 @@ assert !false
 assert !false and true
 
 # ── Not with comparison (ok inside parens: prec 4 > 3) ──
-# ── Not with comparison (use intermediate var, !(expr) crashes parser) ──
-cmp1 = 5 < 3
-assert !cmp1
-cmp2 = 5 == 6
-assert !cmp2
+# ── Not with comparison (Bug 1 fix: !(expr) now works) ──
+assert !(5 < 3)
+assert !(5 == 6)
+assert !(10 <= 3)
 
 # ── Unary minus precedence ──
 x = 5
@@ -127,11 +126,9 @@ raw_damage = 50
 net = hp - (raw_damage - defense)
 assert net == 70
 
-# ── Comparison chains with parentheses (comparisons ok: prec 4 > 3) ──
+# ── Comparison chains with parentheses (Bug 3 fix: and/or in parens) ──
 x = 5
 assert (x > 0) and (x < 10)
 assert (x >= 5) and (x <= 5)
 assert (x == 5) or (x == 6)
-# Avoid parens around or: use intermediate variable
-out_of_range = (x < 0) or (x > 100)
-assert !out_of_range
+assert !((x < 0) or (x > 100))

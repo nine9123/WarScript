@@ -1,7 +1,8 @@
 # ──────────────────────────────────────────────────────
 # test_logical_operators.ws
 # Covers: and, or, !, short-circuit evaluation,
-#         compound boolean expressions, De Morgan's laws
+#         compound boolean expressions, De Morgan's laws,
+#         !(expr), !!x, (expr and/or expr) in parens
 # ──────────────────────────────────────────────────────
 
 # ── Basic and ──
@@ -25,21 +26,27 @@ assert !false
 assert !false == true
 assert !true == false
 
-# ── Double not (via intermediate — !! crashes the shunting-yard parser) ──
-not_true = !true
-assert !not_true
-not_false = !false
-assert not_false
+# ── Double not (Bug 2 fix: consecutive unary operators) ──
+assert !!true
+assert !!false == false
+dbl_neg = !!false
+assert !dbl_neg
 
-# ── Not with comparison (use intermediate var, !(expr) crashes parser) ──
-ne = 5 == 6
-assert !ne
-gt = 5 > 10
-assert !gt
-lt = 5 < 3
-assert !lt
-se = "a" == "b"
-assert !se
+# ── Not with parenthesized expression (Bug 1 fix) ──
+assert !(5 < 3)
+assert !(5 == 6)
+assert !(false)
+assert !("a" == "b")
+
+# ── Parenthesized and/or (Bug 3 fix) ──
+assert (true and true)
+assert (true or false)
+assert !(false and true)
+assert !(false or false)
+assert (5 > 3 and 10 > 7)
+assert (5 > 3 or 10 < 7)
+assert !(5 < 3 and 10 > 7)
+assert (5 < 3 or 10 > 7)
 
 # ── Compound expressions ──
 assert true and true and true
@@ -59,6 +66,7 @@ assert x > 0 and x < 10
 assert x == 5 or x == 6
 assert x >= 5 and x <= 5
 assert x > 4 and x < 6
+assert !(x < 0 or x > 10)
 
 # ── Short-circuit: and skips right when left is false ──
 side_effect_ran = false
@@ -96,33 +104,21 @@ end
 result4 = false or set_side_effect4 []
 assert side_effect_ran4
 
-# ── De Morgan's laws ──
+# ── De Morgan's laws (using parens — Bug 1+3 fix) ──
 a = true
 b = false
-lhs1 = a and b
-rhs1 = !a or !b
-assert !lhs1 == rhs1
-lhs2 = a or b
-rhs2 = !a and !b
-assert !lhs2 == rhs2
+assert !(a and b) == (!a or !b)
+assert !(a or b) == (!a and !b)
 
 a = true
 b = true
-lhs3 = a and b
-rhs3 = !a or !b
-assert !lhs3 == rhs3
-lhs4 = a or b
-rhs4 = !a and !b
-assert !lhs4 == rhs4
+assert !(a and b) == (!a or !b)
+assert !(a or b) == (!a and !b)
 
 a = false
 b = false
-lhs5 = a and b
-rhs5 = !a or !b
-assert !lhs5 == rhs5
-lhs6 = a or b
-rhs6 = !a and !b
-assert !lhs6 == rhs6
+assert !(a and b) == (!a or !b)
+assert !(a or b) == (!a and !b)
 
 # ── Boolean in if conditions ──
 flag = true
@@ -133,8 +129,7 @@ end
 assert matched
 
 matched2 = false
-not_flag = !flag
-if not_flag or 10 < 5
+if !flag or 10 < 5
     matched2 = true
 end
 assert !matched2

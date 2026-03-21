@@ -102,6 +102,17 @@ namespace WarScript.Expression.Operator.Extensions
         public static bool IsUnary(this Operator op) =>
             op is Operator.Not || op is Operator.ClassInstance || op is Operator.Negate;
 
+        /// <summary>
+        /// Right-associative unary operators that should NOT be popped when
+        /// an operator of equal precedence arrives. This makes !!x parse as
+        /// !(!x) and !obj :: prop parse as !(obj :: prop).
+        ///
+        /// Note: ClassInstance (new) is intentionally excluded — it is
+        /// left-associative so that new Foo :: prop means (new Foo) :: prop.
+        /// </summary>
+        public static bool IsRightAssociative(this Operator op) =>
+            op is Operator.Not || op is Operator.Negate;
+
         public static int GetPrecedence(this Operator op) =>
             op switch
             {
@@ -145,6 +156,11 @@ namespace WarScript.Expression.Operator.Extensions
             };
 
         public static bool GreaterThan(this Operator op, Operator other) =>
-            op.GetPrecedence().CompareTo(other.GetPrecedence()) >= 0;
+            // Right-associative operators (! and Negate) on the stack should
+            // NOT be popped when an operator of equal precedence arrives.
+            // This makes !!x = !(!x) and !obj :: prop = !(obj :: prop).
+            op.IsRightAssociative()
+                ? op.GetPrecedence().CompareTo(other.GetPrecedence()) > 0
+                : op.GetPrecedence().CompareTo(other.GetPrecedence()) >= 0;
     }
 }
