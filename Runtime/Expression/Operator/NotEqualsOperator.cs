@@ -2,7 +2,7 @@ using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class NotEqualsOperator : BinaryOperatorExpression
+    public sealed class NotEqualsOperator : BinaryOperatorExpression
     {
         public NotEqualsOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
@@ -21,7 +21,7 @@ namespace WarScript.Expression.Operator
             else
                 result = left.ToString() != right.ToString();
 
-            return new LogicalValue(_script, result);
+            return result ? _script.LogicalTrue : _script.LogicalFalse;
         }
     }
 }

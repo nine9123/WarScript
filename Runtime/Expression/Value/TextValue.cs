@@ -1,6 +1,6 @@
 namespace WarScript.Expression.Value
 {
-    public class TextValue : ComparableValue<string>
+    public sealed class TextValue : ComparableValue<string>
     {
         public TextValue(WarScriptLanguage script, string value) : base(script, value)
         {

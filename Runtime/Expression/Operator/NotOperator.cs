@@ -4,7 +4,7 @@ using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class NotOperator : UnaryOperatorExpression
+    public sealed class NotOperator : UnaryOperatorExpression
     {
         public NotOperator(WarScriptLanguage script, IExpression value) : base(script, value) { }
 
@@ -14,7 +14,7 @@ namespace WarScript.Expression.Operator
             if (value == null) return null;
 
             if (value is LogicalValue logicalValue)
-                return new LogicalValue(_script, !logicalValue.GetValue());
+                return logicalValue.GetValue() ? _script.LogicalFalse : _script.LogicalTrue;
 
             return _script.ExceptionContext.RaiseException($"Unable to perform NOT operator for non logical value `{value}`");
         }

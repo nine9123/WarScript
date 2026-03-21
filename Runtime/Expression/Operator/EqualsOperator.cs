@@ -3,7 +3,7 @@ using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class EqualsOperator : BinaryOperatorExpression
+    public sealed class EqualsOperator : BinaryOperatorExpression
     {
         public EqualsOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
@@ -25,7 +25,7 @@ namespace WarScript.Expression.Operator
                 // different types: fall back to string comparison
                 result = left.ToString() == right.ToString();
 
-            return new LogicalValue(_script, result);
+            return result ? _script.LogicalTrue : _script.LogicalFalse;
         }
     }
 }

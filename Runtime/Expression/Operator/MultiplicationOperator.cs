@@ -3,7 +3,7 @@ using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class MultiplicationOperator : BinaryOperatorExpression
+    public sealed class MultiplicationOperator : BinaryOperatorExpression
     {
         public MultiplicationOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 

@@ -7,7 +7,7 @@ namespace WarScript.Expression.Operator
     /// <summary>
     /// Cast a class instance from one type to another
     /// </summary>
-    public class ClassCastOperator : BinaryOperatorExpression
+    public sealed class ClassCastOperator : BinaryOperatorExpression
     {
         public ClassCastOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right)
         {

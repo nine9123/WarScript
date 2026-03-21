@@ -2,7 +2,7 @@ using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class NegateOperator : UnaryOperatorExpression
+    public sealed class NegateOperator : UnaryOperatorExpression
     {
         public NegateOperator(WarScriptLanguage script, IExpression value) : base(script, value) { }
 

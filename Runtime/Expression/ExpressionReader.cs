@@ -96,7 +96,7 @@ namespace WarScript.Expression
                                 operand = new NumericValue(_script, double.Parse(value));
                                 break;
                             case TokenType.Logical:
-                                operand = new LogicalValue(_script, bool.Parse(value));
+                                operand = bool.Parse(value) ? _script.LogicalTrue : _script.LogicalFalse;
                                 break;
                             case TokenType.Text:
                                 operand = new TextValue(_script, value);

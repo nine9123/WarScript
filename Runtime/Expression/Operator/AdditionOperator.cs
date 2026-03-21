@@ -1,10 +1,9 @@
 using System.Collections.Generic;
-using System.Linq;
 using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class AdditionOperator : BinaryOperatorExpression
+    public sealed class AdditionOperator : BinaryOperatorExpression
     {
         public AdditionOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right)
         {
@@ -25,18 +24,27 @@ namespace WarScript.Expression.Operator
             else if (left is ArrayValue || right is ArrayValue)
             {
                 List<IValue> newArray;
-                if (left is ArrayValue leftArrayValue && right is ArrayValue rightArrayValue)
+                if (left is ArrayValue leftArr && right is ArrayValue rightArr)
                 {
-                    newArray = leftArrayValue.GetValue().Concat(rightArrayValue.GetValue()).ToList();
+                    var lv = leftArr.GetValue();
+                    var rv = rightArr.GetValue();
+                    newArray = new List<IValue>(lv.Count + rv.Count);
+                    newArray.AddRange(lv);
+                    newArray.AddRange(rv);
                 }
-                else if (left is ArrayValue leftArrayValue2)
+                else if (left is ArrayValue leftArr2)
                 {
-                    newArray = leftArrayValue2.GetValue().Append(right).ToList();
+                    var lv = leftArr2.GetValue();
+                    newArray = new List<IValue>(lv.Count + 1);
+                    newArray.AddRange(lv);
+                    newArray.Add(right);
                 }
                 else
                 {
-                    var rightArrayValue2 = (ArrayValue)right;
-                    newArray = rightArrayValue2.GetValue().Prepend(left).ToList();
+                    var rv = ((ArrayValue)right).GetValue();
+                    newArray = new List<IValue>(rv.Count + 1);
+                    newArray.Add(left);
+                    newArray.AddRange(rv);
                 }
 
                 return new ArrayValue(_script, newArray);

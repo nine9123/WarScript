@@ -3,7 +3,7 @@ using WarScript.Expression.Value;
 
 namespace WarScript.Expression
 {
-    public class ArrayExpression : IExpression
+    public sealed class ArrayExpression : IExpression
     {
         public List<IExpression> Values { get; private set; }
         private readonly WarScriptLanguage _script;

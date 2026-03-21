@@ -5,7 +5,7 @@ using WarScript.Expression.Value;
 
 namespace WarScript.Expression
 {
-    public class VariableExpression : IExpression, IAssignExpression
+    public sealed class VariableExpression : IExpression, IAssignExpression
     {
         public readonly string Name;
 

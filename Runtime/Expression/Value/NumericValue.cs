@@ -1,6 +1,6 @@
 namespace WarScript.Expression.Value
 {
-    public class NumericValue : ComparableValue<double>
+    public sealed class NumericValue : ComparableValue<double>
     {
         public NumericValue(WarScriptLanguage script, double value) : base(script, value)
         {

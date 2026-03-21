@@ -4,7 +4,7 @@ using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class LogicalAndOperator : BinaryOperatorExpression
+    public sealed class LogicalAndOperator : BinaryOperatorExpression
     {
         public LogicalAndOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
@@ -17,13 +17,13 @@ namespace WarScript.Expression.Operator
             if (left is LogicalValue leftLog)
             {
                 if (!leftLog.GetValue())
-                    return new LogicalValue(_script, false);
+                    return _script.LogicalFalse;
 
                 var right = Right.Evaluate();
                 if (right == null) return null;
 
                 if (right is LogicalValue rightLog)
-                    return new LogicalValue(_script, rightLog.GetValue());
+                    return rightLog.GetValue() ? _script.LogicalTrue : _script.LogicalFalse;
 
                 return _script.ExceptionContext.RaiseException($"Unable to perform AND operator for non logical values `{left}`, `{right}`");
             }

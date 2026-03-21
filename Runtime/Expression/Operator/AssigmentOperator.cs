@@ -4,7 +4,7 @@ using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class AssignmentOperator : BinaryOperatorExpression
+    public sealed class AssignmentOperator : BinaryOperatorExpression
     {
         public AssignmentOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 

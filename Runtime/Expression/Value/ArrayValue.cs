@@ -1,11 +1,11 @@
 #nullable enable
 
 using System.Collections.Generic;
-using System.Linq;
+using System.Text;
 
 namespace WarScript.Expression.Value
 {
-    public class ArrayValue : IterableValue<List<IValue?>>
+    public sealed class ArrayValue : IterableValue<List<IValue?>>
     {
         public ArrayValue(WarScriptLanguage script, ArrayExpression expression) : base(script, expression.GetValues())
         {
@@ -39,7 +39,16 @@ namespace WarScript.Expression.Value
             if (obj == null || GetType() != obj.GetType()) return false;
 
             var other = (ArrayValue)obj;
-            return GetValue().SequenceEqual(other.GetValue());
+            var a = GetValue();
+            var b = other.GetValue();
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (a[i] == null && b[i] == null) continue;
+                if (a[i] == null || b[i] == null) return false;
+                if (!a[i]!.Equals(b[i])) return false;
+            }
+            return true;
         }
         
         public override int GetHashCode()
@@ -59,7 +68,15 @@ namespace WarScript.Expression.Value
         
         public override string ToString()
         {
-            return "[" + string.Join(", ", GetValue().Select(v => v?.ToString() ?? "null")) + "]";
+            var sb = new StringBuilder("[");
+            var vals = GetValue();
+            for (int i = 0; i < vals.Count; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                sb.Append(vals[i]?.ToString() ?? "null");
+            }
+            sb.Append(']');
+            return sb.ToString();
         }
     }
 }

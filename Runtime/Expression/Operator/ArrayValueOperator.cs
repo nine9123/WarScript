@@ -3,7 +3,7 @@ using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class ArrayValueOperator : BinaryOperatorExpression, IAssignExpression
+    public sealed class ArrayValueOperator : BinaryOperatorExpression, IAssignExpression
     {
         public ArrayValueOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 

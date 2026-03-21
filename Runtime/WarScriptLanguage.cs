@@ -14,6 +14,12 @@ namespace WarScript
     {
         public readonly NullValue Null;
         public readonly ThisValue This;
+
+        // ── Cached value singletons to avoid allocation on every comparison/loop ──
+        public readonly LogicalValue LogicalTrue;
+        public readonly LogicalValue LogicalFalse;
+        public readonly NumericValue NumericZero;
+        public readonly NumericValue NumericOne;
         public readonly DefinitionContext DefinitionContext;
         public readonly MemoryContext MemoryContext;
         public readonly ExceptionContext ExceptionContext;
@@ -85,6 +91,10 @@ namespace WarScript
             
             Null = new NullValue(this);
             This = new ThisValue(this);
+            LogicalTrue = new LogicalValue(this, true);
+            LogicalFalse = new LogicalValue(this, false);
+            NumericZero = new NumericValue(this, 0.0);
+            NumericOne = new NumericValue(this, 1.0);
             DefinitionContext = new DefinitionContext(this);
             MemoryContext = new MemoryContext(this);
             ExceptionContext = new ExceptionContext(this);
@@ -92,7 +102,7 @@ namespace WarScript
             NextContext = new NextContext();
             BreakContext = new BreakContext();
             ClassInstanceContext = new ClassInstanceContext();
-            DefaultStep = new NumericValue(this, 1.0);
+            DefaultStep = NumericOne;
             
             _tokens = LexicalParser.Parse(sourceCode);
 

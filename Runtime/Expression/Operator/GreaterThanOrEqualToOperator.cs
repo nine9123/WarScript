@@ -3,7 +3,7 @@ using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class GreaterThanOrEqualToOperator : BinaryOperatorExpression
+    public sealed class GreaterThanOrEqualToOperator : BinaryOperatorExpression
     {
         public GreaterThanOrEqualToOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
@@ -23,7 +23,7 @@ namespace WarScript.Expression.Operator
             else
                 result = string.Compare(left.ToString(), right.ToString(), StringComparison.Ordinal) >= 0;
 
-            return new LogicalValue(_script, result);
+            return result ? _script.LogicalTrue : _script.LogicalFalse;
         }
     }
 }
