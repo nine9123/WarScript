@@ -188,5 +188,117 @@ namespace Tests
         {
             RunAssertOnlyScriptWithMath("test_deep_recursive_locals.ws");
         }
+
+        // ── New batch: functional patterns ──
+
+        [Test]
+        public void DeepFuncPatterns()
+        {
+            RunAssertOnlyScriptWithMath("test_deep_func_patterns.ws");
+        }
+
+        // ── New batch: class design patterns ──
+
+        [Test]
+        public void DeepClassPatterns()
+        {
+            RunAssertOnlyScript("test_deep_class_patterns.ws");
+        }
+
+        // ── New batch: data structures ──
+
+        [Test]
+        public void DeepDataStructures()
+        {
+            RunAssertOnlyScript("test_deep_data_structures.ws");
+        }
+
+        // ── New batch: type coercion & dynamic typing ──
+
+        [Test]
+        public void DeepTypeCoercion()
+        {
+            RunAssertOnlyScript("test_deep_type_coercion.ws");
+        }
+
+        // ── New batch: multi-inheritance edge cases ──
+
+        [Test]
+        public void DeepMultiInherit()
+        {
+            RunAssertOnlyScript("test_deep_multi_inherit.ws");
+        }
+
+        // ── New batch: loop patterns ──
+
+        [Test]
+        public void DeepLoopPatterns()
+        {
+            RunAssertOnlyScript("test_deep_loop_patterns.ws");
+        }
+
+        // ── New batch: null handling patterns ──
+
+        [Test]
+        public void DeepNullPatterns()
+        {
+            RunAssertOnlyScript("test_deep_null_patterns.ws");
+        }
+
+        // ── New batch: string algorithms ──
+
+        [Test]
+        public void DeepStringAlgos()
+        {
+            RunAssertOnlyScript("test_deep_string_algos.ws");
+        }
+
+        // ── New batch: exception patterns ──
+
+        [Test]
+        public void DeepExceptionPatterns()
+        {
+            RunAssertOnlyScript("test_deep_exception_patterns.ws");
+        }
+
+        // ── New batch: compound assignment patterns ──
+
+        [Test]
+        public void DeepCompoundOps()
+        {
+            RunAssertOnlyScript("test_deep_compound_ops.ws");
+        }
+
+        // ── New batch: class method combinations ──
+
+        [Test]
+        public void DeepClassMethodCombos()
+        {
+            RunAssertOnlyScript("test_deep_class_method_combos.ws");
+        }
+
+        // ── New batch: interpolation combinations ──
+
+        [Test]
+        public void DeepInterpCombos()
+        {
+            RunAssertOnlyScript("test_deep_interp_combos.ws");
+        }
+
+        // ── New batch: sorting algorithms ──
+
+        [Test]
+        public void DeepAlgoSorting()
+        {
+            RunAssertOnlyScript("test_deep_algo_sorting.ws");
+        }
+
+        // ── New batch: real-world scenarios ──
+
+        [Test]
+        public void DeepRealWorld()
+        {
+            RunAssertOnlyScript("test_deep_real_world.ws");
+        }
     }
 }
