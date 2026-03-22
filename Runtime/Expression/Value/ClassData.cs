@@ -38,7 +38,7 @@ namespace WarScript.Expression.Value
             return result;
         }
 
-        public void SetProperty(string name, WarValue value)
+        public void SetProperty(string name, in WarValue value)
         {
             MemoryScope.SetLocal(name, value);
         }

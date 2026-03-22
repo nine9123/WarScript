@@ -14,12 +14,12 @@ namespace WarScript.Context
     {
         public WarValue Value;
 
-        private ValueReference(WarValue value)
+        private ValueReference(in WarValue value)
         {
             Value = value;
         }
 
-        public static ValueReference InstanceOf(WarValue value)
+        public static ValueReference InstanceOf(in WarValue value)
         {
             return new ValueReference(value);
         }

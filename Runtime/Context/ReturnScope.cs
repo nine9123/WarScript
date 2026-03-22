@@ -7,7 +7,7 @@ namespace WarScript.Context
         public bool Invoked { get; private set; }
         public WarValue Result { get; private set; }
 
-        public void Invoke(WarValue result)
+        public void Invoke(in WarValue result)
         {
             Invoked = true;
             Result = result;

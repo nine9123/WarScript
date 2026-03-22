@@ -41,7 +41,7 @@ namespace WarScript.Context
             return WarValue.Null;
         }
 
-        public void Set(string name, WarValue value)
+        public void Set(string name, in WarValue value)
         {
             var scope = this;
             while (scope != null)
@@ -61,7 +61,7 @@ namespace WarScript.Context
             _variables[name] = variable;
         }
 
-        public void SetLocal(string name, WarValue value)
+        public void SetLocal(string name, in WarValue value)
         {
             if (_variables.TryGetValue(name, out var existing))
                 existing.Value = value;

@@ -14,7 +14,7 @@ namespace WarScript.Context
             _script = script;
         }
 
-        public WarValue RaiseException(WarValue value)
+        public WarValue RaiseException(in WarValue value)
         {
             Exception = new Exception.Exception(value, new List<Statement.Statement>());
             _state = State.Raised;
