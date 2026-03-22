@@ -9,13 +9,36 @@ namespace WarScript.Statement.Loop
         private readonly VariableExpression _variableExpression;
         private readonly IExpression _iterableExpression;
 
+        // Mutable per-execution state — saved/restored in Execute()
+        // to handle recursive reentry through cached AST nodes.
         private List<WarValue> _items;
         private int _index;
 
-        public IterableLoopStatement(WarScriptLanguage script, int rowNumber, string blockName, VariableExpression variableExpression, IExpression iterableExpression) : base(script, rowNumber, blockName)
+        public IterableLoopStatement(WarScriptLanguage script, int rowNumber, string blockName,
+            VariableExpression variableExpression, IExpression iterableExpression)
+            : base(script, rowNumber, blockName)
         {
             _variableExpression = variableExpression;
             _iterableExpression = iterableExpression;
+        }
+
+        /// <summary>
+        /// Save and restore iteration state around base.Execute() so recursive
+        /// reentry through the same cached AST node doesn't clobber the outer loop.
+        /// </summary>
+        public override void Execute()
+        {
+            var savedItems = _items;
+            var savedIndex = _index;
+            try
+            {
+                base.Execute();
+            }
+            finally
+            {
+                _items = savedItems;
+                _index = savedIndex;
+            }
         }
 
         protected override void Init()
@@ -25,14 +48,12 @@ namespace WarScript.Statement.Loop
             {
                 _items = value.ArrayValue;
                 _index = 0;
-                // Pre-create the loop variable in the counter scope
                 _script.MemoryContext.GetScope().SetLocal(
                     _variableExpression.Name,
                     _items.Count > 0 ? _items[0] : WarValue.Null);
             }
             else if (value.IsClass)
             {
-                // Iterate class properties
                 var classData = value.ClassValue;
                 var properties = classData.Definition.ClassDetails.Properties;
                 _items = new List<WarValue>(properties.Count);

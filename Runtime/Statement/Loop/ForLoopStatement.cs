@@ -10,10 +10,9 @@ namespace WarScript.Statement.Loop
         private readonly IExpression _upperBound;
         private readonly IExpression _step;
 
-        // ── Numeric fast-path state ──
-        // Evaluated once in Init(), used directly per iteration.
-        // Bypasses the entire expression evaluation pipeline (no virtual dispatch,
-        // no WarValue struct copies for HasNext/PostIncrement).
+        // Numeric fast-path state — mutable per-execution.
+        // Saved/restored in Execute() to handle recursive reentry
+        // (AST caching means the same node is shared across recursive calls).
         private double _counter;
         private double _upperBoundValue;
         private double _stepValue;
@@ -38,6 +37,27 @@ namespace WarScript.Statement.Loop
             _step = step;
         }
 
+        /// <summary>
+        /// Save and restore fast-path state around base.Execute() so recursive
+        /// reentry through the same cached AST node doesn't clobber the outer loop.
+        /// </summary>
+        public override void Execute()
+        {
+            var savedCounter = _counter;
+            var savedUpper = _upperBoundValue;
+            var savedStep = _stepValue;
+            try
+            {
+                base.Execute();
+            }
+            finally
+            {
+                _counter = savedCounter;
+                _upperBoundValue = savedUpper;
+                _stepValue = savedStep;
+            }
+        }
+
         protected override void Init()
         {
             var lower = _lowerBound.Evaluate();
@@ -53,7 +73,6 @@ namespace WarScript.Statement.Loop
 
         protected override bool HasNext()
         {
-            // Direct double comparison — no expression evaluation, no struct copies
             return _counter < _upperBoundValue;
         }
 
@@ -61,7 +80,6 @@ namespace WarScript.Statement.Loop
 
         protected override void PostIncrement()
         {
-            // Direct double arithmetic — one add, one SetLocal
             _counter += _stepValue;
             _script.MemoryContext.GetScope().SetLocal(_variable.Name, WarValue.FromNumeric(_counter));
         }
