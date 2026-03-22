@@ -1,5 +1,3 @@
-using WarScript.Context;
-using WarScript.Expression;
 using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
@@ -8,15 +6,15 @@ namespace WarScript.Expression.Operator
     {
         public NotOperator(WarScriptLanguage script, IExpression value) : base(script, value) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
             var value = Value.Evaluate();
-            if (value == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
-            if (value is LogicalValue logicalValue)
-                return logicalValue.GetValue() ? _script.LogicalFalse : _script.LogicalTrue;
+            if (value.IsLogical)
+                return WarValue.FromLogical(!value.LogicalValue);
 
-            return _script.ExceptionContext.RaiseException($"Unable to perform NOT operator for non logical value `{value}`");
+            return _script.RaiseException($"Unable to perform NOT operator for non logical value `{value}`");
         }
     }
 }

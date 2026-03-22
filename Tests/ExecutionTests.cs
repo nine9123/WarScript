@@ -519,7 +519,7 @@ namespace Tests
             ");
 
             var greet = script.GetFunction("greet", 1);
-            script.Call(greet, new TextValue(script, "world"));
+            script.Call(greet, WarValue.FromText("world"));
 
             Assert.AreEqual(new[] { "hello world" }, output);
         }
@@ -538,9 +538,9 @@ namespace Tests
             ");
 
             var add = script.GetFunction("add", 1);
-            script.Call(add, new NumericValue(script, 10));
-            script.Call(add, new NumericValue(script, 20));
-            script.Call(add, new NumericValue(script, 30));
+            script.Call(add, WarValue.FromNumeric(10));
+            script.Call(add, WarValue.FromNumeric(20));
+            script.Call(add, WarValue.FromNumeric(30));
 
             var getSum = script.GetFunction("get_sum", 0);
             script.Call(getSum);
@@ -981,7 +981,7 @@ namespace Tests
                 end
             ");
 
-            script.StartCoroutine("sequence", System.Array.Empty<IValue>());
+            script.StartCoroutine("sequence", System.Array.Empty<WarValue>());
             Assert.AreEqual(new[] { "step 1" }, output);
 
             script.TickCoroutines(0.016);
@@ -1003,7 +1003,7 @@ namespace Tests
                 end
             ");
 
-            script.StartCoroutine("delayed", System.Array.Empty<IValue>());
+            script.StartCoroutine("delayed", System.Array.Empty<WarValue>());
             Assert.AreEqual(new[] { "start" }, output);
 
             // Not enough time
@@ -1032,7 +1032,7 @@ namespace Tests
                 end
             ");
 
-            script.StartCoroutine("wait_for_ready", System.Array.Empty<IValue>());
+            script.StartCoroutine("wait_for_ready", System.Array.Empty<WarValue>());
             Assert.AreEqual(new[] { "waiting" }, output);
 
             // Condition not met yet
@@ -1065,7 +1065,7 @@ namespace Tests
                 end
             ");
 
-            script.StartCoroutine("wait_for_five", System.Array.Empty<IValue>());
+            script.StartCoroutine("wait_for_five", System.Array.Empty<WarValue>());
             Assert.AreEqual(new[] { "waiting" }, output);
 
             var increment = script.GetFunction("increment", 0);
@@ -1099,7 +1099,7 @@ namespace Tests
                 end
             ");
 
-            script.StartCoroutine("sequence", System.Array.Empty<IValue>());
+            script.StartCoroutine("sequence", System.Array.Empty<WarValue>());
             Assert.AreEqual(new[] { "hero: 100" }, output);
 
             script.TickCoroutines(0.016);
@@ -1120,10 +1120,10 @@ namespace Tests
                 end
             ");
 
-            script.StartCoroutine("greet", new IValue[]
+            script.StartCoroutine("greet", new WarValue[]
             {
-                new TextValue(script, "world"),
-                new NumericValue(script, 42)
+                WarValue.FromText("world"),
+                WarValue.FromNumeric(42)
             });
             Assert.AreEqual(new[] { "hello world" }, output);
 
@@ -1142,7 +1142,7 @@ namespace Tests
                 end
             ");
 
-            script.StartCoroutine("pulse", System.Array.Empty<IValue>(), loop: true);
+            script.StartCoroutine("pulse", System.Array.Empty<WarValue>(), loop: true);
             Assert.AreEqual(new[] { "on" }, output);
 
             script.TickCoroutines(0.016); // off, then restart → on
@@ -1168,7 +1168,7 @@ namespace Tests
                 end
             ");
 
-            var id = script.StartCoroutine("forever", System.Array.Empty<IValue>(), loop: true);
+            var id = script.StartCoroutine("forever", System.Array.Empty<WarValue>(), loop: true);
             Assert.AreEqual(new[] { "tick" }, output);
 
             script.StopCoroutine(id);
@@ -1193,8 +1193,8 @@ namespace Tests
                 end
             ");
 
-            script.StartCoroutine("a", System.Array.Empty<IValue>());
-            script.StartCoroutine("b", System.Array.Empty<IValue>());
+            script.StartCoroutine("a", System.Array.Empty<WarValue>());
+            script.StartCoroutine("b", System.Array.Empty<WarValue>());
             Assert.AreEqual(new[] { "a1", "b1" }, output);
 
             script.TickCoroutines(0.016);

@@ -8,7 +8,7 @@ namespace WarScript.Statement
     public class ConditionStatement : Statement
     {
         public readonly List<KeyValuePair<IExpression, CompositeStatement>> Cases;
-        
+
         public ConditionStatement(WarScriptLanguage script, int rowNumber, string blockName) : base(script, rowNumber, blockName)
         {
             Cases = new List<KeyValuePair<IExpression, CompositeStatement>>();
@@ -18,20 +18,18 @@ namespace WarScript.Statement
         {
             Cases.Add(new KeyValuePair<IExpression, CompositeStatement>(caseCondition, caseStatement));
         }
-        
+
         public override void Execute()
         {
             foreach (var keyValuePair in Cases)
             {
-                var condition = keyValuePair.Key;
-                var value = condition.Evaluate();
-                if (value is LogicalValue logicalValue && logicalValue.GetValue())
+                var value = keyValuePair.Key.Evaluate();
+                if (value.IsLogical && value.LogicalValue)
                 {
                     _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
                     try
                     {
-                        var statement = keyValuePair.Value;
-                        statement.Execute();
+                        keyValuePair.Value.Execute();
                     }
                     finally
                     {

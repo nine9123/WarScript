@@ -6,16 +6,15 @@ namespace WarScript.Expression.Operator
     {
         public NegateOperator(WarScriptLanguage script, IExpression value) : base(script, value) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
             var value = Value.Evaluate();
-            if (value == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
-            if (value is NumericValue numericValue)
-                return new NumericValue(_script, -numericValue.GetValue());
+            if (value.IsNumeric)
+                return WarValue.FromNumeric(-value.Numeric);
 
-            return _script.ExceptionContext.RaiseException(
-                $"Unable to negate non-numeric value `{value}`");
+            return _script.RaiseException($"Unable to negate non-numeric value `{value}`");
         }
     }
 }

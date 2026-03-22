@@ -1,4 +1,3 @@
-using WarScript.Context;
 using WarScript.Expression;
 
 namespace WarScript.Statement
@@ -7,7 +6,7 @@ namespace WarScript.Statement
     {
         private readonly IExpression _expression;
         public IExpression Expression => _expression;
-        
+
         public ReturnStatement(WarScriptLanguage script, int rowNumber, string blockName, IExpression expression) : base(script, rowNumber, blockName)
         {
             _expression = expression;
@@ -16,7 +15,7 @@ namespace WarScript.Statement
         public override void Execute()
         {
             var result = _expression.Evaluate();
-            if (result != null)
+            if (_script.HaltFlags == 0)
             {
                 _script.ReturnContext.GetScope().Invoke(result);
                 _script.HaltFlags |= WarScriptLanguage.HaltFlag.Return;

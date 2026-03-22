@@ -524,9 +524,9 @@ namespace Tests
                         new FunctionDetails("native_add", new List<string> { "a", "b" }),
                         args =>
                         {
-                            var a = NativeHelper.Arg<NumericValue>(args, 0);
-                            var b = NativeHelper.Arg<NumericValue>(args, 1);
-                            return new NumericValue(script, a.GetValue() + b.GetValue());
+                            var a = NativeHelper.NumericArg(args, 0);
+                            var b = NativeHelper.NumericArg(args, 1);
+                            return WarValue.FromNumeric(a + b);
                         },
                         "", ""));
                 });
@@ -893,7 +893,7 @@ namespace Tests
                 end
             ");
             var tick = script.GetFunction("tick", 1);
-            var dt = new NumericValue(script, 0.016);
+            var dt = WarValue.FromNumeric(0.016);
 
             Measure("Call API: tick(dt) 10k with arg", () =>
             {
@@ -921,8 +921,8 @@ namespace Tests
                 end
             ");
             var tick = script.GetFunction("tick", 2);
-            var dx = new NumericValue(script, 0.5);
-            var dy = new NumericValue(script, 0.3);
+            var dx = WarValue.FromNumeric(0.5);
+            var dy = WarValue.FromNumeric(0.3);
 
             Measure("Call API: heavy tick (class r/w + math) 1k", () =>
             {
@@ -948,8 +948,8 @@ namespace Tests
                 end
             ");
             var tick = script.GetFunction("tick", 2);
-            var dx = new NumericValue(script, 0.5);
-            var dy = new NumericValue(script, 0.3);
+            var dx = WarValue.FromNumeric(0.5);
+            var dy = WarValue.FromNumeric(0.3);
 
             // Warmup
             for (var i = 0; i < 1000; i++)

@@ -122,7 +122,7 @@ namespace WarScript
                 var type = Tokens.Next(TokenType.Keyword, "if", "elif", "else");
                 IExpression caseCondition;
                 if (type.Value == "else")
-                    caseCondition = new LogicalValue(_script, true); // else has no condition
+                    caseCondition = new ConstantExpression(WarValue.True); // else has no condition
                 else
                     caseCondition = ExpressionReader.ReadExpression(_script, Tokens);
 

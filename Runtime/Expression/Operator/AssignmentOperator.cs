@@ -1,5 +1,3 @@
-using WarScript.Context;
-using WarScript.Expression;
 using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
@@ -8,17 +6,17 @@ namespace WarScript.Expression.Operator
     {
         public AssignmentOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
-            var left = Left.Evaluate();
-            if (left == null) return null;
+            Left.Evaluate();
+            if (_script.HaltFlags != 0) return default;
             var right = Right.Evaluate();
-            if (right == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
             if (Left is IAssignExpression assignable)
                 return assignable.Assign(right);
 
-            return _script.ExceptionContext.RaiseException($"Unable to make an assignment for '{Left}'");
+            return _script.RaiseException($"Unable to make an assignment for '{Left}'");
         }
     }
 }

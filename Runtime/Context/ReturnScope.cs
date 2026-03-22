@@ -1,35 +1,22 @@
-#nullable enable
-
 using WarScript.Expression.Value;
 
 namespace WarScript.Context
 {
-    /// <summary>
-    /// Scope for the <see cref="Statement.CompositeStatement"/> defining if the <b>return</b> statement invoked
-    ///
-    /// <see cref="BreakContext"/>
-    /// </summary>
     public class ReturnScope
     {
         public bool Invoked { get; private set; }
-        public IValue? Result { get; private set; }
+        public WarValue Result { get; private set; }
 
-        /// <summary>
-        /// Notify current scope that <b>return</b> statement invoked
-        /// </summary>
-        public void Invoke(IValue result)
+        public void Invoke(WarValue result)
         {
             Invoked = true;
             Result = result;
         }
 
-        /// <summary>
-        /// Reset the scope for reuse
-        /// </summary>
         public void Reset()
         {
             Invoked = false;
-            Result = null;
+            Result = default;
         }
     }
 }

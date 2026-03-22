@@ -15,6 +15,6 @@ namespace WarScript.Expression
             Right = right;
         }
 
-        public abstract IValue Evaluate();
+        public abstract WarValue Evaluate();
     }
 }

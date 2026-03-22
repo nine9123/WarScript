@@ -6,27 +6,26 @@ namespace WarScript.Expression.Operator
     {
         public LogicalOrOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
             var left = Left.Evaluate();
-            if (left == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
-            // Short-circuit: if left is true, result is true without evaluating right
-            if (left is LogicalValue leftLog)
+            if (left.IsLogical)
             {
-                if (leftLog.GetValue())
-                    return _script.LogicalTrue;
+                if (left.LogicalValue)
+                    return WarValue.True;
 
                 var right = Right.Evaluate();
-                if (right == null) return null;
+                if (_script.HaltFlags != 0) return default;
 
-                if (right is LogicalValue rightLog)
-                    return rightLog.GetValue() ? _script.LogicalTrue : _script.LogicalFalse;
+                if (right.IsLogical)
+                    return WarValue.FromLogical(right.LogicalValue);
 
-                return _script.ExceptionContext.RaiseException($"Unable to perform OR operator for non logical values `{left}`, `{right}`");
+                return _script.RaiseException($"Unable to perform OR operator for non logical values `{left}`, `{right}`");
             }
 
-            return _script.ExceptionContext.RaiseException($"Unable to perform OR operator for non logical value `{left}`");
+            return _script.RaiseException($"Unable to perform OR operator for non logical value `{left}`");
         }
     }
 }

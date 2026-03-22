@@ -3,25 +3,15 @@ using WarScript.Expression.Value;
 
 namespace WarScript.Statement
 {
-    public enum YieldType
-    {
-        NextTick,
-        Wait,
-        Until
-    }
+    public enum YieldType { NextTick, Wait, Until }
 
     public class YieldStatement : Statement
     {
         public readonly YieldType YieldType;
         public readonly IExpression Expression;
 
-        public YieldStatement(
-            WarScriptLanguage script,
-            int rowNumber,
-            string blockName,
-            YieldType yieldType,
-            IExpression expression)
-            : base(script, rowNumber, blockName)
+        public YieldStatement(WarScriptLanguage script, int rowNumber, string blockName,
+            YieldType yieldType, IExpression expression) : base(script, rowNumber, blockName)
         {
             YieldType = yieldType;
             Expression = expression;
@@ -33,10 +23,8 @@ namespace WarScript.Statement
             if (YieldType == YieldType.Wait && Expression != null)
             {
                 var val = Expression.Evaluate();
-                if (val is NumericValue num)
-                    waitDuration = num.GetValue();
+                if (val.IsNumeric) waitDuration = val.Numeric;
             }
-
             _script.SetYielded(YieldType, waitDuration);
         }
     }

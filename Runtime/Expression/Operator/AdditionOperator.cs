@@ -5,54 +5,47 @@ namespace WarScript.Expression.Operator
 {
     public sealed class AdditionOperator : BinaryOperatorExpression
     {
-        public AdditionOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right)
-        {
-        }
+        public AdditionOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
             var left = Left.Evaluate();
-            if (left == null) return null;
-
+            if (_script.HaltFlags != 0) return default;
             var right = Right.Evaluate();
-            if (right == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
-            if (left is NumericValue leftNumericValue && right is NumericValue rightNumericValue)
+            if (left.IsNumeric && right.IsNumeric)
+                return WarValue.FromNumeric(left.Numeric + right.Numeric);
+
+            if (left.IsArray || right.IsArray)
             {
-                return new NumericValue(_script, leftNumericValue.GetValue() + rightNumericValue.GetValue());
-            }
-            else if (left is ArrayValue || right is ArrayValue)
-            {
-                List<IValue> newArray;
-                if (left is ArrayValue leftArr && right is ArrayValue rightArr)
+                List<WarValue> newArray;
+                if (left.IsArray && right.IsArray)
                 {
-                    var lv = leftArr.GetValue();
-                    var rv = rightArr.GetValue();
-                    newArray = new List<IValue>(lv.Count + rv.Count);
+                    var lv = left.ArrayValue;
+                    var rv = right.ArrayValue;
+                    newArray = new List<WarValue>(lv.Count + rv.Count);
                     newArray.AddRange(lv);
                     newArray.AddRange(rv);
                 }
-                else if (left is ArrayValue leftArr2)
+                else if (left.IsArray)
                 {
-                    var lv = leftArr2.GetValue();
-                    newArray = new List<IValue>(lv.Count + 1);
+                    var lv = left.ArrayValue;
+                    newArray = new List<WarValue>(lv.Count + 1);
                     newArray.AddRange(lv);
                     newArray.Add(right);
                 }
                 else
                 {
-                    var rv = ((ArrayValue)right).GetValue();
-                    newArray = new List<IValue>(rv.Count + 1);
+                    var rv = right.ArrayValue;
+                    newArray = new List<WarValue>(rv.Count + 1);
                     newArray.Add(left);
                     newArray.AddRange(rv);
                 }
+                return WarValue.FromArray(newArray);
+            }
 
-                return new ArrayValue(_script, newArray);
-            }
-            else
-            {
-                return new TextValue(_script, left.ToString() + right.ToString());
-            }
+            return WarValue.FromText(left.ToString() + right.ToString());
         }
     }
 }

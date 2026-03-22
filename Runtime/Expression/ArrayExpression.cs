@@ -13,20 +13,17 @@ namespace WarScript.Expression
             _script = script;
             Values = values;
         }
-        
-        public IValue Evaluate()
-        {
-            return new ArrayValue(_script, this);
-        }
-        
-        public List<IValue> GetValues()
-        {
-            var values = new List<IValue>();
-            foreach (var expressionValue in Values)
-            {
-                values.Add(expressionValue.Evaluate());
-            }
 
+        public WarValue Evaluate()
+        {
+            return WarValue.FromArray(GetValues());
+        }
+
+        public List<WarValue> GetValues()
+        {
+            var values = new List<WarValue>(Values.Count);
+            foreach (var expr in Values)
+                values.Add(expr.Evaluate());
             return values;
         }
     }

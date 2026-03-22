@@ -13,7 +13,7 @@ namespace WarScript.Expression
         public TokensStack Tokens { get; }
 
         private WarScriptLanguage _script;
-        
+
         private ExpressionReader(WarScriptLanguage script, TokensStack tokens)
         {
             _script = script;
@@ -38,7 +38,6 @@ namespace WarScript.Expression
             if (Tokens.PeekSameLine(TokenType.Operator, TokenType.Variable, TokenType.Numeric,
                     TokenType.Logical, TokenType.Null, TokenType.This, TokenType.Text))
                 return true;
-            // beginning of an array
             if (Tokens.PeekSameLine(TokenType.GroupDivider, "{"))
                 return true;
             return false;
@@ -47,7 +46,7 @@ namespace WarScript.Expression
         private IExpression ReadExpression()
         {
             var lastWasOperand = false;
-            
+
             while (HasNextToken())
             {
                 var token = Tokens.Next();
@@ -55,11 +54,10 @@ namespace WarScript.Expression
                 {
                     case TokenType.Operator:
                         var op = token.Value.ToOperator();
-                        
-                        // '-' after an operand is subtraction, otherwise it's negation
+
                         if (op == Operator.Operator.Subtraction && !lastWasOperand)
                             op = Operator.Operator.Negate;
-                        
+
                         switch (op)
                         {
                             case Operator.Operator.LeftParen:
@@ -67,16 +65,12 @@ namespace WarScript.Expression
                                 lastWasOperand = false;
                                 break;
                             case Operator.Operator.RightParen:
-                                // until left bracket is not reached
                                 while (_operators.Count > 0 && _operators.Peek() != Operator.Operator.LeftParen)
                                     ApplyTopOperator();
-                                _operators.Pop(); // pop left bracket
-                                lastWasOperand = true; // (...) acts as an operand
+                                _operators.Pop();
+                                lastWasOperand = true;
                                 break;
                             default:
-                                // until top operator has greater or equal precedence
-                                // Never pop past a LeftParen — it is only removed by
-                                // the matching RightParen case above.
                                 while (_operators.Count > 0
                                        && _operators.Peek() != Operator.Operator.LeftParen
                                        && _operators.Peek().GreaterThan(op))
@@ -93,13 +87,13 @@ namespace WarScript.Expression
                         switch (token.Type)
                         {
                             case TokenType.Numeric:
-                                operand = new NumericValue(_script, double.Parse(value));
+                                operand = new ConstantExpression(WarValue.FromNumeric(double.Parse(value)));
                                 break;
                             case TokenType.Logical:
-                                operand = bool.Parse(value) ? _script.LogicalTrue : _script.LogicalFalse;
+                                operand = bool.Parse(value) ? _script.TrueExpr : _script.FalseExpr;
                                 break;
                             case TokenType.Text:
-                                operand = new TextValue(_script, value);
+                                operand = new ConstantExpression(WarValue.FromText(value));
                                 // allow indexing on string literals: "hello"{0}
                                 if (Tokens.PeekSameLine(TokenType.GroupDivider, "{"))
                                 {
@@ -113,10 +107,10 @@ namespace WarScript.Expression
                                 operand = ReadArrayInstance();
                                 break;
                             case TokenType.Null:
-                                operand = _script.Null;
+                                operand = _script.NullExpr;
                                 break;
                             case TokenType.This:
-                                operand = _script.This;
+                                operand = _script.ThisExpr;
                                 break;
                             case TokenType.Variable:
                             default:
@@ -141,9 +135,9 @@ namespace WarScript.Expression
             while (_operators.Count > 0)
                 ApplyTopOperator();
 
-            return _operands.Count == 0 ? _script.Null : _operands.Pop();
+            return _operands.Count == 0 ? _script.NullExpr : _operands.Pop();
         }
-        
+
         private void ApplyTopOperator()
         {
             var op = _operators.Pop();
@@ -160,63 +154,53 @@ namespace WarScript.Expression
             }
         }
 
-        // read class instance: new Class [ property1, property2, ... ]
         private ClassExpression ReadClassInstance(Token.Token token)
         {
             var properties = new List<IExpression>();
             if (Tokens.PeekSameLine(TokenType.GroupDivider, "["))
             {
                 Tokens.Next(TokenType.GroupDivider, "[");
-
                 while (!Tokens.PeekSameLine(TokenType.GroupDivider, "]"))
                 {
                     properties.Add(ReadExpression(_script, this));
                     if (Tokens.PeekSameLine(TokenType.GroupDivider, ","))
                         Tokens.Next();
                 }
-
                 Tokens.Next(TokenType.GroupDivider, "]");
             }
             return new ClassExpression(_script, token.Value, properties);
         }
 
-        // read function invocation: function_name [ argument1, argument2 ]
         private FunctionExpression ReadFunctionInvocation(Token.Token token)
         {
             var arguments = new List<IExpression>();
             if (Tokens.PeekSameLine(TokenType.GroupDivider, "["))
             {
                 Tokens.Next(TokenType.GroupDivider, "[");
-
                 while (!Tokens.PeekSameLine(TokenType.GroupDivider, "]"))
                 {
                     arguments.Add(ReadExpression(_script, this));
                     if (Tokens.PeekSameLine(TokenType.GroupDivider, ","))
                         Tokens.Next();
                 }
-
                 Tokens.Next(TokenType.GroupDivider, "]");
             }
             return new FunctionExpression(_script, token.Value, arguments);
         }
 
-        // read array instantiation: array = {1,2,3}
         private ArrayExpression ReadArrayInstance()
         {
             var values = new List<IExpression>();
-
             while (!Tokens.PeekSameLine(TokenType.GroupDivider, "}"))
             {
                 values.Add(ReadExpression(_script, this));
                 if (Tokens.PeekSameLine(TokenType.GroupDivider, ","))
                     Tokens.Next();
             }
-
             Tokens.Next(TokenType.GroupDivider, "}");
             return new ArrayExpression(_script, values);
         }
 
-        // read array value: array{index}
         private ArrayValueOperator ReadArrayValue(Token.Token token)
         {
             var array = new VariableExpression(_script, token.Value);

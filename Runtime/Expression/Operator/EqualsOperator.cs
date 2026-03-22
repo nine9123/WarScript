@@ -1,4 +1,3 @@
-using WarScript.Expression;
 using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
@@ -7,25 +6,22 @@ namespace WarScript.Expression.Operator
     {
         public EqualsOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
             var left = Left.Evaluate();
-            if (left == null) return null;
+            if (_script.HaltFlags != 0) return default;
             var right = Right.Evaluate();
-            if (right == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
             bool result;
-            if (left == _script.Null || right == _script.Null)
-                // null equality is reference-based
-                result = left == right;
-            else if (left.GetType() == right.GetType())
-                // same type: compare inner values
+            if (left.IsNull || right.IsNull)
+                result = left.IsNull && right.IsNull;
+            else if (left.Tag == right.Tag)
                 result = left.Equals(right);
             else
-                // different types: fall back to string comparison
                 result = left.ToString() == right.ToString();
 
-            return result ? _script.LogicalTrue : _script.LogicalFalse;
+            return WarValue.FromLogical(result);
         }
     }
 }

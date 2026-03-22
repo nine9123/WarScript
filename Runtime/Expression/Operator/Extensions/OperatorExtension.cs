@@ -4,7 +4,6 @@ namespace WarScript.Expression.Operator.Extensions
 {
     public static class OperatorExtension
     {
-        // Order matters: more specific patterns must come before broader ones
         private static readonly Dictionary<string, Operator> OperatorMap = new Dictionary<string, Operator>()
         {
             { "!",    Operator.Not },
@@ -12,27 +11,21 @@ namespace WarScript.Expression.Operator.Extensions
             { "::",   Operator.ClassProperty },
             { "as",   Operator.ClassCast },
             { "is",   Operator.ClassInstanceOf },
-
             { "*",    Operator.Multiplication },
             { "/",    Operator.Division },
             { "%",    Operator.Modulo },
-
             { "+",    Operator.Addition },
             { "-",    Operator.Subtraction },
-
             { "==",   Operator.Equals },
             { "!=",   Operator.NotEquals },
             { "<=",   Operator.LessThanOrEqualTo },
             { "<",    Operator.LessThan },
             { ">=",   Operator.GreaterThanOrEqualTo },
             { ">",    Operator.GreaterThan },
-
             { "(",    Operator.LeftParen },
             { ")",    Operator.RightParen },
-
             { "and",  Operator.LogicalAnd },
             { "or",   Operator.LogicalOr },
-
             { "<<",   Operator.ArrayAppend },
             { "=",    Operator.Assignment },
             { "+=",   Operator.AdditionAssignment },
@@ -46,7 +39,6 @@ namespace WarScript.Expression.Operator.Extensions
             if (OperatorMap.TryGetValue(value, out var op))
                 return op;
 
-            // Handle ":: new" with variable whitespace from the lexer
             var trimmed = value.Trim();
             if (trimmed == ":: new" || (trimmed.StartsWith("::") && trimmed.EndsWith("new")))
                 return Operator.NestedClassInstance;
@@ -102,14 +94,6 @@ namespace WarScript.Expression.Operator.Extensions
         public static bool IsUnary(this Operator op) =>
             op is Operator.Not || op is Operator.ClassInstance || op is Operator.Negate;
 
-        /// <summary>
-        /// Right-associative unary operators that should NOT be popped when
-        /// an operator of equal precedence arrives. This makes !!x parse as
-        /// !(!x) and !obj :: prop parse as !(obj :: prop).
-        ///
-        /// Note: ClassInstance (new) is intentionally excluded — it is
-        /// left-associative so that new Foo :: prop means (new Foo) :: prop.
-        /// </summary>
         public static bool IsRightAssociative(this Operator op) =>
             op is Operator.Not || op is Operator.Negate;
 
@@ -124,41 +108,31 @@ namespace WarScript.Expression.Operator.Extensions
                 Operator.ClassCast            => 7,
                 Operator.ClassInstanceOf      => 7,
                 Operator.ArrayValue           => 7,
-
                 Operator.Multiplication       => 6,
                 Operator.Division             => 6,
                 Operator.Modulo               => 6,
-
                 Operator.Addition             => 5,
                 Operator.Subtraction          => 5,
-
                 Operator.Equals               => 4,
                 Operator.NotEquals            => 4,
                 Operator.LessThan             => 4,
                 Operator.LessThanOrEqualTo    => 4,
                 Operator.GreaterThan          => 4,
                 Operator.GreaterThanOrEqualTo => 4,
-
                 Operator.LeftParen            => 3,
                 Operator.RightParen           => 3,
-
                 Operator.LogicalAnd           => 2,
                 Operator.LogicalOr            => 1,
-
                 Operator.ArrayAppend          => 0,
                 Operator.Assignment           => 0,
                 Operator.AdditionAssignment       => 0,
                 Operator.SubtractionAssignment    => 0,
                 Operator.MultiplicationAssignment => 0,
                 Operator.DivisionAssignment       => 0,
-
                 _ => throw new System.Exception($"Operator {op} has no defined precedence")
             };
 
         public static bool GreaterThan(this Operator op, Operator other) =>
-            // Right-associative operators (! and Negate) on the stack should
-            // NOT be popped when an operator of equal precedence arrives.
-            // This makes !!x = !(!x) and !obj :: prop = !(obj :: prop).
             op.IsRightAssociative()
                 ? op.GetPrecedence().CompareTo(other.GetPrecedence()) > 0
                 : op.GetPrecedence().CompareTo(other.GetPrecedence()) >= 0;

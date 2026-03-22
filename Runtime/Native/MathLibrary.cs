@@ -11,107 +11,68 @@ namespace WarScript.Native
         {
             scope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("pow", new List<string> { "base", "exp" }),
-                args =>
-                {
-                    var b = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    var e = NativeHelper.Arg<NumericValue>(args, 1).GetValue();
-                    return new NumericValue(script, Math.Pow(b, e));
-                },
+                args => WarValue.FromNumeric(Math.Pow(NativeHelper.NumericArg(args, 0), NativeHelper.NumericArg(args, 1))),
                 "Returns base raised to the power of exp.", "NumericValue"));
 
             scope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("sqrt", new List<string> { "n" }),
-                args =>
-                {
-                    var n = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    return new NumericValue(script, Math.Sqrt(n));
-                },
+                args => WarValue.FromNumeric(Math.Sqrt(NativeHelper.NumericArg(args, 0))),
                 "Returns the square root of n.", "NumericValue"));
 
             scope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("floor", new List<string> { "n" }),
-                args =>
-                {
-                    var n = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    return new NumericValue(script, Math.Floor(n));
-                },
+                args => WarValue.FromNumeric(Math.Floor(NativeHelper.NumericArg(args, 0))),
                 "Rounds down to nearest integer.", "NumericValue"));
 
             scope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("ceil", new List<string> { "n" }),
-                args =>
-                {
-                    var n = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    return new NumericValue(script, Math.Ceiling(n));
-                },
+                args => WarValue.FromNumeric(Math.Ceiling(NativeHelper.NumericArg(args, 0))),
                 "Rounds up to nearest integer.", "NumericValue"));
 
             scope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("round", new List<string> { "n" }),
-                args =>
-                {
-                    var n = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    return new NumericValue(script, Math.Round(n));
-                },
+                args => WarValue.FromNumeric(Math.Round(NativeHelper.NumericArg(args, 0))),
                 "Rounds to nearest integer.", "NumericValue"));
 
             scope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("abs", new List<string> { "n" }),
-                args =>
-                {
-                    var n = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    return new NumericValue(script, Math.Abs(n));
-                },
+                args => WarValue.FromNumeric(Math.Abs(NativeHelper.NumericArg(args, 0))),
                 "Returns absolute value.", "NumericValue"));
 
             scope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("min", new List<string> { "a", "b" }),
-                args =>
-                {
-                    var a = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    var b = NativeHelper.Arg<NumericValue>(args, 1).GetValue();
-                    return new NumericValue(script, Math.Min(a, b));
-                },
+                args => WarValue.FromNumeric(Math.Min(NativeHelper.NumericArg(args, 0), NativeHelper.NumericArg(args, 1))),
                 "Returns the smaller of two values.", "NumericValue"));
 
             scope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("max", new List<string> { "a", "b" }),
-                args =>
-                {
-                    var a = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    var b = NativeHelper.Arg<NumericValue>(args, 1).GetValue();
-                    return new NumericValue(script, Math.Max(a, b));
-                },
+                args => WarValue.FromNumeric(Math.Max(NativeHelper.NumericArg(args, 0), NativeHelper.NumericArg(args, 1))),
                 "Returns the larger of two values.", "NumericValue"));
 
             scope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("clamp", new List<string> { "n", "lo", "hi" }),
                 args =>
                 {
-                    var n = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    var lo = NativeHelper.Arg<NumericValue>(args, 1).GetValue();
-                    var hi = NativeHelper.Arg<NumericValue>(args, 2).GetValue();
-                    return new NumericValue(script, Math.Max(lo, Math.Min(hi, n)));
+                    var n = NativeHelper.NumericArg(args, 0);
+                    var lo = NativeHelper.NumericArg(args, 1);
+                    var hi = NativeHelper.NumericArg(args, 2);
+                    return WarValue.FromNumeric(Math.Max(lo, Math.Min(hi, n)));
                 },
                 "Clamps n between lo and hi.", "NumericValue"));
 
             scope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("sign", new List<string> { "n" }),
-                args =>
-                {
-                    var n = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    return new NumericValue(script, Math.Sign(n));
-                },
+                args => WarValue.FromNumeric(Math.Sign(NativeHelper.NumericArg(args, 0))),
                 "Returns -1, 0, or 1.", "NumericValue"));
 
             scope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("lerp", new List<string> { "a", "b", "t" }),
                 args =>
                 {
-                    var a = NativeHelper.Arg<NumericValue>(args, 0).GetValue();
-                    var b = NativeHelper.Arg<NumericValue>(args, 1).GetValue();
-                    var t = NativeHelper.Arg<NumericValue>(args, 2).GetValue();
-                    return new NumericValue(script, a + (b - a) * t);
+                    var a = NativeHelper.NumericArg(args, 0);
+                    var b = NativeHelper.NumericArg(args, 1);
+                    var t = NativeHelper.NumericArg(args, 2);
+                    return WarValue.FromNumeric(a + (b - a) * t);
                 },
                 "Linear interpolation from a to b by t.", "NumericValue"));
         }

@@ -8,8 +8,6 @@ namespace WarScript.Statement.Loop
     {
         private readonly VariableExpression _variable;
         private readonly IExpression _lowerBound;
-
-        // Reused every iteration
         private readonly LessThanOperator _hasNextOperator;
         private readonly AdditionOperator _stepOperator;
 
@@ -20,7 +18,7 @@ namespace WarScript.Statement.Loop
             _hasNextOperator = new LessThanOperator(_script, _variable, upperBound);
             _stepOperator = new AdditionOperator(_script, _variable, _script.DefaultStep);
         }
-        
+
         public ForLoopStatement(WarScriptLanguage script, int rowNumber, string blockName, VariableExpression variable, IExpression lowerBound, IExpression upperBound, IExpression step) : base(script, rowNumber, blockName)
         {
             _variable = variable;
@@ -37,12 +35,10 @@ namespace WarScript.Statement.Loop
         protected override bool HasNext()
         {
             var value = _hasNextOperator.Evaluate();
-            return value is LogicalValue logicalValue && logicalValue.GetValue();
+            return value.IsLogical && value.LogicalValue;
         }
 
-        protected override void PreIncrement()
-        {
-        }
+        protected override void PreIncrement() { }
 
         protected override void PostIncrement()
         {

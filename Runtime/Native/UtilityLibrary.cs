@@ -9,11 +9,8 @@ namespace WarScript.Native
         public static void Register(WarScriptLanguage script, DefinitionScope scope)
         {
             scope.AddFunction(new NativeFunctionDefinition(
-                new FunctionDetails("is_null",new List<string> { "object" }),
-                args =>
-                {
-                    return new LogicalValue(script, args[0] is NullValue);
-                },
+                new FunctionDetails("is_null", new List<string> { "object" }),
+                args => WarValue.FromLogical(args[0].IsNull),
                 "Returns true if the object is null",
                 "Logical"));
         }

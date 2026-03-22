@@ -1,36 +1,24 @@
-using WarScript.Context.Definition;
-using WarScript.Expression;
 using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    /// <summary>
-    /// Cast a class instance from one type to another
-    /// </summary>
     public sealed class ClassCastOperator : BinaryOperatorExpression
     {
-        public ClassCastOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right)
-        {
-        }
+        public ClassCastOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
             var left = Left.Evaluate();
-            if (left == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
-            // evaluate expressions
-            var classInstance = (ClassValue)left;
+            var classData = left.ClassValue;
             var typeToCastName = ((VariableExpression)Right).Name;
 
-            // retrieve class details
-            var classDetails = classInstance.GetValue().ClassDetails;
+            if (classData.Definition.ClassDetails.Name == typeToCastName)
+                return left;
 
-            // check if the type to cast is different from original
-            if (classDetails.Name == typeToCastName)
-                return classInstance;
-
-            // retrieve ClassValue of other type
-            return classInstance.GetRelation(typeToCastName);
+            var relation = classData.GetRelation(typeToCastName);
+            return relation != null ? WarValue.FromClass(relation) : WarValue.Null;
         }
     }
 }

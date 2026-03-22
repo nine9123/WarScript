@@ -1,4 +1,3 @@
-using WarScript.Context;
 using WarScript.Expression;
 using WarScript.Expression.Value;
 
@@ -12,16 +11,14 @@ namespace WarScript.Statement
         {
             _expression = expression;
         }
-        
+
         public override void Execute()
         {
             var value = _expression.Evaluate();
-            if (value != null)
+            if (_script.HaltFlags == 0)
             {
-                if (value == _script.Null)
-                {
-                    value = new TextValue(_script, "Empty exception");
-                }
+                if (value.IsNull)
+                    value = WarValue.FromText("Empty exception");
                 _script.ExceptionContext.RaiseException(value);
             }
             _script.ExceptionContext.AddTracedStatement(this);

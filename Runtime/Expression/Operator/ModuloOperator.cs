@@ -6,17 +6,17 @@ namespace WarScript.Expression.Operator
     {
         public ModuloOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
             var left = Left.Evaluate();
-            if (left == null) return null;
+            if (_script.HaltFlags != 0) return default;
             var right = Right.Evaluate();
-            if (right == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
-            if (left is NumericValue leftNum && right is NumericValue rightNum)
-                return new NumericValue(_script, leftNum.GetValue() % rightNum.GetValue());
+            if (left.IsNumeric && right.IsNumeric)
+                return WarValue.FromNumeric(left.Numeric % right.Numeric);
 
-            return _script.ExceptionContext.RaiseException($"Unable to perform modulo for non numeric values `{left}` and `{right}`");
+            return _script.RaiseException($"Unable to perform modulo for non numeric values `{left}` and `{right}`");
         }
     }
 }

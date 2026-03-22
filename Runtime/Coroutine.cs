@@ -22,9 +22,8 @@ namespace WarScript
 
         private readonly List<CoroutineSegment> _segments;
         private int _currentSegment;
-        private Dictionary<string, IValue> _savedVariables;
+        private Dictionary<string, WarValue> _savedVariables;
 
-        // Yield state
         private YieldType _yieldType;
         private double _waitRemaining;
         private IExpression? _untilCondition;
@@ -34,7 +33,7 @@ namespace WarScript
             FunctionDefinition function,
             DefinitionScope definitionScope,
             MemoryScope memoryScope,
-            IValue[] args,
+            WarValue[] args,
             bool loop,
             int id)
         {
@@ -46,44 +45,29 @@ namespace WarScript
             Id = id;
             _currentSegment = 0;
 
-            // Save initial arguments as variables
-            _savedVariables = new Dictionary<string, IValue>();
+            _savedVariables = new Dictionary<string, WarValue>();
             for (var i = 0; i < function.Details.Arguments.Count; i++)
             {
                 _savedVariables[function.Details.Arguments[i]] =
-                    i < args.Length ? args[i] : script.Null;
+                    i < args.Length ? args[i] : WarValue.Null;
             }
 
-            // Split function body into segments at yield boundaries
             _segments = SplitSegments(function.Statement);
         }
 
-        /// <summary>
-        /// Checks if the coroutine is ready to resume.
-        /// For Wait: decrements timer. For Until: evaluates condition.
-        /// </summary>
         public bool IsReady(double dt)
         {
             switch (_yieldType)
             {
-                case YieldType.NextTick:
-                    return true;
-
+                case YieldType.NextTick: return true;
                 case YieldType.Wait:
                     _waitRemaining -= dt;
                     return _waitRemaining <= 0;
-
-                case YieldType.Until:
-                    return EvaluateUntilCondition();
-
-                default:
-                    return true;
+                case YieldType.Until: return EvaluateUntilCondition();
+                default: return true;
             }
         }
 
-        /// <summary>
-        /// Executes the current segment with saved variables.
-        /// </summary>
         public void Resume()
         {
             if (_currentSegment >= _segments.Count)
@@ -94,39 +78,29 @@ namespace WarScript
 
             var segment = _segments[_currentSegment];
 
-            // Push scopes — same as Call() does
             _script.DefinitionContext.PushScope(_definitionScope);
             _script.MemoryContext.PushScope(_memoryScope);
             _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
-
-            // Clear yield state before executing
             _script.ClearYield();
 
             try
             {
-                // Restore saved variables into the function scope
                 foreach (var kvp in _savedVariables)
-                {
                     _script.MemoryContext.GetScope().SetLocal(kvp.Key, kvp.Value);
-                }
 
-                // Execute segment statements
                 foreach (var stmt in segment.Statements)
                 {
                     stmt.Execute();
-
                     if (_script.ExceptionContext.IsRaised()) break;
                     if (_script.ReturnContext.GetScope().Invoked) break;
                 }
 
-                // Execute the yield statement itself (evaluates wait duration)
                 if (segment.Yield != null && !_script.ExceptionContext.IsRaised()
                                           && !_script.ReturnContext.GetScope().Invoked)
                 {
                     segment.Yield.Execute();
                 }
 
-                // Save all local variables for next segment
                 _savedVariables = _script.MemoryContext.GetScope().GetAllLocals();
             }
             finally
@@ -141,10 +115,8 @@ namespace WarScript
                     _script.ExceptionContext.PrintStackTrace();
             }
 
-            // Advance to next segment
             _currentSegment++;
 
-            // Set up the yield condition from what YieldStatement.Execute() stored
             if (segment.Yield != null && _script.IsYielded)
             {
                 _yieldType = _script.YieldedType;
@@ -156,19 +128,11 @@ namespace WarScript
             }
             else if (_currentSegment >= _segments.Count)
             {
-                if (_loop)
-                {
-                    _currentSegment = 0;
-                    _yieldType = YieldType.NextTick;
-                }
-                else
-                {
-                    IsComplete = true;
-                }
+                if (_loop) { _currentSegment = 0; _yieldType = YieldType.NextTick; }
+                else { IsComplete = true; }
             }
             else
             {
-                // No yield but more segments (shouldn't happen, but handle gracefully)
                 _yieldType = YieldType.NextTick;
             }
         }
@@ -184,12 +148,10 @@ namespace WarScript
             try
             {
                 foreach (var kvp in _savedVariables)
-                {
                     _script.MemoryContext.GetScope().SetLocal(kvp.Key, kvp.Value);
-                }
 
                 var result = _untilCondition.Evaluate();
-                return result is LogicalValue lv && lv.GetValue();
+                return result.IsLogical && result.LogicalValue;
             }
             finally
             {
@@ -199,9 +161,6 @@ namespace WarScript
             }
         }
 
-        /// <summary>
-        /// Splits a function body into segments at top-level yield statements.
-        /// </summary>
         private List<CoroutineSegment> SplitSegments(FunctionStatement function)
         {
             var segments = new List<CoroutineSegment>();
@@ -211,9 +170,6 @@ namespace WarScript
             {
                 if (stmt is YieldStatement yield)
                 {
-                    // Evaluate wait duration at split time is wrong —
-                    // it needs to be evaluated at execution time.
-                    // Store 0 for now, Resume() reads it from the yield's Execute().
                     segments.Add(new CoroutineSegment(currentStatements, yield, 0));
                     currentStatements = new List<Statement.Statement>();
                 }
@@ -223,9 +179,7 @@ namespace WarScript
                 }
             }
 
-            // Final segment (after last yield, or entire body if no yields)
             segments.Add(new CoroutineSegment(currentStatements, null, 0));
-
             return segments;
         }
     }

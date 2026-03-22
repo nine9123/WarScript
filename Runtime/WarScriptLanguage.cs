@@ -12,17 +12,14 @@ namespace WarScript
 {
     public class WarScriptLanguage
     {
-        public readonly NullValue Null;
-        public readonly ThisValue This;
-
-        // ── Cached value singletons to avoid allocation on every comparison/loop ──
-        public readonly LogicalValue LogicalTrue;
-        public readonly LogicalValue LogicalFalse;
+        // ── Cached expression singletons for the parser ──
+        public readonly ConstantExpression NullExpr;
+        public readonly ConstantExpression TrueExpr;
+        public readonly ConstantExpression FalseExpr;
+        public readonly ThisExpression ThisExpr;
 
         // ── Consolidated halt flags for fast abort checking ──
-        // Instead of checking 3-5 separate properties per statement,
-        // the hot path does a single `if (HaltFlags != 0)` check.
-        [System.Flags]
+        [Flags]
         public enum HaltFlag
         {
             None      = 0,
@@ -33,6 +30,7 @@ namespace WarScript
             Yield     = 16,
         }
         public HaltFlag HaltFlags;
+
         public readonly DefinitionContext DefinitionContext;
         public readonly MemoryContext MemoryContext;
         public readonly ExceptionContext ExceptionContext;
@@ -42,24 +40,10 @@ namespace WarScript
         public readonly ClassInstanceContext ClassInstanceContext;
         public readonly IExpression DefaultStep;
 
-        /// <summary>
-        /// Host-provided callback to read source code from a file path.
-        /// Receives the path string from the import statement and returns the file contents.
-        /// Null if imports are not supported.
-        /// </summary>
         public readonly Func<string, string?>? FileResolver;
-
         public readonly Action<WarScriptLanguage, string>? Logger;
 
-        /// <summary>
-        /// Cache of already-imported files keyed by resolved path.
-        /// Prevents re-parsing the same file when imported from multiple locations.
-        /// </summary>
         internal readonly Dictionary<string, DefinitionScope> ImportCache = new();
-
-        /// <summary>
-        /// Tracks files currently being imported for circular dependency detection.
-        /// </summary>
         internal readonly HashSet<string> ImportStack = new();
 
         private readonly DefinitionScope _definitionScope;
@@ -69,35 +53,21 @@ namespace WarScript
 
         private readonly List<Token.Token> _tokens;
 
-        /// <summary>
-        /// Cached AST from the first Run() call.
-        /// Avoids re-parsing tokens into statements on every subsequent Run().
-        /// </summary>
         private CompositeStatement? _cachedStatement;
 
         public readonly DefinitionScope GlobalDefinitionScope;
         public readonly MemoryScope GlobalMemoryScope;
-        
-        /// <summary>
-        /// The user-level memory scope where script globals live.
-        /// Standalone function calls parent their scope here so that
-        /// recursive calls get isolated locals while retaining global access.
-        /// </summary>
+
         public MemoryScope UserMemoryScope => _memoryScope;
 
         // ── Coroutine support ──
         private readonly List<Coroutine> _coroutines = new();
         private int _nextCoroutineId = 1;
 
-        // Yield state — set by YieldStatement.Execute(), read by Coroutine.Resume()
         public bool IsYielded { get; private set; }
         public YieldType YieldedType { get; private set; }
         public double YieldedWaitDuration { get; private set; }
-        
-        /// <param name="scriptName">Name of the script (used in error messages)</param>
-        /// <param name="sourceCode">Source code to execute</param>
-        /// <param name="fileResolver">Callback to read imported files by path. Null disables imports</param>
-        /// <param name="logger">Callback to log print messages</param>
+
         public WarScriptLanguage(
             string scriptName,
             string sourceCode,
@@ -107,11 +77,12 @@ namespace WarScript
             ScriptName = scriptName;
             FileResolver = fileResolver;
             Logger = logger;
-            
-            Null = new NullValue(this);
-            This = new ThisValue(this);
-            LogicalTrue = new LogicalValue(this, true);
-            LogicalFalse = new LogicalValue(this, false);
+
+            NullExpr = new ConstantExpression(WarValue.Null);
+            TrueExpr = new ConstantExpression(WarValue.True);
+            FalseExpr = new ConstantExpression(WarValue.False);
+            ThisExpr = new ThisExpression(this);
+
             DefinitionContext = new DefinitionContext(this);
             MemoryContext = new MemoryContext(this);
             ExceptionContext = new ExceptionContext(this);
@@ -119,14 +90,13 @@ namespace WarScript
             NextContext = new NextContext();
             BreakContext = new BreakContext();
             ClassInstanceContext = new ClassInstanceContext();
-            DefaultStep = new NumericValue(this, 1.0);
-            
+            DefaultStep = new ConstantExpression(WarValue.FromNumeric(1.0));
+
             _tokens = LexicalParser.Parse(sourceCode);
 
-            // Native scope: holds native bindings
             var nativeDefinitionScope = DefinitionContext.NewScope();
             var nativeMemoryScope = MemoryContext.NewScope();
-            nativeMemoryScope.Poolable = false; // long-lived, stored in GlobalMemoryScope
+            nativeMemoryScope.Poolable = false;
 
             DefinitionContext.PushScope(nativeDefinitionScope);
             MemoryContext.PushScope(nativeMemoryScope);
@@ -134,10 +104,9 @@ namespace WarScript
             GlobalDefinitionScope = nativeDefinitionScope;
             GlobalMemoryScope = nativeMemoryScope;
 
-            // User scope: child of native scope. User definitions shadow natives
             _definitionScope = DefinitionContext.NewScope();
             _memoryScope = MemoryContext.NewScope();
-            _memoryScope.Poolable = false; // long-lived, reused across Run() calls
+            _memoryScope.Poolable = false;
 
             DefinitionContext.EndScope();
             MemoryContext.EndScope();
@@ -152,7 +121,6 @@ namespace WarScript
             {
                 if (_cachedStatement == null)
                 {
-                    // First run: parse tokens into AST and cache it
                     var statement = new CompositeStatement(this, null, ScriptName);
                     StatementParser.Parse(this, _tokens, statement);
                     _cachedStatement = statement;
@@ -167,8 +135,7 @@ namespace WarScript
 
                 if (ExceptionContext.IsRaised())
                     ExceptionContext.PrintStackTrace();
-                
-                // Clean slate after script completes
+
                 HaltFlags = HaltFlag.None;
             }
         }
@@ -177,16 +144,13 @@ namespace WarScript
         {
             return _definitionScope.GetFunction(functionName, arguments);
         }
-        
-        public void Call(FunctionDefinition function, params IValue[] arguments)
+
+        public void Call(FunctionDefinition function, params WarValue[] arguments)
         {
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
-
-            // Create a nested scope for the function arguments,
-            // same as FunctionExpression.Evaluate does
             MemoryContext.PushScope(MemoryContext.NewScope());
-            
+
             try
             {
                 var details = function.Details;
@@ -194,16 +158,14 @@ namespace WarScript
                 {
                     MemoryContext.GetScope().SetLocal(
                         details.Arguments[i],
-                        i < arguments.Length ? arguments[i] : Null
-                    );
+                        i < arguments.Length ? arguments[i] : WarValue.Null);
                 }
-                
+
                 function.Statement.Execute();
             }
             finally
             {
-                MemoryContext.EndScope(); // function argument scope
-                
+                MemoryContext.EndScope();
                 DefinitionContext.EndScope();
                 MemoryContext.EndScope();
                 ReturnContext.Reset();
@@ -211,7 +173,7 @@ namespace WarScript
 
                 if (ExceptionContext.IsRaised())
                     ExceptionContext.PrintStackTrace();
-                
+
                 HaltFlags = HaltFlag.None;
             }
         }
@@ -220,7 +182,16 @@ namespace WarScript
         {
             return _definitionScope.ContainsFunction(functionName, argumentsSize);
         }
-        
+
+        /// <summary>
+        /// Convenience method: raises an exception and returns a null WarValue.
+        /// Used by operators to combine error raising and return in one line.
+        /// </summary>
+        public WarValue RaiseException(string message)
+        {
+            return ExceptionContext.RaiseException(message);
+        }
+
         public void SetYielded(YieldType type, double waitDuration)
         {
             IsYielded = true;
@@ -236,12 +207,8 @@ namespace WarScript
             YieldedType = YieldType.NextTick;
             YieldedWaitDuration = 0;
         }
-        
-        /// <summary>
-        /// Starts a coroutine from a named function. Returns a coroutine ID.
-        /// The first segment executes immediately.
-        /// </summary>
-        public int StartCoroutine(string functionName, IValue[] args, bool loop = false)
+
+        public int StartCoroutine(string functionName, WarValue[] args, bool loop = false)
         {
             var argCount = args?.Length ?? 0;
             var function = _definitionScope.GetFunction(functionName, argCount);
@@ -255,19 +222,14 @@ namespace WarScript
             var id = _nextCoroutineId++;
             var coroutine = new Coroutine(
                 this, function, _definitionScope, _memoryScope,
-                args ?? System.Array.Empty<IValue>(), loop, id);
+                args ?? Array.Empty<WarValue>(), loop, id);
 
             _coroutines.Add(coroutine);
-
-            // Execute first segment immediately
             coroutine.Resume();
 
             return id;
         }
 
-        /// <summary>
-        /// Stops a coroutine by ID.
-        /// </summary>
         public bool StopCoroutine(int id)
         {
             for (var i = _coroutines.Count - 1; i >= 0; i--)
@@ -281,39 +243,20 @@ namespace WarScript
             return false;
         }
 
-        /// <summary>
-        /// Stops all active coroutines.
-        /// </summary>
-        public void StopAllCoroutines()
-        {
-            _coroutines.Clear();
-        }
+        public void StopAllCoroutines() => _coroutines.Clear();
 
-        /// <summary>
-        /// Called by the engine each frame. Checks yield conditions and
-        /// resumes ready coroutines. Returns the number of active coroutines.
-        /// </summary>
         public int TickCoroutines(double dt)
         {
             for (var i = _coroutines.Count - 1; i >= 0; i--)
             {
                 var co = _coroutines[i];
-
-                if (!co.IsReady(dt))
-                    continue;
-
+                if (!co.IsReady(dt)) continue;
                 co.Resume();
-
-                if (co.IsComplete)
-                    _coroutines.RemoveAt(i);
+                if (co.IsComplete) _coroutines.RemoveAt(i);
             }
-
             return _coroutines.Count;
         }
 
-        /// <summary>
-        /// Number of active coroutines.
-        /// </summary>
         public int ActiveCoroutineCount => _coroutines.Count;
     }
 }

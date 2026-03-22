@@ -1,4 +1,3 @@
-using WarScript.Expression;
 using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
@@ -7,9 +6,9 @@ namespace WarScript.Expression.Operator
     {
         public ClassInstanceOperator(WarScriptLanguage script, IExpression value) : base(script, value) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
-            return Value.Evaluate(); // will return ToString() value
+            return Value.Evaluate();
         }
     }
 }

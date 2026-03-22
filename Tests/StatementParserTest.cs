@@ -84,8 +84,8 @@ namespace Tests
                 new FunctionDetails("double", new List<string> { "n" }),
                 args =>
                 {
-                    var n = NativeHelper.Arg<NumericValue>(args, 0);
-                    return new NumericValue(null, n.GetValue() * 2);
+                    var n = NativeHelper.NumericArg(args, 0);
+                    return WarValue.FromNumeric(n * 2);
                 },
                 "Doubles a number", "NumericValue"));
             

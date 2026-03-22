@@ -4,22 +4,17 @@ namespace WarScript.Expression.Operator
 {
     public sealed class ArrayAppendOperator : BinaryOperatorExpression
     {
-        public ArrayAppendOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right)
-        {
-        }
+        public ArrayAppendOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
             var left = Left.Evaluate();
-            if (left == null) return null;
-
+            if (_script.HaltFlags != 0) return default;
             var right = Right.Evaluate();
-            if (right == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
-            if (left is ArrayValue arrayValue)
-            {
-                arrayValue.AppendValue(right);
-            }
+            if (left.IsArray)
+                left.ArrayAppend(right);
 
             return left;
         }
