@@ -17,7 +17,7 @@ namespace WarScript.Expression.Operator
             if (left == _script.Null || right == _script.Null)
                 result = left != right;
             else if (left.GetType() == right.GetType())
-                result = !left.GetObjectValue().Equals(right.GetObjectValue());
+                result = !left.Equals(right);
             else
                 result = left.ToString() != right.ToString();
 

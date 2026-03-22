@@ -69,6 +69,12 @@ namespace WarScript
 
         private readonly List<Token.Token> _tokens;
 
+        /// <summary>
+        /// Cached AST from the first Run() call.
+        /// Avoids re-parsing tokens into statements on every subsequent Run().
+        /// </summary>
+        private CompositeStatement? _cachedStatement;
+
         public readonly DefinitionScope GlobalDefinitionScope;
         public readonly MemoryScope GlobalMemoryScope;
         
@@ -144,9 +150,15 @@ namespace WarScript
 
             try
             {
-                var statement = new CompositeStatement(this, null, ScriptName);
-                StatementParser.Parse(this, _tokens, statement);
-                statement.Execute();
+                if (_cachedStatement == null)
+                {
+                    // First run: parse tokens into AST and cache it
+                    var statement = new CompositeStatement(this, null, ScriptName);
+                    StatementParser.Parse(this, _tokens, statement);
+                    _cachedStatement = statement;
+                }
+
+                _cachedStatement.Execute();
             }
             finally
             {

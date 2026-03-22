@@ -12,7 +12,7 @@ namespace WarScript.Native
                 new FunctionDetails("is_null",new List<string> { "object" }),
                 args =>
                 {
-                    return new LogicalValue(script, args[0] == null);
+                    return new LogicalValue(script, args[0] is NullValue);
                 },
                 "Returns true if the object is null",
                 "Logical"));

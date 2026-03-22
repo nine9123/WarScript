@@ -18,7 +18,7 @@ namespace WarScript.Expression.Value
         {
             if (GetValue().Length > index)
             {
-                SetValue(GetValue().Substring(0, index) + value + GetValue().Substring(index));
+                SetValue(GetValue().Substring(0, index) + value + GetValue().Substring(index + 1));
             }
         }
     }

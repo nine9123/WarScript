@@ -31,7 +31,7 @@ namespace WarScript.Statement.Loop
 
         protected override void Init()
         {
-            _script.MemoryContext.GetScope().Set(_variable.Name, _lowerBound.Evaluate());
+            _script.MemoryContext.GetScope().SetLocal(_variable.Name, _lowerBound.Evaluate());
         }
 
         protected override bool HasNext()
@@ -46,7 +46,7 @@ namespace WarScript.Statement.Loop
 
         protected override void PostIncrement()
         {
-            _script.MemoryContext.GetScope().Set(_variable.Name, _stepOperator.Evaluate());
+            _script.MemoryContext.GetScope().SetLocal(_variable.Name, _stepOperator.Evaluate());
         }
     }
 }
