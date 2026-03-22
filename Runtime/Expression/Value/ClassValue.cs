@@ -1,7 +1,6 @@
 #nullable enable
 
 using System.Collections.Generic;
-using System.Linq;
 using WarScript.Context;
 using WarScript.Context.Definition;
 
@@ -35,29 +34,17 @@ namespace WarScript.Expression.Value
         
         public IValue GetValue(string name)
         {
-            _script.MemoryContext.PushScope(MemoryScope);
-            try
-            {
-                var result = _script.MemoryContext.GetScope().GetLocal(name);
-                return result == null ? _script.Null : result;
-            }
-            finally
-            {
-                _script.MemoryContext.EndScope();
-            }
+            // Read directly from the class instance's scope.
+            // No need to push/pop the global scope stack — the MemoryScope
+            // is self-contained and GetLocal is a simple dictionary lookup.
+            var result = MemoryScope.GetLocal(name);
+            return result ?? _script.Null;
         }
 
         public void SetValue(string name, IValue? value)
         {
-            _script.MemoryContext.PushScope(MemoryScope);
-            try
-            {
-                _script.MemoryContext.GetScope().SetLocal(name, value);
-            }
-            finally
-            {
-                _script.MemoryContext.EndScope();
-            }
+            // Write directly to the class instance's scope.
+            MemoryScope.SetLocal(name, value);
         }
         
         public override bool Equals(object? obj)
@@ -66,28 +53,43 @@ namespace WarScript.Expression.Value
             if (obj == null || GetType() != obj.GetType()) return false;
     
             var other = (ClassValue)obj;
+            var properties = GetValue().ClassDetails.Properties;
     
-            return GetValue()
-                .ClassDetails
-                .Properties
-                .All(prop => GetValue(prop).Equals(other.GetValue(prop)));
+            // Compare all properties with direct scope reads — no push/pop per property.
+            for (int i = 0; i < properties.Count; i++)
+            {
+                var prop = properties[i];
+                var thisVal = MemoryScope.GetLocal(prop);
+                var otherVal = other.MemoryScope.GetLocal(prop);
+                
+                var thisResolved = thisVal ?? _script.Null;
+                var otherResolved = otherVal ?? (IValue)_script.Null;
+                
+                if (!thisResolved.Equals(otherResolved))
+                    return false;
+            }
+            return true;
         }
         
         public override int GetHashCode()
         {
             var hash = 17;
-            foreach (var prop in GetValue().ClassDetails.Properties)
+            var properties = GetValue().ClassDetails.Properties;
+            for (int i = 0; i < properties.Count; i++)
             {
-                hash = hash * 31 + (GetValue(prop)?.GetHashCode() ?? 0);
+                var val = MemoryScope.GetLocal(properties[i]);
+                hash = hash * 31 + (val?.GetHashCode() ?? 0);
             }
             return hash;
         }
         
         public override IEnumerator<IValue> GetEnumerator()
         {
-            foreach (var prop in GetValue().ClassDetails.Properties)
+            var properties = GetValue().ClassDetails.Properties;
+            for (int i = 0; i < properties.Count; i++)
             {
-                yield return GetValue(prop);
+                var val = MemoryScope.GetLocal(properties[i]);
+                yield return val ?? (IValue)_script.Null;
             }
         }
     }

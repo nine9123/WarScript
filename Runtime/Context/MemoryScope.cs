@@ -75,18 +75,29 @@ namespace WarScript.Context
 
         /// <summary>
         /// Set variable's value to the current scope
+        /// Walks up the scope chain with a single TryGetValue per level.
+        /// If the variable exists anywhere in the chain, updates it in-place.
+        /// Otherwise creates a new local in the current scope.
         /// </summary>
         public void Set(string name, IValue value)
         {
-            var variableScope = FindScope(name);
-            if (variableScope == null)
+            // Walk up the scope chain looking for an existing variable.
+            // Uses TryGetValue which does a single hash lookup per scope,
+            // instead of the old FindScope (ContainsKey) + SetLocal (ContainsKey + indexer)
+            // pattern which did 2-3 lookups per scope visited.
+            var scope = this;
+            while (scope != null)
             {
-                SetLocal(name, value);
+                if (scope._variables.TryGetValue(name, out var existing))
+                {
+                    existing.Value = value;
+                    return;
+                }
+                scope = scope._parent;
             }
-            else
-            {
-                variableScope.SetLocal(name, value);
-            }
+
+            // Not found anywhere — create new local in current scope
+            _variables.Add(name, ValueReference.InstanceOf(value));
         }
 
         /// <summary>
@@ -102,18 +113,12 @@ namespace WarScript.Context
         /// </summary>
         public void SetLocal(string name, IValue value)
         {
-            if (_variables.ContainsKey(name))
-                _variables[name].Value = value;
+            if (_variables.TryGetValue(name, out var existing))
+                existing.Value = value;
             else
                 _variables.Add(name, ValueReference.InstanceOf(value));
         }
 
-        private MemoryScope FindScope(string name)
-        {
-            if (_variables.ContainsKey(name))
-                return this;
-            return _parent == null ? null : _parent.FindScope(name);
-        }
         
         /// <summary>
         /// Returns all local variables in this scope (not parent scopes).
