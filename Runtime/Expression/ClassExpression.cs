@@ -42,13 +42,16 @@ namespace WarScript.Expression
 
         private WarValue EvaluateWith(Dictionary<string, ClassData> relations)
         {
-            // evaluate property expressions
-            var values = new List<WarValue>(_propertiesExpressions.Count);
+            // evaluate property expressions into ValueReferences
+            // If the expression is already a ValueReference (from a parent constructor),
+            // InstanceOf returns the SAME object — this is how derived and base class
+            // scopes share property references for inheritance.
+            var values = new List<ValueReference>(_propertiesExpressions.Count);
             foreach (var expression in _propertiesExpressions)
             {
-                var value = expression.Evaluate();
+                var valRef = ValueReference.InstanceOf(expression);
                 if (_script.HaltFlags != 0) return default;
-                values.Add(value);
+                values.Add(valRef!);
             }
 
             // get class's definition
@@ -68,20 +71,23 @@ namespace WarScript.Expression
 
             // fill missing properties with Null
             var propCount = definition.ClassDetails.Properties.Count;
-            var valuesToSet = new WarValue[propCount];
+            var valuesToSet = new ValueReference[propCount];
             for (var i = 0; i < propCount; i++)
             {
-                valuesToSet[i] = i < values.Count ? values[i] : WarValue.Null;
+                valuesToSet[i] = i < values.Count
+                    ? values[i]
+                    : ValueReference.InstanceOf(WarValue.Null);
             }
 
             // invoke constructors of base classes
+            // Pass the SAME ValueReference objects so both scopes share them
             foreach (var baseType in definition.BaseTypes)
             {
                 var baseClassProperties = new List<IExpression>();
                 foreach (var property in baseType.Properties)
                 {
                     var index = definition.ClassDetails.Properties.IndexOf(property);
-                    baseClassProperties.Add(new ConstantExpression(valuesToSet[index]));
+                    baseClassProperties.Add(valuesToSet[index]);
                 }
                 var baseExpression = new ClassExpression(_script, baseType.Name, baseClassProperties);
                 baseExpression.EvaluateWith(relations);
@@ -92,6 +98,7 @@ namespace WarScript.Expression
                 _script.ClassInstanceContext.PushValue(classData);
                 for (var i = 0; i < propCount; i++)
                 {
+                    // Use SetLocal(name, ValueReference) overload to store the shared reference
                     _script.MemoryContext.GetScope().SetLocal(definition.ClassDetails.Properties[i], valuesToSet[i]);
                 }
 

@@ -70,7 +70,6 @@ assert replace_first["world", "W"] == "World"
 
 # ── String mutation inside a loop ──
 word = "0000"
-i = 0
 loop i in 0..4
     if i == 0
         word{i} = "a"
