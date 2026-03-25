@@ -53,6 +53,11 @@ namespace WarScript.Bytecode
         // TryHandler saves it so DoHandleException can restore on unwind.
         private int _scopeDepth;
 
+        // Instruction budgeting: decremented on every dispatch.
+        // When it hits 0, the VM raises an exception and stops.
+        // A value of 0 after Reset() means unlimited (no budgeting).
+        private int _budget;
+
         private struct TryHandler
         {
             public int RescueIP;
@@ -82,6 +87,7 @@ namespace WarScript.Bytecode
             _hasPendingException = false;
             _hasPendingReturn = false;
             _scopeDepth = 0;
+            _budget = _script.InstructionBudget;
         }
 
         public void Run(CompiledFunction main)
@@ -141,6 +147,15 @@ namespace WarScript.Bytecode
 
             while (true)
             {
+                // ── Instruction budget ──
+                if (_budget > 0 && --_budget == 0)
+                {
+                    RuntimeError("Instruction budget exceeded");
+                    if (DoHandleException(ref fi, ref code, ref constants))
+                        continue;
+                    return;
+                }
+
                 var instruction = (OpCode)code[_frames[fi].IP++];
 
                 switch (instruction)
@@ -405,6 +420,13 @@ namespace WarScript.Bytecode
 
                             // Arguments are already on the stack at sp-argCount .. sp-1
                             var newBase = _sp - argCount;
+                            if (_frameCount >= FramesMax)
+                            {
+                                _script.MemoryContext.EndScope();
+                                RuntimeError("Stack overflow");
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
                             _frames[_frameCount] = new CallFrame
                             {
                                 Function = def.Compiled,
@@ -539,6 +561,16 @@ namespace WarScript.Bytecode
                                 _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
 
                                 var newBase = _sp - argCount;
+                                if (_frameCount >= FramesMax)
+                                {
+                                    _script.MemoryContext.EndScope(); // method-local
+                                    _script.DefinitionContext.EndScope();
+                                    _script.MemoryContext.EndScope(); // class memory
+                                    _script.ClassInstanceContext.PopValue();
+                                    RuntimeError("Stack overflow");
+                                    if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                    return;
+                                }
                                 _frames[_frameCount] = new CallFrame
                                 {
                                     Function = methodDef.Compiled,

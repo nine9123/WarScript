@@ -63,6 +63,19 @@ namespace WarScript
 
         public MemoryScope UserMemoryScope => _memoryScope;
 
+        /// <summary>
+        /// Maximum number of bytecode instructions a single Run() or Call()
+        /// invocation may execute before the VM raises an exception and stops.
+        /// 
+        /// Set to 0 (default) to disable budgeting (unlimited execution).
+        /// Recommended values: 100,000 for tick functions, 1,000,000 for Run().
+        ///
+        /// When the budget is exhausted, the VM raises "Instruction budget exceeded"
+        /// which can be caught by begin/rescue like any other exception. If uncaught,
+        /// the script stops cleanly and the game continues.
+        /// </summary>
+        public int InstructionBudget { get; set; }
+
         // ── Coroutine support ──
         // NOTE: Coroutines still use tree-walk execution because they split
         // functions at yield points and execute each segment individually.
