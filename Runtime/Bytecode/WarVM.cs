@@ -58,6 +58,26 @@ namespace WarScript.Bytecode
         // A value of 0 after Reset() means unlimited (no budgeting).
         private int _budget;
 
+        // ── Coroutine support ──
+        // When the VM is used as a coroutine executor, yield opcodes
+        // set these fields and return from Execute(). The coroutine
+        // wrapper reads them to determine how to wait.
+        private bool _yielded;
+        private YieldType _yieldType;
+        private double _yieldWaitDuration;
+
+        /// <summary>True if the last Execute() stopped because of a yield opcode.</summary>
+        public bool IsYielded => _yielded;
+
+        /// <summary>The type of yield (NextTick, Wait, Until).</summary>
+        public YieldType SuspendedYieldType => _yieldType;
+
+        /// <summary>For YieldWait: the requested wait duration in seconds.</summary>
+        public double SuspendedWaitDuration => _yieldWaitDuration;
+
+        /// <summary>True if the VM has finished executing (no more frames).</summary>
+        public bool IsCompleted => _frameCount == 0 && !_yielded;
+
         private struct TryHandler
         {
             public int RescueIP;
@@ -88,6 +108,9 @@ namespace WarScript.Bytecode
             _hasPendingReturn = false;
             _scopeDepth = 0;
             _budget = _script.InstructionBudget;
+            _yielded = false;
+            _yieldType = YieldType.NextTick;
+            _yieldWaitDuration = 0;
         }
 
         public void Run(CompiledFunction main)
@@ -109,13 +132,11 @@ namespace WarScript.Bytecode
         /// <summary>
         /// Run a compiled function with pre-supplied arguments.
         /// Used by the Call() API for host→script invocations (tick loops, events).
-        /// The caller is responsible for pushing/popping DefinitionScope and MemoryScope.
         /// </summary>
         public WarValue RunFunction(CompiledFunction func, WarValue[] arguments)
         {
             Reset();
 
-            // Push arguments as the first N stack slots (they become local slots 0..N-1)
             for (int i = 0; i < func.Arity; i++)
                 _stack[_sp++] = i < arguments.Length ? arguments[i] : WarValue.Null;
 
@@ -131,6 +152,43 @@ namespace WarScript.Bytecode
             Execute();
 
             return _topLevelResult;
+        }
+
+        /// <summary>
+        /// Set up a coroutine: push arguments, create the initial frame,
+        /// and execute until the first yield or completion.
+        /// The VM preserves its full state between calls — do NOT call Reset().
+        /// </summary>
+        public void InitCoroutine(CompiledFunction func, WarValue[] arguments)
+        {
+            Reset();
+
+            for (int i = 0; i < func.Arity; i++)
+                _stack[_sp++] = i < arguments.Length ? arguments[i] : WarValue.Null;
+
+            _frames[0] = new CallFrame
+            {
+                Function = func,
+                IP = 0,
+                StackBase = 0,
+                SavedScopeDepth = _scopeDepth
+            };
+            _frameCount = 1;
+
+            Execute();
+        }
+
+        /// <summary>
+        /// Resume a yielded coroutine. Continues execution from where the
+        /// last yield opcode stopped. Does NOT reset VM state.
+        /// </summary>
+        public void ResumeCoroutine()
+        {
+            _yielded = false;
+            _yieldType = YieldType.NextTick;
+            _yieldWaitDuration = 0;
+            _budget = _script.InstructionBudget;
+            Execute();
         }
 
         // ────────────────────────────────────────────────────────
@@ -913,12 +971,19 @@ namespace WarScript.Bytecode
                     // ══════════════════════════════════════════════
 
                     case OpCode.Yield:
+                        _yielded = true;
+                        _yieldType = YieldType.NextTick;
+                        _yieldWaitDuration = 0;
                         _script.SetYielded(YieldType.NextTick, 0);
                         return;
                     case OpCode.YieldWait:
                     {
                         var dur = Pop();
-                        _script.SetYielded(YieldType.Wait, dur.IsNumeric ? dur.Numeric : 0);
+                        var d = dur.IsNumeric ? dur.Numeric : 0;
+                        _yielded = true;
+                        _yieldType = YieldType.Wait;
+                        _yieldWaitDuration = d;
+                        _script.SetYielded(YieldType.Wait, d);
                         return;
                     }
 

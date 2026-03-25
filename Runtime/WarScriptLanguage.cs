@@ -77,11 +77,9 @@ namespace WarScript
         public int InstructionBudget { get; set; }
 
         // ── Coroutine support ──
-        // NOTE: Coroutines still use tree-walk execution because they split
-        // functions at yield points and execute each segment individually.
-        // Full bytecode coroutines would require VM suspend/resume (saving
-        // IP + stack state), which is a separate feature.
-        private readonly List<Coroutine> _coroutines = new();
+        // Uses BytecodeCoroutine (VM suspend/resume) when the function has
+        // bytecode, falls back to tree-walk Coroutine otherwise.
+        private readonly List<ICoroutine> _coroutines = new();
         private int _nextCoroutineId = 1;
 
         public bool IsYielded { get; private set; }
@@ -339,12 +337,24 @@ namespace WarScript
             }
 
             var id = _nextCoroutineId++;
-            var coroutine = new Coroutine(
-                this, function, _definitionScope, _memoryScope,
-                args ?? Array.Empty<WarValue>(), loop, id);
+            var safeArgs = args ?? Array.Empty<WarValue>();
 
-            _coroutines.Add(coroutine);
-            coroutine.Resume();
+            if (function.Compiled != null)
+            {
+                var bco = new BytecodeCoroutine(
+                    this, function.Compiled, _definitionScope, _memoryScope,
+                    safeArgs, loop, id);
+                _coroutines.Add(bco);
+                bco.Resume();
+            }
+            else
+            {
+                var coroutine = new Coroutine(
+                    this, function, _definitionScope, _memoryScope,
+                    safeArgs, loop, id);
+                _coroutines.Add(coroutine);
+                coroutine.Resume();
+            }
 
             return id;
         }

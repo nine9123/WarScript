@@ -9,9 +9,20 @@ using WarScript.Statement;
 
 namespace WarScript
 {
-    public class Coroutine
+    /// <summary>
+    /// Common interface for tree-walk and bytecode coroutines.
+    /// </summary>
+    public interface ICoroutine
     {
-        public readonly int Id;
+        int Id { get; }
+        bool IsComplete { get; }
+        bool IsReady(double dt);
+        void Resume();
+    }
+
+    public class Coroutine : ICoroutine
+    {
+        public int Id { get; }
         public bool IsComplete { get; private set; }
 
         private readonly WarScriptLanguage _script;

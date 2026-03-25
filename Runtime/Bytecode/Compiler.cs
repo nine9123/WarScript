@@ -767,8 +767,24 @@ namespace WarScript.Bytecode
                     Chunk.EmitOp(OpCode.YieldWait, line);
                     break;
                 case YieldType.Until:
-                    // Until is complex (condition re-evaluated later) — yield with flag
+                    // Compile as a yield-loop: check condition, if false yield
+                    // and re-check on resume. Each tick costs ~6 instructions.
+                    //   loop_start:
+                    //     <condition>
+                    //     JumpIfTrue after_yield
+                    //     Pop (false)
+                    //     OP_Yield
+                    //     Jump loop_start
+                    //   after_yield:
+                    //     Pop (true)
+                    var loopStart = Chunk.Count;
+                    CompileExpression(stmt.Expression!);
+                    var exitJump = Chunk.EmitJump(OpCode.JumpIfTrue, line);
+                    Chunk.EmitOp(OpCode.Pop, line);
                     Chunk.EmitOp(OpCode.Yield, line);
+                    Chunk.EmitLoop(loopStart, line);
+                    Chunk.PatchJump(exitJump);
+                    Chunk.EmitOp(OpCode.Pop, line);
                     break;
             }
         }
