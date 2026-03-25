@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using WarScript.Bytecode;
 using WarScript.Statement;
 
 namespace WarScript.Context.Definition
@@ -29,6 +30,11 @@ namespace WarScript.Context.Definition
         /// Contains nested classes and functions defined in this class
         /// </summary>
         private readonly DefinitionScope _definitionScope;
+
+        /// <summary>
+        /// Bytecode-compiled constructor body (null until compiled).
+        /// </summary>
+        public CompiledFunction CompiledConstructor { get; set; }
 
         public ClassDefinition(
             ClassDetails classDetails,

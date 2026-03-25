@@ -12,6 +12,10 @@ namespace WarScript.Expression
         private readonly List<IExpression> _propertiesExpressions;
         private readonly WarScriptLanguage _script;
 
+        // Compiler accessors
+        internal string ClassName => _name;
+        internal List<IExpression> PropertiesExpressions => _propertiesExpressions;
+
         public ClassExpression(WarScriptLanguage script, string name, List<IExpression> propertiesExpressions)
         {
             _script = script;

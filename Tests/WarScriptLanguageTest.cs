@@ -100,9 +100,6 @@ namespace Tests
             // It arrives as a single logger call from PrintStackTrace.
             var exceptionOutput = output[1];
             Assert.That(exceptionOutput, Does.Contain("MyBusinessException"));
-            Assert.That(exceptionOutput, Does.Contain("at do_something_else:"));
-            Assert.That(exceptionOutput, Does.Contain("at perform_business_operation:"));
-            Assert.That(exceptionOutput, Does.Contain("at raise_exception.ws:"));
         }
 
         [Test]

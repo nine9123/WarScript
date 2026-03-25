@@ -10,6 +10,12 @@ namespace WarScript.Statement.Loop
         private readonly IExpression _upperBound;
         private readonly IExpression _step;
 
+        // Compiler accessors
+        internal VariableExpression Variable => _variable;
+        internal IExpression LowerBound => _lowerBound;
+        internal IExpression UpperBound => _upperBound;
+        internal IExpression Step => _step;
+
         // Numeric fast-path state — mutable per-execution.
         // Saved/restored in Execute() to handle recursive reentry
         // (AST caching means the same node is shared across recursive calls).

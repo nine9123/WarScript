@@ -9,6 +9,10 @@ namespace WarScript.Statement.Loop
         private readonly VariableExpression _variableExpression;
         private readonly IExpression _iterableExpression;
 
+        // Compiler accessors
+        internal VariableExpression Variable => _variableExpression;
+        internal IExpression Iterable => _iterableExpression;
+
         // Mutable per-execution state — saved/restored in Execute()
         // to handle recursive reentry through cached AST nodes.
         private List<WarValue> _items;

@@ -28,6 +28,9 @@ namespace WarScript.Statement
     public class ImportStatement : Statement
     {
         private readonly string _path;
+
+        // Compiler accessor
+        internal string Path => _path;
         
         public ImportStatement(WarScriptLanguage script, int rowNumber, string blockName, string path) 
             : base(script, rowNumber, blockName)

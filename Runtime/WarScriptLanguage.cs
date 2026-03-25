@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using WarScript.Bytecode;
 using WarScript.Context;
 using WarScript.Context.Definition;
 using WarScript.Expression;
@@ -54,6 +55,7 @@ namespace WarScript
         private readonly List<Token.Token> _tokens;
 
         private CompositeStatement? _cachedStatement;
+        private CompiledFunction? _cachedCompiled;
 
         public readonly DefinitionScope GlobalDefinitionScope;
         public readonly MemoryScope GlobalMemoryScope;
@@ -114,6 +116,9 @@ namespace WarScript
 
         public void Run()
         {
+            RunBytecode();
+            return;
+            
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
 
@@ -127,6 +132,45 @@ namespace WarScript
                 }
 
                 _cachedStatement.Execute();
+            }
+            finally
+            {
+                DefinitionContext.EndScope();
+                MemoryContext.EndScope();
+
+                if (ExceptionContext.IsRaised())
+                    ExceptionContext.PrintStackTrace();
+
+                HaltFlags = HaltFlag.None;
+            }
+        }
+
+        /// <summary>
+        /// Parse the script (if not cached), compile to bytecode, and execute
+        /// in the bytecode VM. Drop-in replacement for <see cref="Run"/>.
+        /// </summary>
+        public void RunBytecode()
+        {
+            DefinitionContext.PushScope(_definitionScope);
+            MemoryContext.PushScope(_memoryScope);
+
+            try
+            {
+                // Parse (reuse cached AST)
+                if (_cachedStatement == null)
+                {
+                    var statement = new CompositeStatement(this, null, ScriptName);
+                    StatementParser.Parse(this, _tokens, statement);
+                    _cachedStatement = statement;
+                }
+
+                // Compile (reuse cached bytecode)
+                if (_cachedCompiled == null)
+                    _cachedCompiled = Compiler.CompileScript(this, _cachedStatement, _definitionScope);
+
+                // Execute in the VM
+                var vm = new WarVM(this);
+                vm.Run(_cachedCompiled);
             }
             finally
             {

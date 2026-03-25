@@ -8,6 +8,9 @@ namespace WarScript.Expression.Value
     {
         private readonly WarValue _value;
 
+        /// <summary>The compile-time constant value (used by the bytecode compiler).</summary>
+        public WarValue Value => _value;
+
         public ConstantExpression(WarValue value)
         {
             _value = value;

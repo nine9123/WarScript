@@ -19,6 +19,11 @@ namespace WarScript.Context.Definition
         private readonly Dictionary<string, ClassDefinition> _classes;
 
         /// <summary>
+        /// All class definitions in this scope (for compiler iteration).
+        /// </summary>
+        public IEnumerable<ClassDefinition> ClassDefinitions => _classes.Values;
+
+        /// <summary>
         /// Functions declared in the block
         /// </summary>
         public readonly List<FunctionDefinition> Functions;
