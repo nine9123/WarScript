@@ -56,6 +56,7 @@ namespace WarScript
 
         private CompositeStatement? _cachedStatement;
         private CompiledFunction? _cachedCompiled;
+        private WarVM? _cachedVM;
 
         public readonly DefinitionScope GlobalDefinitionScope;
         public readonly MemoryScope GlobalMemoryScope;
@@ -63,6 +64,10 @@ namespace WarScript
         public MemoryScope UserMemoryScope => _memoryScope;
 
         // ── Coroutine support ──
+        // NOTE: Coroutines still use tree-walk execution because they split
+        // functions at yield points and execute each segment individually.
+        // Full bytecode coroutines would require VM suspend/resume (saving
+        // IP + stack state), which is a separate feature.
         private readonly List<Coroutine> _coroutines = new();
         private int _nextCoroutineId = 1;
 
@@ -114,63 +119,58 @@ namespace WarScript
             MemoryContext.EndScope();
         }
 
-        public void Run()
+        // ────────────────────────────────────────────────────────
+        //  Parse + compile (lazy, cached)
+        // ────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Ensure the script has been parsed and compiled to bytecode.
+        /// Called automatically by Run() and Call(). Safe to call multiple
+        /// times — parsing and compilation are cached.
+        /// Must be called with _definitionScope pushed on DefinitionContext.
+        /// </summary>
+        private void EnsureCompiled()
         {
-            RunBytecode();
-            return;
-            
-            DefinitionContext.PushScope(_definitionScope);
-            MemoryContext.PushScope(_memoryScope);
-
-            try
+            if (_cachedStatement == null)
             {
-                if (_cachedStatement == null)
-                {
-                    var statement = new CompositeStatement(this, null, ScriptName);
-                    StatementParser.Parse(this, _tokens, statement);
-                    _cachedStatement = statement;
-                }
-
-                _cachedStatement.Execute();
+                var statement = new CompositeStatement(this, null, ScriptName);
+                StatementParser.Parse(this, _tokens, statement);
+                _cachedStatement = statement;
             }
-            finally
-            {
-                DefinitionContext.EndScope();
-                MemoryContext.EndScope();
 
-                if (ExceptionContext.IsRaised())
-                    ExceptionContext.PrintStackTrace();
-
-                HaltFlags = HaltFlag.None;
-            }
+            if (_cachedCompiled == null)
+                _cachedCompiled = Compiler.CompileScript(this, _cachedStatement, _definitionScope);
         }
 
         /// <summary>
-        /// Parse the script (if not cached), compile to bytecode, and execute
-        /// in the bytecode VM. Drop-in replacement for <see cref="Run"/>.
+        /// Returns the cached VM instance, creating it once on first use.
+        /// The VM resets its own internal state on each Run/RunFunction call,
+        /// so the same instance is safe to reuse across all invocations.
         /// </summary>
-        public void RunBytecode()
+        private WarVM EnsureVM()
+        {
+            return _cachedVM ??= new WarVM(this);
+        }
+
+        // ────────────────────────────────────────────────────────
+        //  Run — execute the full script via bytecode VM
+        // ────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Parse, compile, and execute the script. On first call this
+        /// parses the source and compiles all functions to bytecode.
+        /// Subsequent calls reuse the cached bytecode.
+        /// </summary>
+        public void Run()
         {
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
 
             try
             {
-                // Parse (reuse cached AST)
-                if (_cachedStatement == null)
-                {
-                    var statement = new CompositeStatement(this, null, ScriptName);
-                    StatementParser.Parse(this, _tokens, statement);
-                    _cachedStatement = statement;
-                }
-
-                // Compile (reuse cached bytecode)
-                if (_cachedCompiled == null)
-                    _cachedCompiled = Compiler.CompileScript(this, _cachedStatement, _definitionScope);
-
-                // Execute in the VM
-                var vm = new WarVM(this);
-                vm.Run(_cachedCompiled);
+                EnsureCompiled();
+                var vm = EnsureVM();
+                vm.Run(_cachedCompiled!);
             }
             finally
             {
@@ -184,12 +184,57 @@ namespace WarScript
             }
         }
 
-        public FunctionDefinition? GetFunction(string functionName, int arguments)
+        // ────────────────────────────────────────────────────────
+        //  Call — host invokes a WarScript function (tick, events)
+        // ────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Call a WarScript function from the host (C#/Unity).
+        /// Uses bytecode when available (always after Run() has been called).
+        /// This is the hot path for game integration — tick loops, event handlers.
+        /// </summary>
+        public void Call(FunctionDefinition function, params WarValue[] arguments)
         {
-            return _definitionScope.GetFunction(functionName, arguments);
+            if (function.Compiled != null)
+            {
+                CallBytecode(function, arguments);
+                return;
+            }
+
+            // Fallback: tree-walk for functions not yet compiled
+            // (e.g. Call() before Run(), or native function wrappers)
+            CallTreeWalk(function, arguments);
         }
 
-        public void Call(FunctionDefinition function, params WarValue[] arguments)
+        private void CallBytecode(FunctionDefinition function, WarValue[] arguments)
+        {
+            DefinitionContext.PushScope(_definitionScope);
+            MemoryContext.PushScope(_memoryScope);
+            // Push a scope for function-local variables accessed via SetGlobal.
+            // Parented to _memoryScope, matching the VM's OP_CALL behavior.
+            MemoryContext.PushScope(MemoryContext.NewScope(UserMemoryScope));
+
+            try
+            {
+                var vm = EnsureVM();
+                vm.RunFunction(function.Compiled!, arguments);
+            }
+            finally
+            {
+                MemoryContext.EndScope();  // function-local scope
+                DefinitionContext.EndScope();
+                MemoryContext.EndScope();
+                ReturnContext.Reset();
+                HaltFlags &= ~HaltFlag.Return;
+
+                if (ExceptionContext.IsRaised())
+                    ExceptionContext.PrintStackTrace();
+
+                HaltFlags = HaltFlag.None;
+            }
+        }
+
+        private void CallTreeWalk(FunctionDefinition function, WarValue[] arguments)
         {
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
@@ -205,7 +250,7 @@ namespace WarScript
                         i < arguments.Length ? arguments[i] : WarValue.Null);
                 }
 
-                function.Statement.Execute();
+                function.Statement!.Execute();
             }
             finally
             {
@@ -222,6 +267,15 @@ namespace WarScript
             }
         }
 
+        // ────────────────────────────────────────────────────────
+        //  Function lookup
+        // ────────────────────────────────────────────────────────
+
+        public FunctionDefinition? GetFunction(string functionName, int arguments)
+        {
+            return _definitionScope.GetFunction(functionName, arguments);
+        }
+
         public bool HasFunction(string functionName, int argumentsSize)
         {
             return _definitionScope.ContainsFunction(functionName, argumentsSize);
@@ -235,6 +289,10 @@ namespace WarScript
         {
             return ExceptionContext.RaiseException(message);
         }
+
+        // ────────────────────────────────────────────────────────
+        //  Yield support
+        // ────────────────────────────────────────────────────────
 
         public void SetYielded(YieldType type, double waitDuration)
         {
@@ -251,6 +309,10 @@ namespace WarScript
             YieldedType = YieldType.NextTick;
             YieldedWaitDuration = 0;
         }
+
+        // ────────────────────────────────────────────────────────
+        //  Coroutine support (tree-walk — see note at field decl)
+        // ────────────────────────────────────────────────────────
 
         public int StartCoroutine(string functionName, WarValue[] args, bool loop = false)
         {

@@ -31,6 +31,12 @@ namespace WarScript.Bytecode
 
         private readonly WarScriptLanguage _script;
 
+        /// <summary>
+        /// Captures the return value from the outermost frame.
+        /// Set by DoReturn when _frameCount hits 0.
+        /// </summary>
+        private WarValue _topLevelResult;
+
         // Pending exception: when an ensure-only handler runs during unwinding,
         // the exception is stashed here and re-raised after ensure completes.
         private WarValue _pendingException;
@@ -63,15 +69,25 @@ namespace WarScript.Bytecode
             _script = script;
         }
 
-        public void Run(CompiledFunction main)
+        /// <summary>
+        /// Reset all VM state for reuse. Avoids re-allocating the stack,
+        /// frame, and handler arrays on every Call() invocation.
+        /// </summary>
+        private void Reset()
         {
             _sp = 0;
             _frameCount = 0;
             _handlerCount = 0;
+            _topLevelResult = default;
+            _hasPendingException = false;
+            _hasPendingReturn = false;
+            _scopeDepth = 0;
+        }
 
-            // Do NOT pre-reserve local slots.
-            // Locals are created by pushing values during execution.
-            // The compiler emits code that pushes initial values for each local.
+        public void Run(CompiledFunction main)
+        {
+            Reset();
+
             _frames[0] = new CallFrame
             {
                 Function = main,
@@ -82,6 +98,33 @@ namespace WarScript.Bytecode
             _frameCount = 1;
 
             Execute();
+        }
+
+        /// <summary>
+        /// Run a compiled function with pre-supplied arguments.
+        /// Used by the Call() API for host→script invocations (tick loops, events).
+        /// The caller is responsible for pushing/popping DefinitionScope and MemoryScope.
+        /// </summary>
+        public WarValue RunFunction(CompiledFunction func, WarValue[] arguments)
+        {
+            Reset();
+
+            // Push arguments as the first N stack slots (they become local slots 0..N-1)
+            for (int i = 0; i < func.Arity; i++)
+                _stack[_sp++] = i < arguments.Length ? arguments[i] : WarValue.Null;
+
+            _frames[0] = new CallFrame
+            {
+                Function = func,
+                IP = 0,
+                StackBase = 0,
+                SavedScopeDepth = _scopeDepth
+            };
+            _frameCount = 1;
+
+            Execute();
+
+            return _topLevelResult;
         }
 
         // ────────────────────────────────────────────────────────
@@ -946,6 +989,8 @@ namespace WarScript.Bytecode
 
             if (_frameCount > 0)
                 Push(result);
+            else
+                _topLevelResult = result;
 
             newFi = _frameCount - 1;
         }
