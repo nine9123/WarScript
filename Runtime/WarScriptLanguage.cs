@@ -114,6 +114,21 @@ namespace WarScript
         /// </summary>
         internal bool HasBreakpoint(int line) => _breakpoints.Contains(line);
 
+        /// <summary>
+        /// Maximum bytes of heap allocation a single Run() or Call() invocation
+        /// may perform before the VM raises an exception and stops.
+        ///
+        /// Set to 0 (default) to disable memory budgeting (unlimited).
+        /// Recommended values: 1_000_000 (1MB) for tick functions,
+        /// 10_000_000 (10MB) for Run().
+        ///
+        /// Tracks allocations of strings, arrays, and class instances.
+        /// Numeric and boolean values are stack-allocated and not counted.
+        /// When the budget is exhausted, the VM raises "Memory budget exceeded"
+        /// which can be caught by begin/rescue.
+        /// </summary>
+        public long MemoryBudget { get; set; }
+
         // ── Coroutine support ──
         // Uses BytecodeCoroutine (VM suspend/resume) when the function has
         // bytecode, falls back to tree-walk Coroutine otherwise.

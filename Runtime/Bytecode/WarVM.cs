@@ -64,6 +64,12 @@ namespace WarScript.Bytecode
         private int _stepFrameDepth;
         private int _lastDebugLine;
 
+        // ── Memory budgeting ──
+        // Tracks heap allocations (strings, arrays, class instances).
+        // 0 = unlimited. Raises "Memory budget exceeded" when hit.
+        private long _memoryUsed;
+        private long _memoryBudget;
+
         // ── Coroutine support ──
         // When the VM is used as a coroutine executor, yield opcodes
         // set these fields and return from Execute(). The coroutine
@@ -120,6 +126,8 @@ namespace WarScript.Bytecode
             _stepMode = StepMode.Continue;
             _stepFrameDepth = 0;
             _lastDebugLine = -1;
+            _memoryUsed = 0;
+            _memoryBudget = _script.MemoryBudget;
         }
 
         public void Run(CompiledFunction main)
@@ -197,6 +205,8 @@ namespace WarScript.Bytecode
             _yieldType = YieldType.NextTick;
             _yieldWaitDuration = 0;
             _budget = _script.InstructionBudget;
+            _memoryUsed = 0;
+            _memoryBudget = _script.MemoryBudget;
             Execute();
         }
 
@@ -348,9 +358,17 @@ namespace WarScript.Bytecode
                         if (a.IsNumeric && b.IsNumeric)
                             Push(WarValue.FromNumeric(a.Numeric + b.Numeric));
                         else if (a.IsArray || b.IsArray)
-                            Push(AddArrays(a, b));
+                        {
+                            var arr = AddArrays(a, b);
+                            TrackAlloc(EstimateArrayBytes(arr.ArrayValue.Count));
+                            Push(arr);
+                        }
                         else
-                            Push(WarValue.FromText(a.ToString() + b.ToString()));
+                        {
+                            var s = a.ToString() + b.ToString();
+                            TrackAlloc(EstimateStringBytes(s));
+                            Push(WarValue.FromText(s));
+                        }
                         break;
                     }
                     case OpCode.Sub:
@@ -359,7 +377,11 @@ namespace WarScript.Bytecode
                         if (a.IsNumeric && b.IsNumeric)
                             Push(WarValue.FromNumeric(a.Numeric - b.Numeric));
                         else
-                            Push(WarValue.FromText(a.ToString().Replace(b.ToString(), "")));
+                        {
+                            var s = a.ToString().Replace(b.ToString(), "");
+                            TrackAlloc(EstimateStringBytes(s));
+                            Push(WarValue.FromText(s));
+                        }
                         break;
                     }
                     case OpCode.Mul:
@@ -368,9 +390,17 @@ namespace WarScript.Bytecode
                         if (a.IsNumeric && b.IsNumeric)
                             Push(WarValue.FromNumeric(a.Numeric * b.Numeric));
                         else if (a.IsText && b.IsNumeric)
-                            Push(WarValue.FromText(WarValue.RepeatString(a.TextValue, (int)b.Numeric)));
+                        {
+                            var s = WarValue.RepeatString(a.TextValue, (int)b.Numeric);
+                            TrackAlloc(EstimateStringBytes(s));
+                            Push(WarValue.FromText(s));
+                        }
                         else if (b.IsText && a.IsNumeric)
-                            Push(WarValue.FromText(WarValue.RepeatString(b.TextValue, (int)a.Numeric)));
+                        {
+                            var s = WarValue.RepeatString(b.TextValue, (int)a.Numeric);
+                            TrackAlloc(EstimateStringBytes(s));
+                            Push(WarValue.FromText(s));
+                        }
                         else
                         {
                             RuntimeError("Unable to multiply non-numeric values");
@@ -737,6 +767,7 @@ namespace WarScript.Bytecode
                         for (int i = 0; i < count; i++)
                             list.Add(_stack[arrBase + i]);
                         _sp = arrBase;
+                        TrackAlloc(EstimateArrayBytes(count));
                         Push(WarValue.FromArray(list));
                         break;
                     }
@@ -815,7 +846,11 @@ namespace WarScript.Bytecode
                     case OpCode.ArrayAppend:
                     {
                         var value = Pop(); var arr = Peek();
-                        if (arr.IsArray) arr.ArrayAppend(value);
+                        if (arr.IsArray)
+                        {
+                            TrackAlloc(16); // one WarValue slot
+                            arr.ArrayAppend(value);
+                        }
                         break;
                     }
 
@@ -845,6 +880,7 @@ namespace WarScript.Bytecode
                             var list = new List<WarValue>(props.Count);
                             for (int i = 0; i < props.Count; i++)
                                 list.Add(cd.GetProperty(props[i]));
+                            TrackAlloc(EstimateArrayBytes(props.Count));
                             Push(WarValue.FromArray(list));
                         }
                         else
@@ -1217,6 +1253,29 @@ namespace WarScript.Bytecode
             _script.ExceptionContext.RaiseException(message);
         }
 
+        /// <summary>
+        /// Track a heap allocation. Returns true if within budget.
+        /// If over budget, raises "Memory budget exceeded" and returns false.
+        /// Caller must check the return value and handle the exception.
+        /// </summary>
+        private bool TrackAlloc(long bytes)
+        {
+            if (_memoryBudget <= 0) return true;
+            _memoryUsed += bytes;
+            if (_memoryUsed <= _memoryBudget) return true;
+            RuntimeError("Memory budget exceeded");
+            return false;
+        }
+
+        /// <summary>Estimate heap cost of a string (UTF-16 + object overhead).</summary>
+        private static long EstimateStringBytes(string s) => s.Length * 2L + 40;
+
+        /// <summary>Estimate heap cost of a new array.</summary>
+        private static long EstimateArrayBytes(int count) => count * 16L + 64;
+
+        /// <summary>Estimate heap cost of a class instance.</summary>
+        private static long EstimateClassBytes(int propertyCount) => propertyCount * 16L + 96;
+
         private bool DoHandleException(ref int fi, ref List<byte> code, ref List<WarValue> constants)
         {
             while (_handlerCount > 0)
@@ -1336,6 +1395,8 @@ namespace WarScript.Bytecode
             Dictionary<string, ClassData> relations, ValueReference[]? sharedRefs)
         {
             var propCount = definition.ClassDetails.Properties.Count;
+            TrackAlloc(EstimateClassBytes(propCount));
+
             var valueRefs = new ValueReference[propCount];
             for (int i = 0; i < propCount; i++)
             {
