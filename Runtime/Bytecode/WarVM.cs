@@ -104,7 +104,10 @@ namespace WarScript.Bytecode
         public WarVM(WarScriptLanguage script)
         {
             _script = script;
+            _interner = script.Strings;
         }
+
+        private readonly StringInterner _interner;
 
         /// <summary>
         /// Reset all VM state for reuse. Avoids re-allocating the stack,
@@ -365,7 +368,7 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            var s = a.ToString() + b.ToString();
+                            var s = _interner.Intern(a.ToString() + b.ToString());
                             TrackAlloc(EstimateStringBytes(s));
                             Push(WarValue.FromText(s));
                         }
@@ -378,7 +381,7 @@ namespace WarScript.Bytecode
                             Push(WarValue.FromNumeric(a.Numeric - b.Numeric));
                         else
                         {
-                            var s = a.ToString().Replace(b.ToString(), "");
+                            var s = _interner.Intern(a.ToString().Replace(b.ToString(), ""));
                             TrackAlloc(EstimateStringBytes(s));
                             Push(WarValue.FromText(s));
                         }
@@ -391,13 +394,13 @@ namespace WarScript.Bytecode
                             Push(WarValue.FromNumeric(a.Numeric * b.Numeric));
                         else if (a.IsText && b.IsNumeric)
                         {
-                            var s = WarValue.RepeatString(a.TextValue, (int)b.Numeric);
+                            var s = _interner.Intern(WarValue.RepeatString(a.TextValue, (int)b.Numeric));
                             TrackAlloc(EstimateStringBytes(s));
                             Push(WarValue.FromText(s));
                         }
                         else if (b.IsText && a.IsNumeric)
                         {
-                            var s = WarValue.RepeatString(b.TextValue, (int)a.Numeric);
+                            var s = _interner.Intern(WarValue.RepeatString(b.TextValue, (int)a.Numeric));
                             TrackAlloc(EstimateStringBytes(s));
                             Push(WarValue.FromText(s));
                         }

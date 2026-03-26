@@ -129,6 +129,14 @@ namespace WarScript
         /// </summary>
         public long MemoryBudget { get; set; }
 
+        /// <summary>
+        /// String interner for reducing GC pressure. Short strings created by
+        /// the VM (concatenation results, ToString() conversions) are deduplicated
+        /// through this cache. Pre-allocated integer strings (0–999) are returned
+        /// without any hashing. Shared across all VMs and coroutines.
+        /// </summary>
+        internal readonly StringInterner Strings = new();
+
         // ── Coroutine support ──
         // Uses BytecodeCoroutine (VM suspend/resume) when the function has
         // bytecode, falls back to tree-walk Coroutine otherwise.

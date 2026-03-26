@@ -170,7 +170,8 @@ namespace WarScript.Expression.Value
             {
                 case ValueTag.Null: return "null";
                 case ValueTag.Numeric:
-                    return Numeric % 1 == 0 ? ((int)Numeric).ToString() : Numeric.ToString();
+                    return StringInterner.TryGetIntegerString(Numeric)
+                        ?? (Numeric % 1 == 0 ? ((int)Numeric).ToString() : Numeric.ToString());
                 case ValueTag.Logical: return LogicalValue ? "True" : "False";
                 case ValueTag.Text: return TextValue;
                 case ValueTag.Array:
