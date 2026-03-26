@@ -37,6 +37,12 @@ namespace WarScript.Bytecode
 
         public int Count => Code.Count;
 
+        /// <summary>
+        /// Byte offset of the last opcode emitted (not operand bytes).
+        /// Used by the peephole optimizer to safely identify the last instruction.
+        /// </summary>
+        internal int LastOpOffset { get; private set; } = -1;
+
         // ── Constant pool ──
 
         public int AddConstant(in WarValue value)
@@ -57,6 +63,7 @@ namespace WarScript.Bytecode
 
         public void EmitOp(OpCode op, int line)
         {
+            LastOpOffset = Code.Count;
             Code.Add((byte)op);
             Lines.Add(line);
         }
@@ -162,10 +169,17 @@ namespace WarScript.Bytecode
                     return offset + 4;
                 case OpCode.GetProperty: case OpCode.SetProperty:
                 case OpCode.IndexSetProp:
+                case OpCode.ThisGetProperty: case OpCode.ThisSetProperty:
                     var pi = ReadU16(offset + 1);
                     var cs = ReadU16(offset + 3);
                     sb.AppendLine($"{op,-16}{Constants[pi]} (cache={cs})");
                     return offset + 5;
+                case OpCode.LessJump: case OpCode.LessEqualJump:
+                case OpCode.GreaterJump: case OpCode.GreaterEqualJump:
+                case OpCode.EqualJump: case OpCode.NotEqualJump:
+                    var cjFwd = ReadU16(offset + 1);
+                    sb.AppendLine($"{op,-16}{offset} -> {offset + 3 + cjFwd}");
+                    return offset + 3;
                 case OpCode.CastAs: case OpCode.InstanceOf:
                     var ci2 = ReadU16(offset + 1);
                     sb.AppendLine($"{op,-16}{Constants[ci2]}");

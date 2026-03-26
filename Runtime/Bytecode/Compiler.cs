@@ -229,6 +229,18 @@ namespace WarScript.Bytecode
             Chunk.EmitOp(OpCode.Return, line);
         }
 
+        /// <summary>
+        /// Emit a conditional jump. Returns the patch offset.
+        /// Note: compare+jump fusion is only used in direct-emission sites
+        /// (for-loop, iterable-loop) where we control the full pattern.
+        /// For if/while conditions that may contain logical AND/OR,
+        /// we always emit JumpIfFalse to avoid corrupting jump targets.
+        /// </summary>
+        private int EmitConditionJump(int line)
+        {
+            return Chunk.EmitJump(OpCode.JumpIfFalse, line);
+        }
+
         private void EmitPushScope(int line)
         {
             Chunk.EmitOp(OpCode.PushScope, line);
@@ -351,11 +363,22 @@ namespace WarScript.Bytecode
             {
                 if (cp.Right is VariableExpression propName)
                 {
+                    // Superinstruction: this :: prop = val → ThisSetProperty
+                    if (cp.Left is ThisExpression)
+                    {
+                        CompileExpression(assign.Right);  // value
+                        var nameIdx = Chunk.AddConstant(WarValue.FromText(propName.Name));
+                        Chunk.EmitOp(OpCode.ThisSetProperty, line);
+                        Chunk.EmitU16(nameIdx, line);
+                        Chunk.EmitU16(Chunk.AllocCacheSlot(), line);
+                        return false;
+                    }
+
                     CompileExpression(cp.Left);      // instance
                     CompileExpression(assign.Right);  // value
-                    var nameIdx = Chunk.AddConstant(WarValue.FromText(propName.Name));
+                    var nameIdx2 = Chunk.AddConstant(WarValue.FromText(propName.Name));
                     Chunk.EmitOp(OpCode.SetProperty, line);
-                    Chunk.EmitU16(nameIdx, line);
+                    Chunk.EmitU16(nameIdx2, line);
                     Chunk.EmitU16(Chunk.AllocCacheSlot(), line);
                     return false;
                 }
@@ -439,7 +462,7 @@ namespace WarScript.Bytecode
                 if (!isElse)
                 {
                     CompileExpression(cond);
-                    skipBody = Chunk.EmitJump(OpCode.JumpIfFalse, line);
+                    skipBody = EmitConditionJump(line);
                     Chunk.EmitOp(OpCode.Pop, line); // pop condition (truthy path)
                 }
 
@@ -489,7 +512,7 @@ namespace WarScript.Bytecode
             });
 
             CompileExpression(stmt.Condition);
-            var exitJump = Chunk.EmitJump(OpCode.JumpIfFalse, line);
+            var exitJump = EmitConditionJump(line);
             Chunk.EmitOp(OpCode.Pop, line);
 
             BeginScope();
@@ -539,12 +562,10 @@ namespace WarScript.Bytecode
                 RuntimeScopeDepth = _runtimeScopeDepth
             });
 
-            // Condition: i < limit
+            // Condition: i < limit (fused: LessJump = Less + JumpIfFalse + Pop)
             Chunk.EmitOp(OpCode.GetLocal, line); Chunk.EmitU16(iterSlot, line);
             Chunk.EmitOp(OpCode.GetLocal, line); Chunk.EmitU16(limitSlot, line);
-            Chunk.EmitOp(OpCode.Less, line);
-            var exitJump = Chunk.EmitJump(OpCode.JumpIfFalse, line);
-            Chunk.EmitOp(OpCode.Pop, line);
+            var exitJump = Chunk.EmitJump(OpCode.LessJump, line);
 
             // Body
             BeginScope();
@@ -568,7 +589,7 @@ namespace WarScript.Bytecode
             Chunk.EmitLoop(loopStart, line);
 
             Chunk.PatchJump(exitJump);
-            Chunk.EmitOp(OpCode.Pop, line); // pop condition
+            // No Pop needed — LessJump consumed both operands
 
             var loop = _loops[_loops.Count - 1]; _loops.RemoveAt(_loops.Count - 1);
             foreach (var bj in loop.BreakJumps)
@@ -606,13 +627,11 @@ namespace WarScript.Bytecode
                 RuntimeScopeDepth = _runtimeScopeDepth
             });
 
-            // Condition: $idx < len($items)
+            // Condition: $idx < len($items) (fused: LessJump)
             Chunk.EmitOp(OpCode.GetLocal, line); Chunk.EmitU16(idxSlot, line);
             Chunk.EmitOp(OpCode.GetLocal, line); Chunk.EmitU16(iterSlot, line);
             Chunk.EmitOp(OpCode.Len, line);
-            Chunk.EmitOp(OpCode.Less, line);
-            var exitJump = Chunk.EmitJump(OpCode.JumpIfFalse, line);
-            Chunk.EmitOp(OpCode.Pop, line);
+            var exitJump = Chunk.EmitJump(OpCode.LessJump, line);
 
             // Set iteration variable: x = $items{$idx}
             Chunk.EmitOp(OpCode.GetLocal, line); Chunk.EmitU16(iterSlot, line);
@@ -646,7 +665,7 @@ namespace WarScript.Bytecode
             Chunk.EmitLoop(loopStart, line);
 
             Chunk.PatchJump(exitJump);
-            Chunk.EmitOp(OpCode.Pop, line); // pop condition
+            // No Pop needed — LessJump consumed both operands
 
             var loop = _loops[_loops.Count - 1]; _loops.RemoveAt(_loops.Count - 1);
             foreach (var bj in loop.BreakJumps)
@@ -1081,6 +1100,28 @@ namespace WarScript.Bytecode
         // ── Class property access: obj::prop, obj::method[args], obj::arr{i} ──
         private void CompileClassProperty(ClassPropertyOperator cp)
         {
+            // ── Superinstruction: this :: prop → ThisGetProperty ──
+            if (cp.Left is ThisExpression && cp.Right is VariableExpression thisVar)
+            {
+                var nameIdx = Chunk.AddConstant(WarValue.FromText(thisVar.Name));
+                Chunk.EmitOp(OpCode.ThisGetProperty, 0);
+                Chunk.EmitU16(nameIdx, 0);
+                Chunk.EmitU16(Chunk.AllocCacheSlot(), 0);
+                return;
+            }
+            // ── Superinstruction: this :: arr{i} → ThisGetProperty + IndexGet ──
+            if (cp.Left is ThisExpression && cp.Right is ArrayValueOperator thisArrOp
+                && thisArrOp.Left is VariableExpression thisArrVar)
+            {
+                var nameIdx = Chunk.AddConstant(WarValue.FromText(thisArrVar.Name));
+                Chunk.EmitOp(OpCode.ThisGetProperty, 0);
+                Chunk.EmitU16(nameIdx, 0);
+                Chunk.EmitU16(Chunk.AllocCacheSlot(), 0);
+                CompileExpression(thisArrOp.Right);
+                Chunk.EmitOp(OpCode.IndexGet, 0);
+                return;
+            }
+
             CompileExpression(cp.Left); // push instance
 
             if (cp.Right is VariableExpression varExpr)

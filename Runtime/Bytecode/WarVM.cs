@@ -486,6 +486,60 @@ namespace WarScript.Bytecode
                         break;
                     }
 
+                    // ── Superinstructions: Compare + JumpIfFalse + Pop ──
+                    // Fuses three dispatches into one. Pops two operands,
+                    // compares, and jumps if the condition is false.
+                    // No intermediate boolean is pushed.
+
+                    case OpCode.LessJump:
+                    {
+                        var offset = ReadU16(code, ref _frames[fi].IP);
+                        var b = Pop(); var a = Pop();
+                        if (!(a.CompareTo(b) < 0))
+                            _frames[fi].IP += offset;
+                        break;
+                    }
+                    case OpCode.LessEqualJump:
+                    {
+                        var offset = ReadU16(code, ref _frames[fi].IP);
+                        var b = Pop(); var a = Pop();
+                        if (!(a.CompareTo(b) <= 0))
+                            _frames[fi].IP += offset;
+                        break;
+                    }
+                    case OpCode.GreaterJump:
+                    {
+                        var offset = ReadU16(code, ref _frames[fi].IP);
+                        var b = Pop(); var a = Pop();
+                        if (!(a.CompareTo(b) > 0))
+                            _frames[fi].IP += offset;
+                        break;
+                    }
+                    case OpCode.GreaterEqualJump:
+                    {
+                        var offset = ReadU16(code, ref _frames[fi].IP);
+                        var b = Pop(); var a = Pop();
+                        if (!(a.CompareTo(b) >= 0))
+                            _frames[fi].IP += offset;
+                        break;
+                    }
+                    case OpCode.EqualJump:
+                    {
+                        var offset = ReadU16(code, ref _frames[fi].IP);
+                        var b = Pop(); var a = Pop();
+                        if (!a.Equals(b))
+                            _frames[fi].IP += offset;
+                        break;
+                    }
+                    case OpCode.NotEqualJump:
+                    {
+                        var offset = ReadU16(code, ref _frames[fi].IP);
+                        var b = Pop(); var a = Pop();
+                        if (a.Equals(b))
+                            _frames[fi].IP += offset;
+                        break;
+                    }
+
                     // ══════════════════════════════════════════════
                     //  Logical
                     // ══════════════════════════════════════════════
@@ -1135,6 +1189,57 @@ namespace WarScript.Bytecode
                     case OpCode.This:
                         Push(WarValue.FromClass(_script.ClassInstanceContext.GetValue()));
                         break;
+
+                    // ── Superinstructions: This + GetProperty / SetProperty ──
+                    case OpCode.ThisGetProperty:
+                    {
+                        var nameIdx = ReadU16(code, ref _frames[fi].IP);
+                        var cacheSlot = ReadU16(code, ref _frames[fi].IP);
+                        var cd = _script.ClassInstanceContext.GetValue();
+                        var details = cd.Definition.ClassDetails;
+                        ref var cache = ref _frames[fi].Function.Chunk.PropertyCaches[cacheSlot];
+                        if (ReferenceEquals(cache.CachedType, details))
+                        {
+                            Push(cd.GetPropertyByIndex(cache.CachedIndex));
+                        }
+                        else
+                        {
+                            var propName = constants[nameIdx].TextValue;
+                            Push(cd.GetProperty(propName));
+                            if (details.PropertyIndex.TryGetValue(propName, out var idx))
+                            {
+                                cache.CachedType = details;
+                                cache.CachedIndex = idx;
+                            }
+                        }
+                        break;
+                    }
+                    case OpCode.ThisSetProperty:
+                    {
+                        var nameIdx = ReadU16(code, ref _frames[fi].IP);
+                        var cacheSlot = ReadU16(code, ref _frames[fi].IP);
+                        var value = Pop();
+                        var cd = _script.ClassInstanceContext.GetValue();
+                        var details = cd.Definition.ClassDetails;
+                        ref var cache = ref _frames[fi].Function.Chunk.PropertyCaches[cacheSlot];
+                        if (ReferenceEquals(cache.CachedType, details))
+                        {
+                            cd.SetPropertyByIndex(cache.CachedIndex, value);
+                        }
+                        else
+                        {
+                            var propName = constants[nameIdx].TextValue;
+                            cd.SetProperty(propName, value);
+                            if (details.PropertyIndex.TryGetValue(propName, out var idx))
+                            {
+                                cache.CachedType = details;
+                                cache.CachedIndex = idx;
+                            }
+                        }
+                        Push(value);
+                        break;
+                    }
+
                     case OpCode.CastAs:
                     {
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);

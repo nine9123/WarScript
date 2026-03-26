@@ -92,5 +92,24 @@ namespace WarScript.Bytecode
 
         // ── Import ──
         Import,         // [op][path_hi][path_lo]
+
+        // ── Superinstructions ──
+        // Fused opcode pairs to reduce dispatch overhead.
+        // Each replaces 2–3 instructions with a single dispatch.
+
+        // Compare + JumpIfFalse + Pop: pop two operands, compare,
+        // jump if false. No intermediate boolean on stack.
+        LessJump,           // [op][offset_hi][offset_lo]
+        LessEqualJump,      // [op][offset_hi][offset_lo]
+        GreaterJump,        // [op][offset_hi][offset_lo]
+        GreaterEqualJump,   // [op][offset_hi][offset_lo]
+        EqualJump,          // [op][offset_hi][offset_lo]
+        NotEqualJump,       // [op][offset_hi][offset_lo]
+
+        // This + GetProperty: push this, then read property.
+        ThisGetProperty,    // [op][name_hi][name_lo][cache_hi][cache_lo]
+
+        // This + SetProperty: set property on this.
+        ThisSetProperty,    // [op][name_hi][name_lo][cache_hi][cache_lo]
     }
 }
