@@ -607,6 +607,104 @@ namespace WarScript.Bytecode
                         break;
                     }
 
+                    case OpCode.TailCall:
+                    {
+                        var nameIdx = ReadU16(code, ref _frames[fi].IP);
+                        var argCount = code[_frames[fi].IP++];
+                        var funcName = constants[nameIdx].TextValue;
+
+                        var def = _script.DefinitionContext.GetScope().GetFunction(funcName, argCount);
+                        if (def == null)
+                        {
+                            RuntimeError($"Function '{funcName}' with {argCount} args is not defined");
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
+
+                        if (def is NativeFunctionDefinition nativeTail)
+                        {
+                            // Can't tail-call into native — call normally and return the result
+                            var args = CollectArgs(argCount);
+                            WarValue nResult;
+                            try { nResult = nativeTail.NativeBody(args); }
+                            catch (System.Exception e)
+                            {
+                                RuntimeError($"Native function '{funcName}' failed: {e.Message}");
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
+                            // Behave as Return with this result
+                            // Pop excess scopes
+                            while (_scopeDepth > _frames[fi].SavedScopeDepth)
+                            {
+                                _script.MemoryContext.EndScope();
+                                _scopeDepth--;
+                            }
+                            DoReturn(nResult, fi, ref code, ref constants, out fi);
+                            if (_frameCount == 0) return;
+                            code = _frames[fi].Function.Chunk.Code;
+                            constants = _frames[fi].Function.Chunk.Constants;
+                        }
+                        else if (def.Compiled != null)
+                        {
+                            // ── True tail call: reuse the current frame ──
+
+                            // Pop old function's memory scope
+                            if (_frames[fi].HasScope)
+                                _script.MemoryContext.EndScope();
+
+                            // Push fresh scope for the new function
+                            _script.MemoryContext.PushScope(
+                                _script.MemoryContext.NewScope(_script.UserMemoryScope));
+
+                            // Move arguments down to the frame's stack base
+                            var stackBase = _frames[fi].StackBase;
+                            var argBase = _sp - argCount;
+                            for (int i = 0; i < argCount; i++)
+                                _stack[stackBase + i] = _stack[argBase + i];
+                            _sp = stackBase + argCount;
+
+                            // Reuse the frame — no _frameCount change
+                            _frames[fi].Function = def.Compiled;
+                            _frames[fi].IP = 0;
+                            _frames[fi].HasScope = true;
+                            code = def.Compiled.Chunk.Code;
+                            constants = def.Compiled.Chunk.Constants;
+                        }
+                        else
+                        {
+                            // Tree-walk fallback — call normally then return
+                            var args = CollectArgs(argCount);
+                            _script.MemoryContext.PushScope(
+                                _script.MemoryContext.NewScope(_script.UserMemoryScope));
+                            try
+                            {
+                                for (int i = 0; i < def.Details.Arguments.Count; i++)
+                                    _script.MemoryContext.GetScope().SetLocal(
+                                        def.Details.Arguments[i],
+                                        i < args.Count ? args[i] : WarValue.Null);
+                                def.Statement!.Execute();
+                                var twResult = _script.ReturnContext.GetScope().Result;
+                                while (_scopeDepth > _frames[fi].SavedScopeDepth)
+                                {
+                                    _script.MemoryContext.EndScope();
+                                    _scopeDepth--;
+                                }
+                                DoReturn(twResult, fi, ref code, ref constants, out fi);
+                                if (_frameCount == 0) return;
+                                code = _frames[fi].Function.Chunk.Code;
+                                constants = _frames[fi].Function.Chunk.Constants;
+                            }
+                            finally
+                            {
+                                _script.MemoryContext.EndScope();
+                                _script.ReturnContext.Reset();
+                                _script.HaltFlags &= ~WarScriptLanguage.HaltFlag.Return;
+                            }
+                        }
+                        break;
+                    }
+
                     case OpCode.Return:
                     {
                         var result = Pop();

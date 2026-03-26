@@ -55,6 +55,7 @@ namespace WarScript.Bytecode
         /// > 0 = inside a function (variables become stack locals).
         /// </summary>
         private readonly int _functionDepth;
+        private int _tryDepth;
 
         // ────────────────────────────────────────────────────────
         //  Public entry point
@@ -382,6 +383,29 @@ namespace WarScript.Bytecode
         // ── Return ──
         private void CompileReturn(ReturnStatement stmt)
         {
+            // Tail call optimization: when a function's last action is
+            // "return func[args]", emit TailCall instead of Call + Return.
+            // This reuses the current frame, preventing stack growth on
+            // deep recursion (state machines, tree traversal, mutual recursion).
+            //
+            // Conditions for TCO:
+            //   1. Inside a function (not top-level script)
+            //   2. Not inside a begin/rescue/ensure block (would bypass ensure)
+            //   3. The return expression is a plain function call (not a method call)
+            if (_functionDepth > 0
+                && _tryDepth == 0
+                && stmt.Expression is FunctionExpression tailCall)
+            {
+                int line = Line(stmt);
+                foreach (var arg in tailCall.ArgumentExpression)
+                    CompileExpression(arg);
+                var nameIdx = Chunk.AddConstant(WarValue.FromText(tailCall.Name));
+                Chunk.EmitOp(OpCode.TailCall, line);
+                Chunk.EmitU16(nameIdx, line);
+                Chunk.EmitByte((byte)tailCall.ArgumentExpression.Count, line);
+                return;
+            }
+
             CompileExpression(stmt.Expression);
             Chunk.EmitOp(OpCode.Return, Line(stmt));
         }
@@ -686,6 +710,7 @@ namespace WarScript.Bytecode
         private void CompileTryRescueEnsure(HandleExceptionStatement stmt)
         {
             int line = Line(stmt);
+            _tryDepth++;
 
             // Emit PushHandler with placeholder offsets
             Chunk.EmitOp(OpCode.PushHandler, line);
@@ -752,6 +777,8 @@ namespace WarScript.Bytecode
             Chunk.Code[patchBase + 3] = (byte)(ensureIP & 0xFF);
             Chunk.Code[patchBase + 4] = (byte)((endIP >> 8) & 0xFF);
             Chunk.Code[patchBase + 5] = (byte)(endIP & 0xFF);
+
+            _tryDepth--;
         }
 
         // ── Import ──

@@ -130,7 +130,7 @@ namespace WarScript.Bytecode
                     var bck = ReadU16(offset + 1);
                     sb.AppendLine($"{op,-16}{offset} -> {offset + 3 - bck}");
                     return offset + 3;
-                case OpCode.Call: case OpCode.CallMethod:
+                case OpCode.Call: case OpCode.TailCall: case OpCode.CallMethod:
                     var ni = ReadU16(offset + 1);
                     sb.AppendLine($"{op,-16}{Constants[ni]} ({Code[offset + 3]} args)");
                     return offset + 4;

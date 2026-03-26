@@ -50,6 +50,7 @@ namespace WarScript.Bytecode
 
         // ── Functions ──
         Call,           // [op][name_hi][name_lo][arg_count]
+        TailCall,       // [op][name_hi][name_lo][arg_count] — reuses current frame
         Return,         // return TOS
 
         // ── Arrays ──
