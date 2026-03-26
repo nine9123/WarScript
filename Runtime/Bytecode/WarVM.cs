@@ -58,6 +58,12 @@ namespace WarScript.Bytecode
         // A value of 0 after Reset() means unlimited (no budgeting).
         private int _budget;
 
+        // ── Debugger state ──
+        // Only accessed when _script.DebugHook != null (zero cost otherwise).
+        private StepMode _stepMode;
+        private int _stepFrameDepth;
+        private int _lastDebugLine;
+
         // ── Coroutine support ──
         // When the VM is used as a coroutine executor, yield opcodes
         // set these fields and return from Execute(). The coroutine
@@ -111,6 +117,9 @@ namespace WarScript.Bytecode
             _yielded = false;
             _yieldType = YieldType.NextTick;
             _yieldWaitDuration = 0;
+            _stepMode = StepMode.Continue;
+            _stepFrameDepth = 0;
+            _lastDebugLine = -1;
         }
 
         public void Run(CompiledFunction main)
@@ -212,6 +221,51 @@ namespace WarScript.Bytecode
                     if (DoHandleException(ref fi, ref code, ref constants))
                         continue;
                     return;
+                }
+
+                // ── Source-map debugger ──
+                // Cost when disabled: one null check per instruction (branch-predicted away).
+                // When enabled: fires only on source-line changes.
+                if (_script.DebugHook != null)
+                {
+                    var lines = _frames[fi].Function.Chunk.Lines;
+                    var ip = _frames[fi].IP;
+                    if (ip < lines.Count)
+                    {
+                        var currentLine = lines[ip];
+                        if (currentLine != _lastDebugLine && currentLine > 0)
+                        {
+                            var shouldBreak = false;
+                            switch (_stepMode)
+                            {
+                                case StepMode.Continue:
+                                    shouldBreak = _script.HasBreakpoint(currentLine);
+                                    break;
+                                case StepMode.StepInto:
+                                    shouldBreak = true;
+                                    break;
+                                case StepMode.StepOver:
+                                    shouldBreak = _frameCount <= _stepFrameDepth;
+                                    break;
+                                case StepMode.StepOut:
+                                    shouldBreak = _frameCount < _stepFrameDepth;
+                                    break;
+                            }
+
+                            if (shouldBreak)
+                            {
+                                _lastDebugLine = currentLine;
+                                var ctx = BuildDebugContext(fi, currentLine);
+                                _script.DebugHook(ctx);
+                                _stepMode = ctx.Action;
+                                _stepFrameDepth = _frameCount;
+                            }
+                            else
+                            {
+                                _lastDebugLine = currentLine;
+                            }
+                        }
+                    }
                 }
 
                 var instruction = (OpCode)code[_frames[fi].IP++];
@@ -1095,6 +1149,39 @@ namespace WarScript.Bytecode
         // ────────────────────────────────────────────────────────
         //  Helpers
         // ────────────────────────────────────────────────────────
+
+        private DebugContext BuildDebugContext(int fi, int currentLine)
+        {
+            // Build call stack (outermost first)
+            var callStack = new List<DebugContext.StackEntry>(_frameCount);
+            for (int i = 0; i < _frameCount; i++)
+            {
+                var frame = _frames[i];
+                var frameIP = frame.IP > 0 ? frame.IP - 1 : 0;
+                var frameLine = frameIP < frame.Function.Chunk.Lines.Count
+                    ? frame.Function.Chunk.Lines[frameIP] : 0;
+                callStack.Add(new DebugContext.StackEntry(frame.Function.Name, frameLine));
+            }
+            // Update the current frame's line to the accurate one
+            if (callStack.Count > 0)
+                callStack[callStack.Count - 1] = new DebugContext.StackEntry(
+                    _frames[fi].Function.Name, currentLine);
+
+            // Build locals dictionary for the current frame
+            var locals = new Dictionary<string, WarValue>();
+            var func = _frames[fi].Function;
+            var stackBase = _frames[fi].StackBase;
+            var localCount = System.Math.Min(func.LocalNames.Length, _sp - stackBase);
+            for (int i = 0; i < localCount; i++)
+            {
+                var name = i < func.LocalNames.Length ? func.LocalNames[i] : null;
+                if (name == null || name.StartsWith("$")) continue;
+                locals[name] = _stack[stackBase + i];
+            }
+
+            return new DebugContext(_script, _script.ScriptName, currentLine,
+                _frames[fi].Function.Name, callStack, locals);
+        }
 
         private void Push(in WarValue value) => _stack[_sp++] = value;
         private WarValue Pop() => _stack[--_sp];

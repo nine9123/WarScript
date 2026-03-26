@@ -16,11 +16,20 @@ namespace WarScript.Bytecode
         /// </summary>
         public int LocalCount;
 
+        /// <summary>
+        /// Debug info: variable name for each local slot (index = slot number).
+        /// Parameters occupy slots 0..Arity-1. Hidden locals (like $limit, $step)
+        /// are included but prefixed with $. Null entries mean the slot was
+        /// only used transiently and has no meaningful name.
+        /// </summary>
+        public string[] LocalNames;
+
         public CompiledFunction(string name, int arity)
         {
             Name = name;
             Arity = arity;
             Chunk = new Chunk();
+            LocalNames = System.Array.Empty<string>();
         }
     }
 

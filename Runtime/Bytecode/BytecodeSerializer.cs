@@ -133,6 +133,11 @@ namespace WarScript.Bytecode
             w.Write((uint)func.Chunk.Lines.Count);
             foreach (var line in func.Chunk.Lines)
                 w.Write(line);
+
+            // Local variable names (for debugger)
+            w.Write((ushort)func.LocalNames.Length);
+            foreach (var name in func.LocalNames)
+                WriteString(w, name ?? "");
         }
 
         private static void WriteConstant(BinaryWriter w, in WarValue val)
@@ -289,6 +294,16 @@ namespace WarScript.Bytecode
             var lineCount = r.ReadUInt32();
             for (uint i = 0; i < lineCount; i++)
                 func.Chunk.Lines.Add(r.ReadInt32());
+
+            // Local variable names
+            var nameCount = r.ReadUInt16();
+            var names = new string[nameCount];
+            for (int i = 0; i < nameCount; i++)
+            {
+                var n = ReadString(r);
+                names[i] = n.Length == 0 ? null! : n;
+            }
+            func.LocalNames = names;
 
             return func;
         }

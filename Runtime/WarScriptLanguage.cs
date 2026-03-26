@@ -77,6 +77,43 @@ namespace WarScript
         /// </summary>
         public int InstructionBudget { get; set; }
 
+        // ── Source-map debugger ──
+
+        /// <summary>
+        /// Set this to receive callbacks when the VM hits a breakpoint or step
+        /// point. Set to null to disable debugging (zero overhead).
+        ///
+        /// <code>
+        ///   script.DebugHook = ctx => {
+        ///       Console.WriteLine($"Paused at {ctx.FunctionName}:{ctx.Line}");
+        ///       foreach (var local in ctx.Locals)
+        ///           Console.WriteLine($"  {local.Key} = {local.Value}");
+        ///       ctx.Action = StepMode.StepOver;
+        ///   };
+        /// </code>
+        /// </summary>
+        public DebugHook? DebugHook { get; set; }
+
+        private readonly HashSet<int> _breakpoints = new();
+
+        /// <summary>Add a breakpoint at a source line number.</summary>
+        public void AddBreakpoint(int line) => _breakpoints.Add(line);
+
+        /// <summary>Remove a breakpoint at a source line number.</summary>
+        public bool RemoveBreakpoint(int line) => _breakpoints.Remove(line);
+
+        /// <summary>Remove all breakpoints.</summary>
+        public void ClearBreakpoints() => _breakpoints.Clear();
+
+        /// <summary>Get all active breakpoint line numbers.</summary>
+        public IReadOnlyCollection<int> Breakpoints => _breakpoints;
+
+        /// <summary>
+        /// Internal: the VM reads this to check breakpoints.
+        /// Returns true if the given line has a breakpoint set.
+        /// </summary>
+        internal bool HasBreakpoint(int line) => _breakpoints.Contains(line);
+
         // ── Coroutine support ──
         // Uses BytecodeCoroutine (VM suspend/resume) when the function has
         // bytecode, falls back to tree-walk Coroutine otherwise.

@@ -42,6 +42,7 @@ namespace WarScript.Bytecode
         private int _scopeDepth;
         private int _maxLocals;
         private readonly List<LoopCtx> _loops = new();
+        private readonly List<string> _localNames = new();
 
         /// <summary>
         /// Tracks emitted PushScope/PopScope pairs at compile time.
@@ -91,6 +92,7 @@ namespace WarScript.Bytecode
 
             EmitReturn(0);
             _current.LocalCount = _maxLocals;
+            _current.LocalNames = _localNames.ToArray();
             return _current;
         }
 
@@ -132,6 +134,7 @@ namespace WarScript.Bytecode
 
             child.EmitReturn(0);
             child._current.LocalCount = child._maxLocals;
+            child._current.LocalNames = child._localNames.ToArray();
             funcDef.Compiled = child._current;
         }
 
@@ -169,6 +172,7 @@ namespace WarScript.Bytecode
 
             child.EmitReturn(0);
             child._current.LocalCount = child._maxLocals;
+            child._current.LocalNames = child._localNames.ToArray();
             classDef.CompiledConstructor = child._current;
         }
 
@@ -192,6 +196,11 @@ namespace WarScript.Bytecode
             _locals.Add(new Local { Name = name, Depth = _scopeDepth });
             if (_locals.Count > _maxLocals)
                 _maxLocals = _locals.Count;
+
+            // Record debug name for this slot (first name wins if reused)
+            while (_localNames.Count <= slot) _localNames.Add(null!);
+            _localNames[slot] ??= name;
+
             return slot;
         }
 
