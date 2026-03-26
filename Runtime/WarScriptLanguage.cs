@@ -52,7 +52,7 @@ namespace WarScript
 
         public readonly string ScriptName;
 
-        private readonly List<Token.Token> _tokens;
+        private List<Token.Token> _tokens;
 
         private CompositeStatement? _cachedStatement;
         private CompiledFunction? _cachedCompiled;
@@ -161,6 +161,72 @@ namespace WarScript
         private WarVM EnsureVM()
         {
             return _cachedVM ??= new WarVM(this);
+        }
+
+        // ────────────────────────────────────────────────────────
+        //  Hot reload — swap source code, preserve runtime state
+        // ────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Replace the script source code with new code, re-parse, and re-compile
+        /// all functions and classes — without re-executing top-level statements
+        /// and without clearing global variable state.
+        ///
+        /// After Reload():
+        /// - All function definitions are updated to the new source.
+        ///   The next Call() will execute the new bytecode.
+        /// - Global variables (hp, entities, arrays, etc.) are preserved.
+        /// - Existing class instances keep their old definition. New instances
+        ///   created after reload use the new class definition.
+        /// - All active coroutines are stopped (they reference old bytecode).
+        /// - Function handles obtained via GetFunction() before reload are stale.
+        ///   Call GetFunction() again to get the new handle.
+        ///
+        /// Typical usage during development:
+        /// <code>
+        ///   // File watcher detects a change
+        ///   var newSource = File.ReadAllText("patrol.ws");
+        ///   script.Reload(newSource);
+        ///   tickFunc = script.GetFunction("tick", 1);  // re-acquire handle
+        /// </code>
+        /// </summary>
+        public void Reload(string newSourceCode)
+        {
+            // 1. Stop all coroutines — they hold VMs with old bytecode
+            _coroutines.Clear();
+
+            // 2. Clear old definitions (functions, classes)
+            //    The MemoryScope (_memoryScope) is deliberately NOT cleared —
+            //    global variables and class instance state survive the reload.
+            _definitionScope.Clear();
+
+            // 3. Clear all caches
+            _cachedStatement = null;
+            _cachedCompiled = null;
+            _cachedVM = null;
+            ImportCache.Clear();
+
+            // 4. Clear any lingering exception/halt state
+            if (ExceptionContext.IsRaised())
+                ExceptionContext.RescueException();
+            HaltFlags = HaltFlag.None;
+
+            // 5. Re-lex from new source
+            _tokens = LexicalParser.Parse(newSourceCode);
+
+            // 6. Re-parse and re-compile (but do NOT execute top-level code)
+            DefinitionContext.PushScope(_definitionScope);
+            MemoryContext.PushScope(_memoryScope);
+
+            try
+            {
+                EnsureCompiled();
+            }
+            finally
+            {
+                DefinitionContext.EndScope();
+                MemoryContext.EndScope();
+            }
         }
 
         // ────────────────────────────────────────────────────────

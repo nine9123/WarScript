@@ -123,5 +123,17 @@ namespace WarScript.Context.Definition
             foreach (var functionDefinition in Functions)
                 target.AddFunction(functionDefinition);
         }
+
+        /// <summary>
+        /// Remove all locally defined functions and classes.
+        /// Used by hot reload to clear old definitions before re-parsing.
+        /// Native functions (in the parent scope) are unaffected.
+        /// </summary>
+        public void Clear()
+        {
+            _classes.Clear();
+            Functions.Clear();
+            _functionIndex.Clear();
+        }
     }
 }
