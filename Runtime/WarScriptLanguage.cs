@@ -203,15 +203,42 @@ namespace WarScript
         /// </summary>
         private void EnsureCompiled()
         {
-            if (_cachedStatement == null)
+            if (_cachedStatement == null && _cachedCompiled == null)
             {
                 var statement = new CompositeStatement(this, null, ScriptName);
                 StatementParser.Parse(this, _tokens, statement);
-                _cachedStatement = statement;
-            }
+                _cachedCompiled = Compiler.CompileScript(this, statement, _definitionScope);
 
-            if (_cachedCompiled == null)
+                // Discard the AST — bytecode is the source of truth.
+                // This frees all Statement/Expression nodes for GC while
+                // keeping the DefinitionScope tree (function names, class
+                // details, compiled bytecode) intact.
+                DiscardAST(_definitionScope);
+            }
+            else if (_cachedCompiled == null && _cachedStatement != null)
+            {
                 _cachedCompiled = Compiler.CompileScript(this, _cachedStatement, _definitionScope);
+                _cachedStatement = null;
+                DiscardAST(_definitionScope);
+            }
+        }
+
+        /// <summary>
+        /// Recursively null out all AST Statement references in a DefinitionScope tree.
+        /// After compilation, only the bytecode is needed — the AST can be GC'd.
+        /// </summary>
+        private static void DiscardAST(DefinitionScope scope)
+        {
+            foreach (var f in scope.Functions)
+            {
+                if (f is NativeFunctionDefinition) continue;
+                f.Statement = null;
+            }
+            foreach (var c in scope.ClassDefinitions)
+            {
+                c.Statement = null;
+                DiscardAST(c.GetDefinitionScope());
+            }
         }
 
         /// <summary>

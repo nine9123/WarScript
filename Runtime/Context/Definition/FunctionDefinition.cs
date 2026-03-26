@@ -17,9 +17,10 @@ namespace WarScript.Context.Definition
         public FunctionDetails Details { get; private set; }
         
         /// <summary>
-        /// Statement(s) defined in the function body
+        /// Statement(s) defined in the function body.
+        /// Nulled after bytecode compilation to free AST memory.
         /// </summary>
-        public FunctionStatement Statement { get; private set; }
+        public FunctionStatement Statement { get; internal set; }
         
         /// <summary>
         /// Contains nested classes and functions defined in this function

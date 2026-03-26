@@ -22,9 +22,10 @@ namespace WarScript.Context.Definition
         public List<ClassDetails> BaseTypes { get; }
         
         /// <summary>
-        /// Constructor statement
+        /// Constructor statement.
+        /// Nulled after bytecode compilation to free AST memory.
         /// </summary>
-        public ClassStatement Statement { get; }
+        public ClassStatement Statement { get; internal set; }
 
         /// <summary>
         /// Contains nested classes and functions defined in this class

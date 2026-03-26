@@ -641,25 +641,9 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            // Tree-walk fallback
-                            var args = CollectArgs(argCount);
-                            _script.MemoryContext.PushScope(
-                                _script.MemoryContext.NewScope(_script.UserMemoryScope));
-                            try
-                            {
-                                for (int i = 0; i < def.Details.Arguments.Count; i++)
-                                    _script.MemoryContext.GetScope().SetLocal(
-                                        def.Details.Arguments[i],
-                                        i < args.Count ? args[i] : WarValue.Null);
-                                def.Statement!.Execute();
-                                Push(_script.ReturnContext.GetScope().Result);
-                            }
-                            finally
-                            {
-                                _script.MemoryContext.EndScope();
-                                _script.ReturnContext.Reset();
-                                _script.HaltFlags &= ~WarScriptLanguage.HaltFlag.Return;
-                            }
+                            RuntimeError($"Function '{funcName}' is not compiled");
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
                         }
                         break;
                     }
@@ -730,34 +714,9 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            // Tree-walk fallback — call normally then return
-                            var args = CollectArgs(argCount);
-                            _script.MemoryContext.PushScope(
-                                _script.MemoryContext.NewScope(_script.UserMemoryScope));
-                            try
-                            {
-                                for (int i = 0; i < def.Details.Arguments.Count; i++)
-                                    _script.MemoryContext.GetScope().SetLocal(
-                                        def.Details.Arguments[i],
-                                        i < args.Count ? args[i] : WarValue.Null);
-                                def.Statement!.Execute();
-                                var twResult = _script.ReturnContext.GetScope().Result;
-                                while (_scopeDepth > _frames[fi].SavedScopeDepth)
-                                {
-                                    _script.MemoryContext.EndScope();
-                                    _scopeDepth--;
-                                }
-                                DoReturn(twResult, fi, ref code, ref constants, out fi);
-                                if (_frameCount == 0) return;
-                                code = _frames[fi].Function.Chunk.Code;
-                                constants = _frames[fi].Function.Chunk.Constants;
-                            }
-                            finally
-                            {
-                                _script.MemoryContext.EndScope();
-                                _script.ReturnContext.Reset();
-                                _script.HaltFlags &= ~WarScriptLanguage.HaltFlag.Return;
-                            }
+                            RuntimeError($"Function '{funcName}' is not compiled");
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
                         }
                         break;
                     }
@@ -884,27 +843,13 @@ namespace WarScript.Bytecode
                             }
                             else
                             {
-                                // Tree-walk fallback
-                                var args = CollectArgs(argCount);
-                                _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
-                                try
-                                {
-                                    for (int i = 0; i < methodDef.Details.Arguments.Count; i++)
-                                        _script.MemoryContext.GetScope().SetLocal(
-                                            methodDef.Details.Arguments[i],
-                                            i < args.Count ? args[i] : WarValue.Null);
-                                    methodDef.Statement!.Execute();
-                                    Push(_script.ReturnContext.GetScope().Result);
-                                }
-                                finally
-                                {
-                                    _script.MemoryContext.EndScope();
-                                    _script.DefinitionContext.EndScope();
-                                    _script.MemoryContext.EndScope();
-                                    _script.ClassInstanceContext.PopValue();
-                                    _script.ReturnContext.Reset();
-                                    _script.HaltFlags &= ~WarScriptLanguage.HaltFlag.Return;
-                                }
+                                // No bytecode — clean up context and report error
+                                _script.DefinitionContext.EndScope();
+                                _script.MemoryContext.EndScope();
+                                _script.ClassInstanceContext.PopValue();
+                                RuntimeError($"Method '{methodName}' is not compiled");
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
                             }
                         }
                         break;
@@ -1719,12 +1664,8 @@ namespace WarScript.Bytecode
                     try { new WarVM(_script).Run(definition.CompiledConstructor); }
                     finally { _script.DefinitionContext.EndScope(); }
                 }
-                else if (definition.Statement != null && definition.Statement.StatementsToExecute.Count > 0)
-                {
-                    _script.DefinitionContext.PushScope(definition.GetDefinitionScope());
-                    try { definition.Statement.Execute(); }
-                    finally { _script.DefinitionContext.EndScope(); }
-                }
+                // No tree-walk fallback — AST is discarded after compilation.
+                // Classes loaded via LoadBytecode have CompiledConstructor or nothing.
             }
             finally
             {
