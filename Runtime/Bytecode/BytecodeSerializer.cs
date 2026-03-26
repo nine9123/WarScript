@@ -138,6 +138,9 @@ namespace WarScript.Bytecode
             w.Write((ushort)func.LocalNames.Length);
             foreach (var name in func.LocalNames)
                 WriteString(w, name ?? "");
+
+            // Inline cache slot count (rebuilt at runtime, just need the size)
+            w.Write((ushort)func.Chunk.PropertyCaches.Length);
         }
 
         private static void WriteConstant(BinaryWriter w, in WarValue val)
@@ -304,6 +307,10 @@ namespace WarScript.Bytecode
                 names[i] = n.Length == 0 ? null! : n;
             }
             func.LocalNames = names;
+
+            // Inline cache slots (runtime-only, just allocate empty array)
+            var cacheCount = r.ReadUInt16();
+            func.Chunk.PropertyCaches = new InlineCache[cacheCount];
 
             return func;
         }

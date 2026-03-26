@@ -923,19 +923,40 @@ namespace WarScript.Bytecode
                     }
                     case OpCode.IndexSetProp:
                     {
-                        // Stack: [..., instance, index, value]. Operand: property name constant.
+                        // Stack: [..., instance, index, value]. Operand: property name + cache slot.
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
-                        var propName = constants[nameIdx].TextValue;
+                        var cacheSlot = ReadU16(code, ref _frames[fi].IP);
                         var value = Pop(); var index = Pop(); var inst = Pop();
                         if (inst.IsClass)
                         {
-                            var propVal = inst.ClassValue.GetProperty(propName);
+                            var cd = inst.ClassValue;
+                            var details = cd.Definition.ClassDetails;
+                            ref var cache = ref _frames[fi].Function.Chunk.PropertyCaches[cacheSlot];
+                            WarValue propVal;
+                            if (ReferenceEquals(cache.CachedType, details))
+                            {
+                                propVal = cd.GetPropertyByIndex(cache.CachedIndex);
+                            }
+                            else
+                            {
+                                var propName = constants[nameIdx].TextValue;
+                                propVal = cd.GetProperty(propName);
+                                if (details.PropertyIndex.TryGetValue(propName, out var idx))
+                                {
+                                    cache.CachedType = details;
+                                    cache.CachedIndex = idx;
+                                }
+                            }
+
                             if (propVal.IsArray && index.IsNumeric)
                                 propVal.SetArrayElement((int)index.Numeric, value);
                             else if (propVal.IsText && index.IsNumeric)
                             {
                                 var newText = propVal.SetTextChar((int)index.Numeric, value.ToString());
-                                inst.ClassValue.SetProperty(propName, newText);
+                                if (ReferenceEquals(cache.CachedType, details))
+                                    cd.SetPropertyByIndex(cache.CachedIndex, newText);
+                                else
+                                    cd.SetProperty(constants[nameIdx].TextValue, newText);
                             }
                         }
                         Push(value);
@@ -1047,11 +1068,33 @@ namespace WarScript.Bytecode
                     case OpCode.GetProperty:
                     {
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
-                        var propName = constants[nameIdx].TextValue;
+                        var cacheSlot = ReadU16(code, ref _frames[fi].IP);
                         var inst = Pop();
-                        if (inst.IsClass) Push(inst.ClassValue.GetProperty(propName));
+                        if (inst.IsClass)
+                        {
+                            var cd = inst.ClassValue;
+                            var details = cd.Definition.ClassDetails;
+                            ref var cache = ref _frames[fi].Function.Chunk.PropertyCaches[cacheSlot];
+                            if (ReferenceEquals(cache.CachedType, details))
+                            {
+                                // Cache hit: O(1) array access
+                                Push(cd.GetPropertyByIndex(cache.CachedIndex));
+                            }
+                            else
+                            {
+                                // Cache miss: dictionary lookup + update cache
+                                var propName = constants[nameIdx].TextValue;
+                                Push(cd.GetProperty(propName));
+                                if (details.PropertyIndex.TryGetValue(propName, out var idx))
+                                {
+                                    cache.CachedType = details;
+                                    cache.CachedIndex = idx;
+                                }
+                            }
+                        }
                         else
                         {
+                            var propName = constants[nameIdx].TextValue;
                             RuntimeError($"Cannot access property '{propName}' on non-class value");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
@@ -1061,9 +1104,28 @@ namespace WarScript.Bytecode
                     case OpCode.SetProperty:
                     {
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
-                        var propName = constants[nameIdx].TextValue;
+                        var cacheSlot = ReadU16(code, ref _frames[fi].IP);
                         var value = Pop(); var inst = Pop();
-                        if (inst.IsClass) inst.ClassValue.SetProperty(propName, value);
+                        if (inst.IsClass)
+                        {
+                            var cd = inst.ClassValue;
+                            var details = cd.Definition.ClassDetails;
+                            ref var cache = ref _frames[fi].Function.Chunk.PropertyCaches[cacheSlot];
+                            if (ReferenceEquals(cache.CachedType, details))
+                            {
+                                cd.SetPropertyByIndex(cache.CachedIndex, value);
+                            }
+                            else
+                            {
+                                var propName = constants[nameIdx].TextValue;
+                                cd.SetProperty(propName, value);
+                                if (details.PropertyIndex.TryGetValue(propName, out var idx))
+                                {
+                                    cache.CachedType = details;
+                                    cache.CachedIndex = idx;
+                                }
+                            }
+                        }
                         Push(value);
                         break;
                     }
@@ -1506,6 +1568,7 @@ namespace WarScript.Bytecode
 
             var classScope = new MemoryScope(_script, null, poolable: false);
             var classData = new ClassData(definition, classScope, relations);
+            classData.PropertyValues = valueRefs;
             relations[definition.ClassDetails.Name] = classData;
 
             // Base classes: pass shared ValueReferences

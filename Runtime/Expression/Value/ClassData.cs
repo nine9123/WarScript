@@ -16,11 +16,19 @@ namespace WarScript.Expression.Value
         public readonly MemoryScope MemoryScope;
         public readonly Dictionary<string, ClassData> Relations;
 
+        /// <summary>
+        /// Indexed property storage — parallel to Definition.ClassDetails.Properties.
+        /// Enables O(1) property access when the property index is known (inline cache).
+        /// Shares ValueReferences with inherited classes for mutation propagation.
+        /// </summary>
+        internal ValueReference[] PropertyValues;
+
         public ClassData(ClassDefinition definition, MemoryScope memoryScope, Dictionary<string, ClassData> relations)
         {
             Definition = definition;
             MemoryScope = memoryScope;
             Relations = relations;
+            PropertyValues = System.Array.Empty<ValueReference>();
         }
 
         public ClassData? GetRelation(string name)
@@ -34,13 +42,24 @@ namespace WarScript.Expression.Value
 
         public WarValue GetProperty(string name)
         {
-            var result = MemoryScope.GetLocal(name);
-            return result;
+            return MemoryScope.GetLocal(name);
+        }
+
+        /// <summary>O(1) property access by pre-computed index.</summary>
+        public WarValue GetPropertyByIndex(int index)
+        {
+            return PropertyValues[index].Value;
         }
 
         public void SetProperty(string name, in WarValue value)
         {
             MemoryScope.SetLocal(name, value);
+        }
+
+        /// <summary>O(1) property write by pre-computed index.</summary>
+        public void SetPropertyByIndex(int index, in WarValue value)
+        {
+            PropertyValues[index].Value = value;
         }
 
         public bool StructuralEquals(ClassData other)

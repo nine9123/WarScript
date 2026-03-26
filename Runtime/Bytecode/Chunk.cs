@@ -16,6 +16,25 @@ namespace WarScript.Bytecode
         public readonly List<WarValue> Constants = new();
         public readonly List<int> Lines = new();
 
+        /// <summary>
+        /// Inline caches for property access. Each GetProperty/SetProperty/IndexSetProp
+        /// bytecode site gets a cache slot ID (emitted as a U16 operand). At runtime,
+        /// the VM checks if the instance's ClassDetails matches the cached type. On hit:
+        /// one reference comparison + one array index — no string hashing.
+        /// </summary>
+        internal InlineCache[] PropertyCaches = System.Array.Empty<InlineCache>();
+        private int _nextCacheSlot;
+
+        public int AllocCacheSlot()
+        {
+            return _nextCacheSlot++;
+        }
+
+        public void FinalizePropertyCaches()
+        {
+            PropertyCaches = new InlineCache[_nextCacheSlot];
+        }
+
         public int Count => Code.Count;
 
         // ── Constant pool ──
@@ -142,9 +161,14 @@ namespace WarScript.Bytecode
                     sb.AppendLine($"NEW_INSTANCE    {Constants[ii]} ({Code[offset + 3]} args)");
                     return offset + 4;
                 case OpCode.GetProperty: case OpCode.SetProperty:
-                case OpCode.CastAs: case OpCode.InstanceOf:
+                case OpCode.IndexSetProp:
                     var pi = ReadU16(offset + 1);
-                    sb.AppendLine($"{op,-16}{Constants[pi]}");
+                    var cs = ReadU16(offset + 3);
+                    sb.AppendLine($"{op,-16}{Constants[pi]} (cache={cs})");
+                    return offset + 5;
+                case OpCode.CastAs: case OpCode.InstanceOf:
+                    var ci2 = ReadU16(offset + 1);
+                    sb.AppendLine($"{op,-16}{Constants[ci2]}");
                     return offset + 3;
                 case OpCode.PopN:
                     sb.AppendLine($"POP_N           {Code[offset + 1]}");
@@ -166,5 +190,19 @@ namespace WarScript.Bytecode
         {
             return (Code[offset] << 8) | Code[offset + 1];
         }
+    }
+
+    /// <summary>
+    /// Per-bytecode-site cache for property access. Stores the last-seen class
+    /// type and its property index. On cache hit (same ClassDetails reference),
+    /// the VM uses the index directly — O(1) array access, no dictionary lookup.
+    /// </summary>
+    internal struct InlineCache
+    {
+        /// <summary>The ClassDetails of the last instance accessed at this site.</summary>
+        public WarScript.Context.Definition.ClassDetails? CachedType;
+
+        /// <summary>The property index within that class's PropertyValues array.</summary>
+        public int CachedIndex;
     }
 }

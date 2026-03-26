@@ -94,6 +94,7 @@ namespace WarScript.Bytecode
             EmitReturn(0);
             _current.LocalCount = _maxLocals;
             _current.LocalNames = _localNames.ToArray();
+            Chunk.FinalizePropertyCaches();
             return _current;
         }
 
@@ -136,6 +137,7 @@ namespace WarScript.Bytecode
             child.EmitReturn(0);
             child._current.LocalCount = child._maxLocals;
             child._current.LocalNames = child._localNames.ToArray();
+            child._current.Chunk.FinalizePropertyCaches();
             funcDef.Compiled = child._current;
         }
 
@@ -174,6 +176,7 @@ namespace WarScript.Bytecode
             child.EmitReturn(0);
             child._current.LocalCount = child._maxLocals;
             child._current.LocalNames = child._localNames.ToArray();
+            child._current.Chunk.FinalizePropertyCaches();
             classDef.CompiledConstructor = child._current;
         }
 
@@ -353,6 +356,7 @@ namespace WarScript.Bytecode
                     var nameIdx = Chunk.AddConstant(WarValue.FromText(propName.Name));
                     Chunk.EmitOp(OpCode.SetProperty, line);
                     Chunk.EmitU16(nameIdx, line);
+                    Chunk.EmitU16(Chunk.AllocCacheSlot(), line);
                     return false;
                 }
                 // obj::arr{i} = expr  →  IndexSetProp
@@ -364,6 +368,7 @@ namespace WarScript.Bytecode
                     var nameIdx = Chunk.AddConstant(WarValue.FromText(arrName.Name));
                     Chunk.EmitOp(OpCode.IndexSetProp, line);
                     Chunk.EmitU16(nameIdx, line);
+                    Chunk.EmitU16(Chunk.AllocCacheSlot(), line);
                     return false;
                 }
             }
@@ -1083,6 +1088,7 @@ namespace WarScript.Bytecode
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(varExpr.Name));
                 Chunk.EmitOp(OpCode.GetProperty, 0);
                 Chunk.EmitU16(nameIdx, 0);
+                Chunk.EmitU16(Chunk.AllocCacheSlot(), 0);
             }
             else if (cp.Right is FunctionExpression funcExpr)
             {
@@ -1100,6 +1106,7 @@ namespace WarScript.Bytecode
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(arrayVar.Name));
                 Chunk.EmitOp(OpCode.GetProperty, 0);
                 Chunk.EmitU16(nameIdx, 0);
+                Chunk.EmitU16(Chunk.AllocCacheSlot(), 0);
                 CompileExpression(arrayOp.Right);
                 Chunk.EmitOp(OpCode.IndexGet, 0);
             }
