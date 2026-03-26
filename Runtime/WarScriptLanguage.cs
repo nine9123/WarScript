@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using WarScript.Bytecode;
 using WarScript.Context;
 using WarScript.Context.Definition;
@@ -227,6 +228,79 @@ namespace WarScript
                 DefinitionContext.EndScope();
                 MemoryContext.EndScope();
             }
+        }
+
+        // ────────────────────────────────────────────────────────
+        //  Bytecode serialization — skip parse+compile at load time
+        // ────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Save the compiled bytecode to a binary stream. The script must
+        /// have been compiled first (via Run() or EnsureCompiled).
+        ///
+        /// Typical build-time usage:
+        /// <code>
+        ///   var script = new WarScriptLanguage("patrol", source, null, null);
+        ///   script.Run();
+        ///   using var fs = File.Create("patrol.wsbc");
+        ///   script.SaveBytecode(fs);
+        /// </code>
+        /// </summary>
+        public void SaveBytecode(Stream stream)
+        {
+            // Ensure we have something to save
+            DefinitionContext.PushScope(_definitionScope);
+            MemoryContext.PushScope(_memoryScope);
+            try { EnsureCompiled(); }
+            finally
+            {
+                DefinitionContext.EndScope();
+                MemoryContext.EndScope();
+            }
+
+            using var w = new System.IO.BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+            BytecodeSerializer.Save(w, _cachedCompiled!, _definitionScope);
+        }
+
+        /// <summary>
+        /// Load pre-compiled bytecode from a binary stream, replacing any
+        /// existing definitions. This skips the lexer, parser, and compiler
+        /// entirely — the script is ready to Call() immediately.
+        ///
+        /// Global variable state (_memoryScope) is preserved, just like Reload().
+        /// Native functions (registered via WarScriptLibraryRegistry) are unaffected.
+        ///
+        /// Typical runtime usage:
+        /// <code>
+        ///   using var fs = File.OpenRead("patrol.wsbc");
+        ///   script.LoadBytecode(fs);
+        ///   var tick = script.GetFunction("tick", 1);
+        ///   script.Call(tick, dt);
+        /// </code>
+        /// </summary>
+        public void LoadBytecode(Stream stream)
+        {
+            // Stop coroutines referencing old bytecode
+            _coroutines.Clear();
+
+            // Clear old definitions and caches
+            _definitionScope.Clear();
+            _cachedStatement = null;
+            _cachedCompiled = null;
+            _cachedVM = null;
+            ImportCache.Clear();
+
+            if (ExceptionContext.IsRaised())
+                ExceptionContext.RescueException();
+            HaltFlags = HaltFlag.None;
+
+            // Load from binary
+            using var r = new System.IO.BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+            var (topLevel, scope) = BytecodeSerializer.Load(r, this, GlobalDefinitionScope);
+
+            // Merge loaded definitions into _definitionScope
+            scope.CopyLocalDefinitionsTo(_definitionScope);
+            _cachedCompiled = topLevel;
         }
 
         // ────────────────────────────────────────────────────────

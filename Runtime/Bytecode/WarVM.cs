@@ -1302,7 +1302,7 @@ namespace WarScript.Bytecode
                     try { new WarVM(_script).Run(definition.CompiledConstructor); }
                     finally { _script.DefinitionContext.EndScope(); }
                 }
-                else if (definition.Statement.StatementsToExecute.Count > 0)
+                else if (definition.Statement != null && definition.Statement.StatementsToExecute.Count > 0)
                 {
                     _script.DefinitionContext.PushScope(definition.GetDefinitionScope());
                     try { definition.Statement.Execute(); }
