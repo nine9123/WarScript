@@ -9,22 +9,26 @@ namespace WarScript.Native
     public class ScriptRunner
     {
         public readonly WarScriptLanguage Script;
-    
-        public ScriptRunner(string scriptName, string sourceCode)
+
+        protected ScriptRunner(string scriptName, string sourceCode)
         {
             Script = new WarScriptLanguage(
                 scriptName,
                 sourceCode,
                 ImportScript,
                 LogPrintMessage);
-
-            Run();
         }
 
-        private void Run()
+        public static ScriptRunner Create(string scriptName, string sourceCode)
+        {
+            var runner = new ScriptRunner(scriptName, sourceCode);
+            runner.Initialize();
+            return runner;
+        }
+
+        protected void Initialize()
         {
             SetupGlobalScope(Script.GlobalDefinitionScope);
-
             Script.Run();
         }
 
