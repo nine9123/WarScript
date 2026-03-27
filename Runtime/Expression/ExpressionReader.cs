@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using WarScript.Exception;
 using WarScript.Expression.Operator;
 using WarScript.Expression.Operator.Extensions;
 using WarScript.Expression.Value;
@@ -140,11 +141,21 @@ namespace WarScript.Expression
 
         private void ApplyTopOperator()
         {
+            if (_operators.Count == 0)
+                throw new SyntaxException("Malformed expression: unexpected operator (missing operand?)");
+
             var op = _operators.Pop();
+
+            if (_operands.Count == 0)
+                throw new SyntaxException($"Malformed expression: operator '{op}' has no operands");
+
             var left = _operands.Pop();
 
             if (op.IsBinary())
             {
+                if (_operands.Count == 0)
+                    throw new SyntaxException($"Malformed expression: binary operator '{op}' missing left-hand operand");
+
                 var right = _operands.Pop();
                 _operands.Push(op.ToBinaryExpression(_script, right, left));
             }
