@@ -1,9 +1,7 @@
 {
-    "name": "WarScript.Runtime",
-    "rootNamespace": "WarScript",
-    "references": [
-        "WarScript.Attributes"
-    ],
+    "name": "WarScript.Attributes",
+    "rootNamespace": "WarScript.Attributes",
+    "references": [],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
