@@ -53,6 +53,11 @@ namespace WarScript.Native
             }
         }
 
+        public bool HasFunction(string functionName, int args)
+        {
+            return Script.GetFunction(functionName, args) != null;
+        }
+
         protected virtual void SetupGlobalScope(DefinitionScope scope)
         {
             MathLibrary.Register(Script, scope);
