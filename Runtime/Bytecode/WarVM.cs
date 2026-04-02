@@ -612,6 +612,15 @@ namespace WarScript.Bytecode
                         }
                         else if (def.Compiled != null)
                         {
+                            // Pad missing arguments with null for default parameters.
+                            // The function body's desugared null-checks will assign defaults.
+                            var arity = def.Compiled.Arity;
+                            while (argCount < arity)
+                            {
+                                Push(WarValue.Null);
+                                argCount++;
+                            }
+
                             // Push a MemoryScope for function-local variables
                             // (parented to UserMemoryScope, matching tree-walker semantics)
                             _script.MemoryContext.PushScope(
@@ -689,6 +698,14 @@ namespace WarScript.Bytecode
                         else if (def.Compiled != null)
                         {
                             // ── True tail call: reuse the current frame ──
+
+                            // Pad missing arguments with null for default parameters.
+                            var arity = def.Compiled.Arity;
+                            while (argCount < arity)
+                            {
+                                Push(WarValue.Null);
+                                argCount++;
+                            }
 
                             // Pop old function's memory scope
                             if (_frames[fi].HasScope)
@@ -813,6 +830,14 @@ namespace WarScript.Bytecode
 
                             if (methodDef.Compiled != null)
                             {
+                                // Pad missing arguments with null for default parameters.
+                                var arity = methodDef.Compiled.Arity;
+                                while (argCount < arity)
+                                {
+                                    Push(WarValue.Null);
+                                    argCount++;
+                                }
+
                                 // Push an inner scope for method-local variables
                                 _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
 

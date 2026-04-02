@@ -170,6 +170,22 @@ fun add [a, b]
 end
 result = add [3, 4]
 
+# Default parameter values — trailing params can have = default_expr
+# Desugared into null-checks at the top of the function body.
+# Passing null (or omitting the arg) triggers the default.
+fun greet [name, greeting = "Hello"]
+    return greeting + ", " + name
+end
+greet ["World"]                  # → "Hello, World"
+greet ["World", "Hi"]            # → "Hi, World"
+
+# All params can be optional
+fun point [x = 0, y = 0, z = 0]
+    return x + y + z
+end
+point []        # → 0
+point [1, 2]    # → 3
+
 # Named arguments
 fun greet [name, greeting]
     print "{greeting}, {name}!"
@@ -382,8 +398,18 @@ public void MyFeature()
 - **Tree-walk execution still exists** as a fallback path (for functions called before `Run()`, and the legacy `Coroutine` class). The bytecode path is preferred and tested more heavily.
 - **Lexer caches globally** by source string. Call `LexicalParser.ClearCache()` if source changes (hot reload).
 - **String interpolation** `"{expr}"` is desugared by the lexer into concatenation tokens. It never reaches the parser as a special node.
+- **Default parameters** are desugared by the parser into `if param == null` → `param = default` at the top of the function body. Passing `null` explicitly triggers the default. Functions are registered at all valid arities (`MinArity..ArgCount`). The VM pads missing stack slots with null.
 - **Import** resolves via the `FileResolver` delegate passed at construction. Returns null if file not found. Import results are cached in `ImportCache`.
 - **Coroutines**: Each `BytecodeCoroutine` owns its own `WarVM` instance. This is intentional — the VM's full state (stack, frames, handlers) is preserved across yields.
+- **Function lookup is by (name, argCount).** Overloading by arity is supported. Default params register at multiple arities so `f[a]` finds `fun f [a, b = 1]`.
+
+## Existing Desugar Patterns
+
+Features implemented as desugars (no dedicated opcodes):
+
+1. **String interpolation** — Lexer desugars `"hello {x}"` into `"hello " + (x)` at the token level.
+2. **Default parameters** — Parser desugars `fun f [a, b = 1]` by injecting `if b == null then b = 1` ConditionStatements at the top of the function body. `DefinitionScope` registers at all valid arities. VM pads stack with nulls when `argCount < Arity`.
+3. **Compound assignment** — `x += 1` is parsed as `x = x + 1` by the expression reader.
 
 ## Performance-Sensitive Areas
 

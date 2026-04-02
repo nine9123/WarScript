@@ -109,6 +109,17 @@ namespace WarScript.Context.Definition
             
             Functions.Add(functionDefinition);
             _functionIndex[(functionDefinition.Details.Name, functionDefinition.Details.Arguments.Count)] = functionDefinition;
+
+            // Register at reduced arities for default parameters.
+            // A function `fun f [a, b = 1, c = 2]` with MinArity=1
+            // is also reachable as f[a] and f[a, b].
+            var details = functionDefinition.Details;
+            for (int arity = details.MinArity; arity < details.Arguments.Count; arity++)
+            {
+                var key = (details.Name, arity);
+                if (!_functionIndex.ContainsKey(key))
+                    _functionIndex[key] = functionDefinition;
+            }
         }
 
         /// <summary>

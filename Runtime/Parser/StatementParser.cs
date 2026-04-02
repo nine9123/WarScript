@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using WarScript.Context.Definition;
 using WarScript.Exception;
 using WarScript.Expression;
+using WarScript.Expression.Operator;
 using WarScript.Expression.Value;
 using WarScript.Statement;
 using WarScript.Statement.Loop;
@@ -193,6 +194,8 @@ namespace WarScript
         {
             var name = Tokens.Next(TokenType.Variable);
             var arguments = new List<string>();
+            var defaults = new List<(string Name, IExpression DefaultExpr)>();
+            var minArity = -1;
 
             if (Tokens.Peek(TokenType.GroupDivider, "["))
             {
@@ -202,6 +205,20 @@ namespace WarScript
                 {
                     var argumentToken = Tokens.Next(TokenType.Variable);
                     arguments.Add(argumentToken.Value);
+
+                    // Check for default value: param = expr
+                    if (Tokens.PeekSameLine(TokenType.Operator, "="))
+                    {
+                        Tokens.Next(); // consume =
+                        if (minArity < 0) minArity = arguments.Count - 1;
+                        var defaultExpr = ExpressionReader.ReadExpression(_script, Tokens);
+                        defaults.Add((argumentToken.Value, defaultExpr));
+                    }
+                    else if (minArity >= 0)
+                    {
+                        throw new SyntaxException(
+                            $"Required parameter '{argumentToken.Value}' cannot follow a parameter with a default value");
+                    }
 
                     if (Tokens.Peek(TokenType.GroupDivider, ","))
                         Tokens.Next();
@@ -217,13 +234,42 @@ namespace WarScript
 
             var functionStatement = new FunctionStatement(_script, rowToken.RowNumber, blockName);
             var functionScope = _script.DefinitionContext.NewScope();
-            var functionDetails = new FunctionDetails(name.Value, arguments);
+            var functionDetails = new FunctionDetails(name.Value, arguments, minArity);
             var functionDefinition = new FunctionDefinition(functionDetails, functionStatement, functionScope);
             _script.DefinitionContext.GetScope().AddFunction(functionDefinition);
 
             // parse function statements
             Parse(this, functionStatement, functionScope);
             Tokens.Next(TokenType.Keyword, "end");
+
+            // Desugar default parameter values.
+            // For each defaulted param, inject at the top of the body:
+            //     if <param> == null
+            //         <param> = <default_expr>
+            //     end
+            // Inserted in reverse order so they appear in parameter order.
+            for (var i = defaults.Count - 1; i >= 0; i--)
+            {
+                var (paramName, defaultExpr) = defaults[i];
+                var line = rowToken.RowNumber;
+
+                var nullCheck = new EqualsOperator(
+                    _script,
+                    new VariableExpression(_script, paramName),
+                    _script.NullExpr);
+
+                var assignBody = new CompositeStatement(_script, line, blockName);
+                var assign = new AssignmentOperator(
+                    _script,
+                    new VariableExpression(_script, paramName),
+                    defaultExpr);
+                assignBody.AddStatement(new ExpressionStatement(_script, line, blockName, assign));
+
+                var condition = new ConditionStatement(_script, line, blockName);
+                condition.AddCase(nullCheck, assignBody);
+
+                functionStatement.StatementsToExecute.Insert(0, condition);
+            }
         }
 
         private void ParseReturnStatement(Token.Token rowToken)

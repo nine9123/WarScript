@@ -19,10 +19,22 @@ namespace WarScript.Context.Definition
         /// </summary>
         public List<string> Arguments { get; private set; }
 
-        public FunctionDetails(string name, List<string> arguments)
+        /// <summary>
+        /// Minimum number of required arguments (i.e. the number of
+        /// parameters that do NOT have default values). For a function
+        /// with no defaults this equals Arguments.Count.
+        ///
+        /// Used by DefinitionScope to register the function at every
+        /// valid arity from MinArity..Arguments.Count so that callers
+        /// can omit trailing defaulted parameters.
+        /// </summary>
+        public int MinArity { get; private set; }
+
+        public FunctionDetails(string name, List<string> arguments, int minArity = -1)
         {
             Name = name;
             Arguments = arguments;
+            MinArity = minArity < 0 ? arguments.Count : minArity;
         }
         
         public override bool Equals(object obj)
