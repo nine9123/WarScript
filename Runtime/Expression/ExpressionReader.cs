@@ -171,10 +171,10 @@ namespace WarScript.Expression
             if (Tokens.PeekSameLine(TokenType.GroupDivider, "["))
             {
                 Tokens.Next(TokenType.GroupDivider, "[");
-                while (!Tokens.PeekSameLine(TokenType.GroupDivider, "]"))
+                while (!Tokens.Peek(TokenType.GroupDivider, "]"))
                 {
                     properties.Add(ReadExpression(_script, this));
-                    if (Tokens.PeekSameLine(TokenType.GroupDivider, ","))
+                    if (Tokens.Peek(TokenType.GroupDivider, ","))
                         Tokens.Next();
                 }
                 Tokens.Next(TokenType.GroupDivider, "]");
@@ -188,24 +188,94 @@ namespace WarScript.Expression
             if (Tokens.PeekSameLine(TokenType.GroupDivider, "["))
             {
                 Tokens.Next(TokenType.GroupDivider, "[");
-                while (!Tokens.PeekSameLine(TokenType.GroupDivider, "]"))
+
+                // Detect whether arguments are named (first non-whitespace arg is `name:`)
+                var namedArgs = new Dictionary<string, IExpression>();
+                var isNamed = false;
+                var checkedNaming = false;
+
+                while (!Tokens.Peek(TokenType.GroupDivider, "]"))
                 {
-                    arguments.Add(ReadExpression(_script, this));
-                    if (Tokens.PeekSameLine(TokenType.GroupDivider, ","))
+                    // Trailing comma guard: if the next real token is ], stop
+                    if (Tokens.Peek(TokenType.GroupDivider, "]"))
+                        break;
+
+                    if (!checkedNaming)
+                    {
+                        // Peek ahead: if pattern is Variable followed by GroupDivider ":", it's named
+                        isNamed = IsNamedArgumentAhead();
+                        checkedNaming = true;
+                    }
+
+                    if (isNamed)
+                    {
+                        var argName = Tokens.Next(TokenType.Variable).Value;
+                        Tokens.Next(TokenType.GroupDivider, ":");
+                        var argExpr = ReadExpression(_script, this);
+                        namedArgs[argName] = argExpr;
+                    }
+                    else
+                    {
+                        arguments.Add(ReadExpression(_script, this));
+                    }
+
+                    // Consume comma, then re-check for trailing comma before ]
+                    if (Tokens.Peek(TokenType.GroupDivider, ","))
                         Tokens.Next();
                 }
                 Tokens.Next(TokenType.GroupDivider, "]");
+
+                // Reorder named args to match declared parameter positions
+                if (isNamed && namedArgs.Count > 0)
+                {
+                    var definition = _script.DefinitionContext.GetScope()
+                        .GetFunction(token.Value, namedArgs.Count);
+
+                    if (definition != null)
+                    {
+                        foreach (var paramName in definition.Details.Arguments)
+                        {
+                            if (namedArgs.TryGetValue(paramName, out var expr))
+                                arguments.Add(expr);
+                            else
+                                arguments.Add(_script.NullExpr);
+                        }
+                    }
+                    else
+                    {
+                        // Definition not found yet (forward reference): preserve insertion order
+                        foreach (var expr in namedArgs.Values)
+                            arguments.Add(expr);
+                    }
+                }
             }
             return new FunctionExpression(_script, token.Value, arguments);
+        }
+
+        /// <summary>
+        /// Peeks ahead (without consuming) to check if the next argument looks like
+        /// a named argument: <c>identifier :</c>
+        /// </summary>
+        private bool IsNamedArgumentAhead()
+        {
+            // We need to look two tokens ahead: Variable then GroupDivider ":"
+            // TokensStack only has single-token peek, so we read + back twice.
+            if (!Tokens.Peek(TokenType.Variable))
+                return false;
+
+            var nameToken = Tokens.Next(); // consume variable
+            bool hasColon = Tokens.PeekSameLine(TokenType.GroupDivider, ":");
+            Tokens.Back();                 // put the variable back
+            return hasColon;
         }
 
         private ArrayExpression ReadArrayInstance()
         {
             var values = new List<IExpression>();
-            while (!Tokens.PeekSameLine(TokenType.GroupDivider, "}"))
+            while (!Tokens.Peek(TokenType.GroupDivider, "}"))
             {
                 values.Add(ReadExpression(_script, this));
-                if (Tokens.PeekSameLine(TokenType.GroupDivider, ","))
+                if (Tokens.Peek(TokenType.GroupDivider, ","))
                     Tokens.Next();
             }
             Tokens.Next(TokenType.GroupDivider, "}");
