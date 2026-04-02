@@ -276,19 +276,21 @@ namespace WarScript
             if (Current == '-')
                 _pos++;
 
-            // Integer part
-            while (!AtEnd && char.IsDigit(Current))
+            // Integer part — allow _ separators between digits (e.g. 1_000_000)
+            while (!AtEnd && (char.IsDigit(Current) || Current == '_'))
                 _pos++;
 
-            // Decimal part (but not .. range operator)
+            // Decimal part (but not .. range operator) — allow _ separators here too
             if (!AtEnd && Current == '.' && Peek() != '.')
             {
                 _pos++;
-                while (!AtEnd && char.IsDigit(Current))
+                while (!AtEnd && (char.IsDigit(Current) || Current == '_'))
                     _pos++;
             }
 
-            var value = _source.Substring(start, _pos - start);
+            // Strip underscores before parsing — they are purely visual separators
+            var raw = _source.Substring(start, _pos - start);
+            var value = raw.Replace("_", "");
             _tokens.Add(new Token.Token(Token.TokenType.Numeric, value, _row));
         }
 
