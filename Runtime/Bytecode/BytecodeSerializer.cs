@@ -83,6 +83,7 @@ namespace WarScript.Bytecode
             w.Write((ushort)funcDef.Details.Arguments.Count);
             foreach (var arg in funcDef.Details.Arguments)
                 WriteString(w, arg);
+            w.Write((ushort)funcDef.Details.MinArity);
             WriteCompiledFunction(w, funcDef.Compiled!);
         }
 
@@ -227,9 +228,10 @@ namespace WarScript.Bytecode
             for (int i = 0; i < argCount; i++)
                 args.Add(ReadString(r));
 
+            var minArity = r.ReadUInt16();
             var compiled = ReadCompiledFunction(r);
 
-            var details = new FunctionDetails(name, args);
+            var details = new FunctionDetails(name, args, minArity);
             var funcDef = new FunctionDefinition(details, null!, null!);
             funcDef.Compiled = compiled;
             return funcDef;
