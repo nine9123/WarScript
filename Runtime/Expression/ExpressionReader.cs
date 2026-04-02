@@ -1,8 +1,10 @@
 using System.Collections.Generic;
+using WarScript.Context.Definition;
 using WarScript.Exception;
 using WarScript.Expression.Operator;
 using WarScript.Expression.Operator.Extensions;
 using WarScript.Expression.Value;
+using WarScript.Statement;
 using WarScript.Token;
 
 namespace WarScript.Expression
@@ -40,6 +42,9 @@ namespace WarScript.Expression
                     TokenType.Logical, TokenType.Null, TokenType.This, TokenType.Text))
                 return true;
             if (Tokens.PeekSameLine(TokenType.GroupDivider, "{"))
+                return true;
+            // Lambda: fun [...] ... end in expression position
+            if (Tokens.PeekSameLine(TokenType.Keyword, "fun"))
                 return true;
             return false;
         }
@@ -87,6 +92,9 @@ namespace WarScript.Expression
                         IExpression operand;
                         switch (token.Type)
                         {
+                            case TokenType.Keyword when token.Value == "fun":
+                                operand = ReadLambda(token);
+                                break;
                             case TokenType.Numeric:
                                 operand = new ConstantExpression(WarValue.FromNumeric(double.Parse(value)));
                                 break;
@@ -289,6 +297,33 @@ namespace WarScript.Expression
             var arrayIndex = ReadExpression(_script, this);
             Tokens.Next(TokenType.GroupDivider, "}");
             return new ArrayValueOperator(_script, array, arrayIndex);
+        }
+
+        /// <summary>
+        /// Parse a lambda expression: <c>fun [params] body end</c>.
+        /// The <c>fun</c> keyword has already been consumed.
+        /// </summary>
+        private LambdaExpression ReadLambda(Token.Token funToken)
+        {
+            var parameters = new List<string>();
+
+            // Parse parameter list
+            Tokens.Next(TokenType.GroupDivider, "[");
+            while (!Tokens.Peek(TokenType.GroupDivider, "]"))
+            {
+                var param = Tokens.Next(TokenType.Variable);
+                parameters.Add(param.Value);
+                if (Tokens.Peek(TokenType.GroupDivider, ","))
+                    Tokens.Next();
+            }
+            Tokens.Next(TokenType.GroupDivider, "]");
+
+            // Parse body statements until 'end'
+            var body = new FunctionStatement(_script, funToken.RowNumber, "<lambda>");
+            var bodyScope = _script.DefinitionContext.NewScope();
+            StatementParser.ParseLambdaBody(_script, Tokens, body, bodyScope);
+
+            return new LambdaExpression(_script, parameters, body, funToken.RowNumber);
         }
     }
 }

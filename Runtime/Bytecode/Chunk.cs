@@ -160,6 +160,9 @@ namespace WarScript.Bytecode
                     var ni = ReadU16(offset + 1);
                     sb.AppendLine($"{op,-16}{Constants[ni]} ({Code[offset + 3]} args)");
                     return offset + 4;
+                case OpCode.CallValue:
+                    sb.AppendLine($"CALL_VALUE      ({Code[offset + 1]} args)");
+                    return offset + 2;
                 case OpCode.NewArray:
                     sb.AppendLine($"NEW_ARRAY       {ReadU16(offset + 1)}");
                     return offset + 3;

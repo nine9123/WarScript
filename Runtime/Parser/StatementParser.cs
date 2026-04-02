@@ -46,6 +46,32 @@ namespace WarScript
                 parser.ParseExpression();
         }
 
+        /// <summary>
+        /// Parse a lambda body from the shared token stream.
+        /// Called by ExpressionReader when it encounters <c>fun [params]</c>
+        /// in expression position. Parses statements until <c>end</c> and
+        /// consumes the <c>end</c> keyword.
+        /// </summary>
+        internal static void ParseLambdaBody(
+            WarScriptLanguage script,
+            TokensStack tokens,
+            CompositeStatement body,
+            DefinitionScope scope)
+        {
+            script.DefinitionContext.PushScope(scope);
+            try
+            {
+                var parser = new StatementParser(script, tokens, body);
+                while (parser.HasNextStatement())
+                    parser.ParseExpression();
+            }
+            finally
+            {
+                script.DefinitionContext.EndScope();
+            }
+            tokens.Next(TokenType.Keyword, "end");
+        }
+
         private bool HasNextStatement()
         {
             if (!Tokens.HasNext())

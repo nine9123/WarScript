@@ -590,14 +590,55 @@ namespace WarScript.Bytecode
                         var funcName = constants[nameIdx].TextValue;
 
                         var def = _script.DefinitionContext.GetScope().GetFunction(funcName, argCount);
+
+                        // ── Fallback: check if the name is a variable holding a function value ──
+                        CompiledFunction? lambdaFunc = null;
                         if (def == null)
                         {
-                            RuntimeError($"Function '{funcName}' with {argCount} args is not defined");
-                            if (DoHandleException(ref fi, ref code, ref constants)) break;
-                            return;
+                            var funcVal = _script.MemoryContext.GetScope().Get(funcName);
+                            if (funcVal.IsNativeObject && funcVal.Ref is CompiledFunction cf)
+                                lambdaFunc = cf;
+                            else
+                            {
+                                RuntimeError($"Function '{funcName}' with {argCount} args is not defined");
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
                         }
 
-                        if (def is NativeFunctionDefinition nativeFn)
+                        if (lambdaFunc != null)
+                        {
+                            // Call a function value (lambda or function reference)
+                            var arity = lambdaFunc.Arity;
+                            while (argCount < arity)
+                            {
+                                Push(WarValue.Null);
+                                argCount++;
+                            }
+                            _script.MemoryContext.PushScope(
+                                _script.MemoryContext.NewScope(_script.UserMemoryScope));
+                            var newBase = _sp - argCount;
+                            if (_frameCount >= FramesMax)
+                            {
+                                _script.MemoryContext.EndScope();
+                                RuntimeError("Stack overflow");
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
+                            _frames[_frameCount] = new CallFrame
+                            {
+                                Function = lambdaFunc,
+                                IP = 0,
+                                StackBase = newBase,
+                                HasScope = true,
+                                SavedScopeDepth = _scopeDepth
+                            };
+                            _frameCount++;
+                            fi = _frameCount - 1;
+                            code = _frames[fi].Function.Chunk.Code;
+                            constants = _frames[fi].Function.Chunk.Constants;
+                        }
+                        else if (def is NativeFunctionDefinition nativeFn)
                         {
                             var args = CollectArgs(argCount);
                             WarValue result;
@@ -610,7 +651,7 @@ namespace WarScript.Bytecode
                             }
                             Push(result);
                         }
-                        else if (def.Compiled != null)
+                        else if (def!.Compiled != null)
                         {
                             // Pad missing arguments with null for default parameters.
                             // The function body's desugared null-checks will assign defaults.
@@ -657,6 +698,60 @@ namespace WarScript.Bytecode
                         break;
                     }
 
+                    case OpCode.CallValue:
+                    {
+                        // Call a function value on the stack.
+                        // Stack layout: [..., funcValue, arg0, arg1, ...]
+                        var argCount = (int)code[_frames[fi].IP++];
+                        var funcVal = _stack[_sp - argCount - 1];
+
+                        if (!(funcVal.IsNativeObject && funcVal.Ref is CompiledFunction lambdaCF))
+                        {
+                            RuntimeError("Value is not callable");
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
+
+                        // Remove the function value from under the args
+                        var cvArgBase = _sp - argCount - 1;
+                        for (int i = 0; i < argCount; i++)
+                            _stack[cvArgBase + i] = _stack[cvArgBase + i + 1];
+                        _sp--;
+
+                        // Pad missing arguments with null for default parameters
+                        var cvArity = lambdaCF.Arity;
+                        while (argCount < cvArity)
+                        {
+                            Push(WarValue.Null);
+                            argCount++;
+                        }
+
+                        _script.MemoryContext.PushScope(
+                            _script.MemoryContext.NewScope(_script.UserMemoryScope));
+
+                        var cvNewBase = _sp - argCount;
+                        if (_frameCount >= FramesMax)
+                        {
+                            _script.MemoryContext.EndScope();
+                            RuntimeError("Stack overflow");
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
+                        _frames[_frameCount] = new CallFrame
+                        {
+                            Function = lambdaCF,
+                            IP = 0,
+                            StackBase = cvNewBase,
+                            HasScope = true,
+                            SavedScopeDepth = _scopeDepth
+                        };
+                        _frameCount++;
+                        fi = _frameCount - 1;
+                        code = _frames[fi].Function.Chunk.Code;
+                        constants = _frames[fi].Function.Chunk.Constants;
+                        break;
+                    }
+
                     case OpCode.TailCall:
                     {
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
@@ -664,14 +759,26 @@ namespace WarScript.Bytecode
                         var funcName = constants[nameIdx].TextValue;
 
                         var def = _script.DefinitionContext.GetScope().GetFunction(funcName, argCount);
+
+                        // ── Fallback: check if the name is a variable holding a function value ──
+                        CompiledFunction? tailLambda = null;
                         if (def == null)
                         {
-                            RuntimeError($"Function '{funcName}' with {argCount} args is not defined");
-                            if (DoHandleException(ref fi, ref code, ref constants)) break;
-                            return;
+                            var funcVal = _script.MemoryContext.GetScope().Get(funcName);
+                            if (funcVal.IsNativeObject && funcVal.Ref is CompiledFunction cf)
+                                tailLambda = cf;
+                            else
+                            {
+                                RuntimeError($"Function '{funcName}' with {argCount} args is not defined");
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
                         }
 
-                        if (def is NativeFunctionDefinition nativeTail)
+                        // Resolve the CompiledFunction to use (lambda or named)
+                        var tailTarget = tailLambda ?? def!.Compiled;
+
+                        if (tailTarget == null && def is NativeFunctionDefinition nativeTail)
                         {
                             // Can't tail-call into native — call normally and return the result
                             var args = CollectArgs(argCount);
@@ -695,12 +802,12 @@ namespace WarScript.Bytecode
                             code = _frames[fi].Function.Chunk.Code;
                             constants = _frames[fi].Function.Chunk.Constants;
                         }
-                        else if (def.Compiled != null)
+                        else if (tailTarget != null)
                         {
                             // ── True tail call: reuse the current frame ──
 
                             // Pad missing arguments with null for default parameters.
-                            var arity = def.Compiled.Arity;
+                            var arity = tailTarget.Arity;
                             while (argCount < arity)
                             {
                                 Push(WarValue.Null);
@@ -723,11 +830,11 @@ namespace WarScript.Bytecode
                             _sp = stackBase + argCount;
 
                             // Reuse the frame — no _frameCount change
-                            _frames[fi].Function = def.Compiled;
+                            _frames[fi].Function = tailTarget;
                             _frames[fi].IP = 0;
                             _frames[fi].HasScope = true;
-                            code = def.Compiled.Chunk.Code;
-                            constants = def.Compiled.Chunk.Constants;
+                            code = tailTarget.Chunk.Code;
+                            constants = tailTarget.Chunk.Constants;
                         }
                         else
                         {

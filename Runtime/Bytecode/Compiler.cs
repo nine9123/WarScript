@@ -181,6 +181,38 @@ namespace WarScript.Bytecode
         }
 
         // ────────────────────────────────────────────────────────
+        //  Lambda compilation
+        // ────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Public entry point for compiling a lambda expression.
+        /// Used by LambdaExpression.Evaluate() for the tree-walk path.
+        /// </summary>
+        public static CompiledFunction CompileLambda(WarScriptLanguage script, LambdaExpression lambda)
+        {
+            var compiler = new Compiler(script, functionDepth: 1);
+            compiler._current = new CompiledFunction("<lambda>", lambda.Parameters.Count);
+            compiler.BeginScope();
+
+            foreach (var param in lambda.Parameters)
+                compiler.AddLocal(param);
+
+            foreach (var stmt in lambda.Body.StatementsToExecute)
+                compiler.CompileStatement(stmt);
+
+            compiler.EmitReturn(0);
+            compiler._current.LocalCount = compiler._maxLocals;
+            compiler._current.LocalNames = compiler._localNames.ToArray();
+            compiler._current.Chunk.FinalizePropertyCaches();
+            return compiler._current;
+        }
+
+        private CompiledFunction CompileLambdaBody(LambdaExpression lambda)
+        {
+            return CompileLambda(_script, lambda);
+        }
+
+        // ────────────────────────────────────────────────────────
         //  Local variable management
         // ────────────────────────────────────────────────────────
 
@@ -420,9 +452,12 @@ namespace WarScript.Bytecode
             //   1. Inside a function (not top-level script)
             //   2. Not inside a begin/rescue/ensure block (would bypass ensure)
             //   3. The return expression is a plain function call (not a method call)
+            //   4. The call target is not a local variable (TailCall uses name-based
+            //      lookup which can't find stack locals holding lambda values)
             if (_functionDepth > 0
                 && _tryDepth == 0
-                && stmt.Expression is FunctionExpression tailCall)
+                && stmt.Expression is FunctionExpression tailCall
+                && ResolveLocal(tailCall.Name) == -1)
             {
                 int line = Line(stmt);
                 foreach (var arg in tailCall.ArgumentExpression)
@@ -857,6 +892,15 @@ namespace WarScript.Bytecode
         {
             switch (expr)
             {
+                // ── Lambda (anonymous function) ──
+                case LambdaExpression lambda:
+                {
+                    var compiled = CompileLambdaBody(lambda);
+                    var funcValue = WarValue.FromNativeObject(compiled);
+                    Chunk.EmitConstant(funcValue, lambda.Line);
+                    break;
+                }
+
                 // ── Literals ──
                 case ConstantExpression c:
                 {
@@ -1076,13 +1120,30 @@ namespace WarScript.Bytecode
         // ── Function call ──
         private void CompileFunctionCall(FunctionExpression call)
         {
-            foreach (var arg in call.ArgumentExpression)
-                CompileExpression(arg);
-
-            var nameIdx = Chunk.AddConstant(WarValue.FromText(call.Name));
-            Chunk.EmitOp(OpCode.Call, 0);
-            Chunk.EmitU16(nameIdx, 0);
-            Chunk.EmitByte((byte)call.ArgumentExpression.Count, 0);
+            // If the call target resolves as a local variable (e.g. a lambda parameter),
+            // use CallValue which pops the function value from the stack.
+            // Otherwise use the name-based Call opcode (handles definitions + imports +
+            // global variables holding lambdas via the MemoryScope fallback).
+            var localSlot = ResolveLocal(call.Name);
+            if (localSlot != -1)
+            {
+                // Push the function value, then arguments
+                Chunk.EmitOp(OpCode.GetLocal, 0);
+                Chunk.EmitU16(localSlot, 0);
+                foreach (var arg in call.ArgumentExpression)
+                    CompileExpression(arg);
+                Chunk.EmitOp(OpCode.CallValue, 0);
+                Chunk.EmitByte((byte)call.ArgumentExpression.Count, 0);
+            }
+            else
+            {
+                foreach (var arg in call.ArgumentExpression)
+                    CompileExpression(arg);
+                var nameIdx = Chunk.AddConstant(WarValue.FromText(call.Name));
+                Chunk.EmitOp(OpCode.Call, 0);
+                Chunk.EmitU16(nameIdx, 0);
+                Chunk.EmitByte((byte)call.ArgumentExpression.Count, 0);
+            }
         }
 
         // ── Class instantiation: new ClassName[args] ──

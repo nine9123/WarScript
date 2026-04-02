@@ -160,6 +160,10 @@ namespace WarScript.Bytecode
                 case ValueTag.Logical:
                     w.Write((byte)(val.LogicalValue ? 1 : 0));
                     break;
+                case ValueTag.NativeObject when val.Ref is CompiledFunction:
+                    // Lambda function value — serialize the compiled function inline
+                    WriteCompiledFunction(w, (CompiledFunction)val.Ref);
+                    break;
                 default:
                     throw new InvalidOperationException(
                         $"Cannot serialize constant of type {val.Tag}");
@@ -326,6 +330,10 @@ namespace WarScript.Bytecode
                 case ValueTag.Numeric: return WarValue.FromNumeric(r.ReadDouble());
                 case ValueTag.Text:    return WarValue.FromText(ReadString(r));
                 case ValueTag.Logical: return WarValue.FromLogical(r.ReadByte() != 0);
+                case ValueTag.NativeObject:
+                    // Lambda function value — deserialize the compiled function
+                    var cf = ReadCompiledFunction(r);
+                    return WarValue.FromNativeObject(cf);
                 default:
                     throw new InvalidDataException($"Unknown constant tag: {tag}");
             }
