@@ -2,7 +2,7 @@
 
 ## What This Is
 
-WarScript is a custom embeddable scripting language with a bytecode VM, written in C# (~10K LOC runtime, ~8K LOC tests). It ships as a Unity UPM package for scripting game logic without recompilation. Think "Lua for C#/Unity" with Ruby-inspired syntax.
+WarScript is a custom embeddable scripting language with a bytecode VM, written in C# (~11K LOC runtime, ~10K LOC tests). It ships as a Unity UPM package for scripting game logic without recompilation. Think "Lua for C#/Unity" with Ruby-inspired syntax.
 
 Repository: `https://github.com/nine9123/WarScript.git#upm`
 
@@ -10,28 +10,29 @@ Repository: `https://github.com/nine9123/WarScript.git#upm`
 
 ```
 WarScript/
-├── Attributes/              # [WsModule], [WsFunction] etc. for codegen bindings
+├── Attributes/              # [WsModule], [WsFunction], [WsEnum], [WsConst] for codegen
 │   └── WsAttributes.cs
 ├── Editor/                  # Unity editor tooling
-│   └── WsBindingGenerator.cs   # Source generator: [WsModule] → Register() methods
+│   └── WsBindingGenerator.cs   # Source generator: scans attributes → Register() methods
 ├── Runtime/
-│   ├── WarScriptLanguage.cs     # Public API — the main entry point (618 LOC)
+│   ├── WarScriptLanguage.cs     # Public API — the main entry point
 │   ├── Token/
 │   │   ├── Token.cs             # Token record (Type, Value, RowNumber)
 │   │   ├── TokenType.cs         # Enum: Keyword, Variable, Operator, Numeric, Text, etc.
 │   │   └── TokenStack.cs        # Peekable token stream with Back() support
 │   ├── Parser/
-│   │   ├── LexicalParser.cs     # Hand-written lexer/scanner (373 LOC)
-│   │   └── StatementParser.cs   # Recursive descent → AST (379 LOC)
+│   │   ├── LexicalParser.cs     # Hand-written lexer/scanner
+│   │   └── StatementParser.cs   # Recursive descent → AST + desugar logic (const/enum/defaults)
 │   ├── Expression/
 │   │   ├── IExpression.cs       # All expressions implement this
-│   │   ├── ExpressionReader.cs  # Shunting-yard expression parser (293 LOC)
+│   │   ├── ExpressionReader.cs  # Shunting-yard expression parser (handles lambda in expr position)
+│   │   ├── LambdaExpression.cs  # Lambda/anonymous function AST node
 │   │   ├── Operator/            # One class per operator (AdditionOperator, etc.)
 │   │   │   ├── Operator.cs      # Operator enum with precedence groups
 │   │   │   └── Extensions/
 │   │   │       └── OperatorExtension.cs  # String→Operator, precedence, factory
 │   │   └── Value/
-│   │       ├── WarValue.cs      # Tagged union struct — THE core type (224 LOC)
+│   │       ├── WarValue.cs      # Tagged union struct — THE core type
 │   │       ├── ClassData.cs     # Runtime class instance data
 │   │       ├── ConstantExpression.cs
 │   │       └── ThisExpression.cs
@@ -46,58 +47,44 @@ WarScript/
 │   │   ├── YieldStatement.cs
 │   │   └── ...
 │   ├── Bytecode/
-│   │   ├── OpCode.cs            # All VM opcodes (115 LOC)
-│   │   ├── Chunk.cs             # Bytecode buffer + constant pool + inline caches (222 LOC)
+│   │   ├── OpCode.cs            # All VM opcodes (Call, CallValue, TailCall, etc.)
+│   │   ├── Chunk.cs             # Bytecode buffer + constant pool + inline caches
 │   │   ├── CompiledFunction.cs  # Compiled function + CallFrame struct
-│   │   ├── Compiler.cs          # Single-pass AST→bytecode compiler (1156 LOC)
-│   │   ├── WarVM.cs             # Stack-based bytecode VM (1732 LOC) ← HOTTEST FILE
-│   │   ├── BytecodeSerializer.cs # Binary serialization of compiled bytecode
+│   │   ├── Compiler.cs          # Single-pass AST→bytecode compiler
+│   │   ├── WarVM.cs             # Stack-based bytecode VM ← HOTTEST FILE
+│   │   ├── BytecodeSerializer.cs # Binary serialization (v2: MinArity + lambda constants)
 │   │   └── DebugContext.cs      # Source-map debugger (StepMode, DebugHook, StackEntry)
 │   ├── Context/
 │   │   ├── MemoryScope.cs       # Variable storage (dict-based, parent chain lookup)
 │   │   ├── MemoryContext.cs     # Scope stack manager with object pooling
 │   │   ├── Definition/
-│   │   │   ├── DefinitionScope.cs       # Holds function + class definitions
+│   │   │   ├── DefinitionScope.cs       # Holds function + class defs (multi-arity index)
 │   │   │   ├── FunctionDefinition.cs    # Function def (AST + compiled form)
 │   │   │   ├── NativeFunctionDefinition.cs  # C# lambda-backed function
 │   │   │   ├── ClassDefinition.cs       # Class def (details, base types, scope)
 │   │   │   ├── ClassDetails.cs          # Name, constructor args, property indices
-│   │   │   └── FunctionDetails.cs       # Name + argument list
-│   │   ├── ExceptionContext.cs
-│   │   ├── ReturnContext.cs / BreakContext.cs / NextContext.cs
-│   │   ├── ClassInstanceContext.cs
-│   │   └── ValueReference.cs    # Boxed reference wrapper for mutable variables
+│   │   │   └── FunctionDetails.cs       # Name + argument list + MinArity
+│   │   └── ...
 │   ├── Coroutine/
 │   │   ├── ICoroutine.cs        # Interface: Id, IsComplete, IsReady(dt), Resume()
-│   │   ├── Coroutine.cs         # Tree-walk coroutine (legacy, 203 LOC)
-│   │   └── BytecodeCoroutine.cs # VM-backed coroutine — owns its own WarVM (129 LOC)
+│   │   ├── Coroutine.cs         # Tree-walk coroutine (legacy)
+│   │   └── BytecodeCoroutine.cs # VM-backed coroutine — owns its own WarVM
 │   ├── Native/
 │   │   ├── NativeHelper.cs      # Arg extraction helpers (NumericArg, TextArg, etc.)
 │   │   ├── StringInterner.cs    # String dedup + pre-allocated "0".."999"
 │   │   ├── ScriptRunner.cs      # Convenience runner for import system
 │   │   ├── WarScriptLibraryRegistry.cs  # Central stdlib registration
-│   │   └── Libraries/
-│   │       ├── MathLibrary.cs       # pow, sqrt, floor, ceil, clamp, lerp, etc.
-│   │       ├── ArrayLibrary.cs      # remove_at, contains, index_of, pop, insert, etc.
-│   │       ├── CoroutineLibrary.cs  # coroutine_start, coroutine_stop, etc.
-│   │       └── UtilityLibrary.cs    # General helpers
+│   │   └── Libraries/           # MathLibrary, ArrayLibrary, CoroutineLibrary, UtilityLibrary
 │   └── Exception/
 │       └── SyntaxException.cs
 └── Tests/
     ├── TestHelper.cs            # Run(name, source) and RunFile(resourceName)
-    ├── ExecutionTests.cs        # Core language feature tests (NUnit)
-    ├── ComprehensiveLanguageTests.cs
-    ├── BytecodeCoroutineTests.cs
-    ├── InstructionBudgetTests.cs
-    ├── SourceMapDebuggerTests.cs
-    ├── HotReloadTests.cs
-    ├── LexerTests.cs / ParserTests.cs
-    ├── ...                      # ~20 test files
-    └── resources/               # .ws script files executed by tests
-        ├── class_creation.ws
-        ├── test_functions.ws
-        ├── test_loops.ws
-        └── ...                  # ~70 .ws test scripts
+    ├── DefaultParameterTests.cs / LambdaTests.cs / ConstEnumTests.cs
+    ├── ExecutionTests.cs / ComprehensiveLanguageTests.cs
+    ├── BytecodeCoroutineTests.cs / BytecodeSerializationTests.cs
+    ├── InstructionBudgetTests.cs / MemoryBudgetTests.cs / HotReloadTests.cs
+    ├── ...
+    └── resources/               # .ws script files (~70+)
 ```
 
 ## Execution Pipeline
@@ -105,7 +92,7 @@ WarScript/
 ```
 Source string → LexicalParser.Parse() → List<Token>
                                             ↓
-                          StatementParser.Parse() → AST (CompositeStatement tree)
+                          StatementParser.Parse() → AST (with desugared defaults/const/enum)
                                             ↓
                           Compiler.CompileScript() → CompiledFunction (bytecode)
                                             ↓
@@ -113,7 +100,6 @@ Source string → LexicalParser.Parse() → List<Token>
 ```
 
 After compilation, the AST is discarded. Bytecode is the source of truth.
-The lexer caches by source string. The compiler is single-pass.
 
 ## WarScript Language Syntax — Quick Reference
 
@@ -123,46 +109,25 @@ x = 42
 name = "hello"
 
 # Types: Numeric (double), Logical (true/false), Text, Array, Class, Null, NativeObject
-
-# Arithmetic: + - * / % (also: ** exponent, // floor div via operators)
-# String ops: + (concat), - (remove), * (repeat)
-# Comparison: == != < <= > >=
-# Logical: and or !
+# Arithmetic: + - * / %     String ops: + (concat), - (remove), * (repeat)
+# Comparison: == != < <= > >=     Logical: and or !
 # Assignment: = += -= *= /=
 
-# Arrays use {} for literals and {index} for access
+# Arrays — {} for literals, {index} for access
 arr = {1, 2, 3}
 arr{0}           # → 1
 arr << 4         # append
 
-# Conditionals
+# Conditionals: if / elif / else / end
 if x > 0
     print "positive"
-elif x == 0
-    print "zero"
-else
-    print "negative"
 end
 
-# Loops
-loop x > 0          # while loop
-    x -= 1
-end
-
-loop i in 0..10      # for loop (exclusive upper bound)
-    print i
-end
-
-loop i in 0..100 by 5   # for loop with step
-    print i
-end
-
-loop item in arr     # foreach loop
-    print item
-end
-
-break                # exit loop
-next                 # skip to next iteration
+# Loops: while, for-range, for-range-step, foreach
+loop i in 0..10         # for (exclusive upper bound)
+loop i in 0..100 by 5   # with step
+loop item in arr         # foreach
+loop x > 0              # while
 
 # Functions — args in [], called with []
 fun add [a, b]
@@ -170,27 +135,33 @@ fun add [a, b]
 end
 result = add [3, 4]
 
-# Default parameter values — trailing params can have = default_expr
-# Desugared into null-checks at the top of the function body.
-# Passing null (or omitting the arg) triggers the default.
+# Default parameters — trailing params can have = expr
 fun greet [name, greeting = "Hello"]
     return greeting + ", " + name
 end
-greet ["World"]                  # → "Hello, World"
-greet ["World", "Hi"]            # → "Hi, World"
-
-# All params can be optional
-fun point [x = 0, y = 0, z = 0]
-    return x + y + z
-end
-point []        # → 0
-point [1, 2]    # → 3
 
 # Named arguments
-fun greet [name, greeting]
-    print "{greeting}, {name}!"
+create [team: "Red", name: "Soldier", hp: 100]
+
+# Lambda / first-class functions — fun [...] ... end in expression position
+double = fun [x] return x * 2 end
+apply [{1, 2, 3}, fun [x] return x * 10 end]
+
+# Constants — immutable globals
+const MAX_HP = 100
+
+# Enums — class-based, access with ::
+enum DamageType
+    PHYSICAL
+    MAGICAL
+    TRUE = 5
 end
-greet [greeting: "Hello", name: "World"]
+DamageType :: PHYSICAL              # → 0
+DamageType :: name [0]              # → "PHYSICAL"
+DamageType :: values                # → {0, 1, 5}
+DamageType :: names                 # → {"PHYSICAL", "MAGICAL", "TRUE"}
+DamageType :: count                 # → 3
+loop v in DamageType :: values      # iterate all members
 
 # Classes — constructor args in [], property access with ::
 class Point [x, y]
@@ -198,80 +169,17 @@ class Point [x, y]
         return Math_sqrt [this :: x * this :: x + this :: y * this :: y]
     end
 end
-
 p = new Point [3, 4]
-print p :: x          # 3
-p :: x = 10           # set property
-p :: magnitude []     # call method
 
-# Inheritance (including multiple)
-class Animal [name]
-    fun speak []
-        return this :: name
-    end
-end
-class Dog [name] : Animal [name]
-end
+# Inheritance (including multiple): class Dog [name] : Animal [name] end
+# Casting: obj as Animal     Type check: obj is Animal
 
-# Nested classes: parent :: new NestedClass [args]
-
-# Casting and type checking
-obj as Animal          # cast (returns null on failure)
-obj is Animal          # instanceof (returns bool)
-
-# Exception handling
-begin
-    raise "something went wrong"
-rescue err
-    print err
-ensure
-    print "always runs"
-end
-
-# String interpolation
-print "Hello {name}, you are {age} years old"
-
-# Coroutines
-fun my_coroutine []
-    print "step 1"
-    yield                   # yield until next tick
-    print "step 2"
-    yield wait 2.0          # yield for 2 seconds
-    print "step 3"
-end
-
-# Import
-import "other_script"
-
-# Builtins
-print value
-assert condition
-
-# Numeric separators
-big = 1_000_000
-```
-
-## WarValue — The Core Type
-
-Tagged union struct with 7 variants. Numeric and Logical are inline (no heap). Others use `Ref` field.
-
-```csharp
-// Creating values
-WarValue.Null
-WarValue.True / WarValue.False
-WarValue.FromNumeric(42.0)
-WarValue.FromText("hello")
-WarValue.FromArray(new List<WarValue>())
-WarValue.FromClass(classData)
-WarValue.FromNativeObject(anyObject)
-
-// Reading values
-value.Tag          // ValueTag enum
-value.IsNumeric    // predicate
-value.NumericValue // double
-value.TextValue    // string (cast from Ref)
-value.ArrayValue   // List<WarValue> (cast from Ref)
-value.ClassValue   // ClassData (cast from Ref)
+# Exception handling: begin / rescue err / ensure / end
+# String interpolation: "Hello {name}, you are {age} years old"
+# Coroutines: yield, yield wait 2.0, yield until condition
+# Import: import "other_script"
+# Builtins: print value, assert condition
+# Numeric separators: 1_000_000
 ```
 
 ## Bytecode VM Architecture
@@ -281,139 +189,80 @@ Stack-based VM with fixed-size arrays (no heap allocation in hot path):
 - **Call frames**: 128 CallFrame slots (Function, IP, StackBase)
 - **Exception handlers**: 32 TryHandler slots
 
-Key features:
-- **Superinstructions**: Fused compare+jump (LessJump, EqualJump, etc.), This+GetProperty/SetProperty
-- **Inline caching**: Property access caches ClassDetails + slot index per bytecode site
-- **Tail call optimization**: TailCall opcode reuses current frame
-- **Instruction budget**: Configurable limit per Run()/Call(), raises catchable exception
-- **Memory budget**: Tracks string/array/class allocations, raises catchable exception
-- **Source-map debugger**: Breakpoints, StepInto/StepOver/StepOut, locals inspection via DebugHook
-- **Coroutine suspend/resume**: Yield opcodes pause VM state; BytecodeCoroutine wraps a dedicated WarVM
+Function call dispatch (3 paths):
+| Target | Opcode | Resolution |
+|---|---|---|
+| Named function | `Call name arity` | DefinitionScope → MemoryScope fallback for globals |
+| Local lambda variable | `GetLocal` + `CallValue arity` | Stack value → direct call |
+| Class method | `CallMethod name arity` | Class DefinitionScope lookup |
 
-Operand encoding: opcodes are 1 byte, U16 operands are big-endian `[hi][lo]`.
+Other key features: superinstructions (fused compare+jump, this+property), inline caching, tail call optimization (disabled for local lambda targets), instruction/memory budgets, source-map debugger, coroutine suspend/resume.
 
 ## How To Add a New Native Function
 
-### Option 1: Manual (like the stdlib)
-
-Add to an existing library or create a new one:
+### Option 1: Manual
 
 ```csharp
-// In your library's Register method:
 scope.AddFunction(new NativeFunctionDefinition(
-    new FunctionDetails("my_func", new List<string> { "arg1", "arg2" }),
-    args =>
-    {
-        var a = NativeHelper.NumericArg(args, 0);
-        var b = NativeHelper.TextArg(args, 1);
-        // ... do work ...
-        return WarValue.FromNumeric(result);
-    },
-    "Description for docs.", "ReturnType"));
+    new FunctionDetails("my_func", new List<string> { "a", "b" }),
+    args => WarValue.FromNumeric(NativeHelper.NumericArg(args, 0) + NativeHelper.TextArg(args, 1).Length),
+    "Description", "NumericValue"));
 ```
-
-If creating a new library, register it in `WarScriptLibraryRegistry.Libraries[]`.
 
 ### Option 2: Attribute-based codegen
 
 ```csharp
-[WsModule("my_module", Description = "My module")]
+[WsModule("my_module")]
 public static partial class MyModule
 {
-    [WsFunction("my_func", Doc = "Does a thing", Returns = "Numeric")]
-    public static double MyFunc(double a, string b) => a + b.Length;
+    [WsFunction("my_func")] public static double MyFunc(double a, string b) => a + b.Length;
+    [WsEnum] public enum State { Idle, Moving, Attacking }
+    [WsConst] public const int MAX_UNITS = 50;
 }
 ```
 
-The `WsBindingGenerator` (Editor) auto-generates marshaling at build time. Supported param types: `double`, `int`, `float`, `string`, `bool`, `WarValue`, `List<WarValue>`.
-
-## How To Add a New Language Feature
-
-The typical change path for a new syntactic feature:
-
-1. **Lexer** (`LexicalParser.cs`): Add new token recognition if needed (new keyword in `ClassifyWord`, new operator in `ScanToken`)
-2. **Token** (`TokenType.cs`): Add new token type if needed (usually not — most features use existing Keyword/Operator types)
-3. **Parser** (`StatementParser.cs` + `ExpressionReader.cs`): Add parsing logic that produces new AST nodes
-4. **AST nodes** (`Statement/` or `Expression/`): Create new Statement or Expression classes
-5. **Compiler** (`Compiler.cs`): Add visitor/emit logic for the new AST nodes → bytecode
-6. **OpCode** (`OpCode.cs`): Add new opcodes if needed
-7. **VM** (`WarVM.cs`): Add dispatch cases for new opcodes
-8. **Tests**: Add .ws test scripts in `Tests/resources/` and NUnit tests
-
-For expression-only features (new operator), the path is:
-1. Lexer (recognize the token)
-2. `OperatorExtension.cs` (map string → Operator enum, set precedence, wire up factory)
-3. New operator class in `Expression/Operator/`
-4. Compiler: handle the new expression type in `CompileExpression`
-5. VM: handle new opcode if needed
-
-## How To Add a New Opcode
-
-1. Add the entry to `OpCode.cs` enum
-2. Emit it in `Compiler.cs` (in the appropriate Compile* method)
-3. Handle it in `WarVM.cs` Execute() switch (the main dispatch loop)
-4. Update `Chunk.DisassembleInstruction()` for debug printing
-5. Update `BytecodeSerializer` if serialization is needed
+Run **WarScript → Generate Bindings**. The generator produces `Register()` that handles functions (auto-marshaling), enums (class instances with `::` access, `name[]`, `values/names/count`), and consts (immutable globals via `GlobalMemoryScope`).
 
 ## Scope System
 
-Two parallel scope stacks:
-- **DefinitionScope** (via `DefinitionContext`): Holds function and class *definitions*. Searched at compile time.
-- **MemoryScope** (via `MemoryContext`): Holds variable *values* at runtime. Dict-based with parent chain for lookup, `Set()` walks up the chain, `SetLocal()` writes to current scope only.
+- **DefinitionScope**: Function and class definitions. Indexed by `(name, argCount)` — supports multi-arity for default params.
+- **MemoryScope**: Variable values at runtime. Dict-based with parent chain lookup.
+- **ConstantNames**: Global `HashSet<string>` on `WarScriptLanguage`. Parser rejects reassignment. Populated by `const`/`enum`/`[WsConst]`/`[WsEnum]`. Cleared on `Reload()`/`LoadBytecode()`.
 
-The VM uses stack-based locals for function bodies (slots 0..N) and falls back to MemoryScope for globals (`GetGlobal`/`SetGlobal` opcodes).
+## Existing Desugar Patterns
 
-MemoryContext has object pooling: scopes marked `Poolable = true` are recycled.
+1. **String interpolation** — Lexer: `"hello {x}"` → `"hello " + (x)` tokens
+2. **Default parameters** — Parser: `fun f [a, b = 1]` → inject `if b == null then b = 1` body prefix. Multi-arity registration. VM null-pads stack.
+3. **Compound assignment** — Expression reader: `x += 1` → `x = x + 1`
+4. **Constants** — Parser: `const X = 5` → assignment + `ConstantNames.Add()`. Parse-time immutability.
+5. **Enums** — Parser: `enum E ... end` → class definition + member properties + `name[]` method (if-chain) + `values`/`names`/`count` arrays + singleton instance
+6. **Lambda** — Expression reader + compiler: `fun [x] ... end` → `CompiledFunction` constant in parent's pool. `CallValue` opcode for local calls.
+
+## Key Invariants & Gotchas
+
+- **`{` and `}` are array delimiters**, not block delimiters. Blocks end with `end`. Array indexing is `arr{i}`. Function args use `[`, `]`.
+- **`::` is the property access operator** — `obj :: name`, `this :: x`, `DamageType :: PHYSICAL`.
+- **AST is discarded after compilation.** Bytecode is the source of truth.
+- **`WarValue` is a struct.** Passed by value. Lambda function values stored as `NativeObject(CompiledFunction)`.
+- **Default parameters**: `null` triggers the default (deliberate design — no way to pass "missing" vs "null").
+- **Lambda limitations**: No closures (params + globals only). No postfix call syntax (`arr{0}[args]` — use temp variable). TCO disabled for local lambda calls.
+- **Enums** are class instances. Members are properties. `name[]` is a method. Protected from reassignment via `ConstantNames`.
+- **`[WsEnum]`/`[WsConst]` codegen** uses `GlobalMemoryScope.Set()` because `Register()` is called before `Run()` when the scope stack is empty.
+- **BytecodeSerializer format version is 2.** Includes `MinArity` in function definitions and handles `NativeObject(CompiledFunction)` constants for lambda serialization.
+- **Function lookup is by (name, argCount).** Default params register at all valid arities.
+- **Lexer caches globally** by source string. Call `LexicalParser.ClearCache()` for hot reload.
 
 ## Testing Conventions
 
 - **Framework**: NUnit (`[TestFixture]`, `[Test]`, `Assert.AreEqual`)
-- **Helper**: `TestHelper.Run("name", source)` returns `(script, List<string> output)` — output captures all `print` statements
-- **Helper**: `TestHelper.RunFile("filename.ws")` loads from `Tests/resources/`
-- **Pattern**: Most tests either check print output via `Assert.AreEqual(expected, output)` or rely on `assert` statements in .ws scripts (which throw on failure)
-- **Setup**: Optional `setupScope` callback for registering native functions before execution
-
-```csharp
-[Test]
-public void MyFeature()
-{
-    var (_, output) = TestHelper.Run("test", @"
-        x = 42
-        print x + 1
-    ");
-    Assert.AreEqual(new[] { "43" }, output);
-}
-```
-
-## Key Invariants & Gotchas
-
-- **AST is discarded after compilation.** Don't hold references to Statement/Expression nodes after `Run()`.
-- **`WarValue` is a struct.** Passed by value. Use `in` keyword for read-only passing in hot paths.
-- **Constant pool deduplication**: `Chunk.AddConstant` deduplicates by tag+value. Indices are U16 (max 65535 constants per function).
-- **`{` and `}` are array delimiters**, not block delimiters. Blocks end with `end`. Array indexing is `arr{i}`, not `arr[i]`. Function args use `[`, `]`.
-- **`::` is the property access operator**, not `.` — e.g., `obj :: name`, `this :: x`.
-- **Operator precedence** (highest to lowest): Unary/Class (7) → Multiplicative (6) → Additive (5) → Comparison (4) → Parens (3) → And (2) → Or (1) → Assignment/Append (0).
-- **Expression parsing uses shunting-yard algorithm** (`ExpressionReader`), not recursive descent.
-- **HaltFlags are a bitmask.** Multiple halt conditions can be set simultaneously (e.g., exception during yield). Always clear with `HaltFlags = HaltFlag.None` after handling.
-- **Tree-walk execution still exists** as a fallback path (for functions called before `Run()`, and the legacy `Coroutine` class). The bytecode path is preferred and tested more heavily.
-- **Lexer caches globally** by source string. Call `LexicalParser.ClearCache()` if source changes (hot reload).
-- **String interpolation** `"{expr}"` is desugared by the lexer into concatenation tokens. It never reaches the parser as a special node.
-- **Default parameters** are desugared by the parser into `if param == null` → `param = default` at the top of the function body. Passing `null` explicitly triggers the default. Functions are registered at all valid arities (`MinArity..ArgCount`). The VM pads missing stack slots with null.
-- **Import** resolves via the `FileResolver` delegate passed at construction. Returns null if file not found. Import results are cached in `ImportCache`.
-- **Coroutines**: Each `BytecodeCoroutine` owns its own `WarVM` instance. This is intentional — the VM's full state (stack, frames, handlers) is preserved across yields.
-- **Function lookup is by (name, argCount).** Overloading by arity is supported. Default params register at multiple arities so `f[a]` finds `fun f [a, b = 1]`.
-
-## Existing Desugar Patterns
-
-Features implemented as desugars (no dedicated opcodes):
-
-1. **String interpolation** — Lexer desugars `"hello {x}"` into `"hello " + (x)` at the token level.
-2. **Default parameters** — Parser desugars `fun f [a, b = 1]` by injecting `if b == null then b = 1` ConditionStatements at the top of the function body. `DefinitionScope` registers at all valid arities. VM pads stack with nulls when `argCount < Arity`.
-3. **Compound assignment** — `x += 1` is parsed as `x = x + 1` by the expression reader.
+- **Helper**: `TestHelper.Run("name", source)` → `(script, List<string> output)`
+- **Helper**: `TestHelper.RunFile("filename.ws")` → loads from `Tests/resources/`
+- **Pattern**: Check print output or rely on `assert` in .ws scripts
 
 ## Performance-Sensitive Areas
 
-- `WarVM.Execute()` — the main dispatch loop. Every instruction goes through here. Avoid allocations, virtual dispatch, and unnecessary branching in opcode handlers.
-- `MemoryScope.Get()` / `.Set()` — called on every global variable access. Dict lookup + parent chain walk.
-- `InlineCache` on property access — avoids string hashing on repeated access to the same property on the same class type.
-- `StringInterner` — reduces GC pressure for short strings. Pre-allocated integer strings 0–999.
+- `WarVM.Execute()` — the main dispatch loop. Avoid allocations and branching.
+- `MemoryScope.Get()`/`.Set()` — every global variable access. Dict lookup + parent chain.
+- `InlineCache` on property access — avoids string hashing on repeated `::` access.
+- `StringInterner` — reduces GC pressure for short strings. Pre-allocated "0".."999".
+- `CallValue` has same frame setup cost as `Call` — no additional overhead.
