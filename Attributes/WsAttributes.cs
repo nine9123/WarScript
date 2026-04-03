@@ -99,4 +99,55 @@ namespace WarScript.Attributes
     /// </summary>
     [AttributeUsage(AttributeTargets.Parameter)]
     public sealed class WsRawArgsAttribute : Attribute { }
+
+    /// <summary>
+    /// Marks a C# enum to be exposed as a WarScript enum.
+    /// The generated Register method creates a class instance with:
+    ///   - Numeric properties for each member
+    ///   - A name[value] method for reverse lookup
+    ///   - values, names, count properties for iteration
+    ///
+    /// Can be applied to enums nested inside a [WsModule] class,
+    /// or to standalone enum types.
+    ///
+    /// <code>
+    /// [WsModule("combat")]
+    /// public static partial class CombatModule
+    /// {
+    ///     [WsEnum] public enum DamageType { Physical, Magical, True = 5 }
+    /// }
+    /// // In WarScript: DamageType :: Physical → 0, DamageType :: name [0] → "Physical"
+    /// </code>
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Enum)]
+    public sealed class WsEnumAttribute : Attribute
+    {
+        /// <summary>
+        /// Override the WarScript name. If null, uses the C# enum name.
+        /// </summary>
+        public string? Name { get; set; }
+    }
+
+    /// <summary>
+    /// Marks a const field to be exposed as a WarScript constant.
+    /// Supported types: int, float, double, string, bool.
+    ///
+    /// <code>
+    /// [WsModule("config")]
+    /// public static partial class ConfigModule
+    /// {
+    ///     [WsConst] public const int MAX_HP = 100;
+    ///     [WsConst] public const string TEAM_NAME = "Red";
+    /// }
+    /// // In WarScript: MAX_HP → 100, TEAM_NAME → "Red"
+    /// </code>
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Field)]
+    public sealed class WsConstAttribute : Attribute
+    {
+        /// <summary>
+        /// Override the WarScript name. If null, uses the C# field name.
+        /// </summary>
+        public string? Name { get; set; }
+    }
 }

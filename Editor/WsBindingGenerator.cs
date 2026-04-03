@@ -144,9 +144,41 @@ namespace WarScript.Editor
                 });
             }
 
-            if (functions.Count == 0)
+            // Collect [WsConst] fields
+            var constants = new List<ConstInfo>();
+            foreach (var field in type.GetFields(
+                         BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly))
             {
-                Debug.LogWarning($"[WsBindingGenerator] {type.Name} has [WsModule] but no [WsFunction] methods. Skipping.");
+                var constAttr = field.GetCustomAttribute<WsConstAttribute>();
+                if (constAttr == null) continue;
+                if (!field.IsLiteral) continue; // must be const
+
+                constants.Add(new ConstInfo
+                {
+                    Field = field,
+                    WsName = constAttr.Name ?? field.Name
+                });
+            }
+
+            // Collect [WsEnum] nested enums
+            var enums = new List<EnumInfo>();
+            foreach (var nested in type.GetNestedTypes(BindingFlags.Public | BindingFlags.DeclaredOnly))
+            {
+                if (!nested.IsEnum) continue;
+                var enumAttr = nested.GetCustomAttribute<WsEnumAttribute>();
+                if (enumAttr == null) continue;
+
+                var wsName = enumAttr.Name ?? nested.Name;
+                var members = new List<(string Name, int Value)>();
+                foreach (var name in Enum.GetNames(nested))
+                    members.Add((name, (int)Enum.Parse(nested, name)));
+
+                enums.Add(new EnumInfo { WsName = wsName, Members = members });
+            }
+
+            if (functions.Count == 0 && constants.Count == 0 && enums.Count == 0)
+            {
+                Debug.LogWarning($"[WsBindingGenerator] {type.Name} has [WsModule] but no [WsFunction], [WsConst], or [WsEnum] members. Skipping.");
                 return null;
             }
 
@@ -231,6 +263,95 @@ namespace WarScript.Editor
                 sb.AppendLine($"{indent}            }},");
                 sb.AppendLine($"{indent}            \"{Esc(f.Doc)}\",");
                 sb.AppendLine($"{indent}            \"{Esc(f.Returns)}\"));");
+            }
+
+            // ── Constants ──
+            foreach (var c in constants)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"{indent}        // const {c.WsName}");
+                var val = c.Field.GetRawConstantValue();
+                var valExpr = ConstValueLiteral(c.Field.FieldType, val);
+                sb.AppendLine($"{indent}        __script.GlobalMemoryScope.Set(\"{Esc(c.WsName)}\", {valExpr});");
+                sb.AppendLine($"{indent}        __script.ConstantNames.Add(\"{Esc(c.WsName)}\");");
+            }
+
+            // ── Enums ──
+            foreach (var e in enums)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"{indent}        // enum {e.WsName}");
+                sb.AppendLine($"{indent}        {{");
+                sb.AppendLine($"{indent}            var __enumProps = new List<string>();");
+                sb.AppendLine($"{indent}            var __enumDetails = new ClassDetails(\"{Esc(e.WsName)}\", __enumProps);");
+                sb.AppendLine($"{indent}            var __enumScope = new DefinitionScope(__script, null);");
+                sb.AppendLine($"{indent}            var __enumStmt = new WarScript.Statement.ClassStatement(__script, 0, \"{Esc(e.WsName)}\");");
+                sb.AppendLine($"{indent}            var __enumDef = new ClassDefinition(__enumDetails, new List<ClassDetails>(), __enumStmt, __enumScope);");
+                sb.AppendLine($"{indent}            __scope.AddClass(__enumDef);");
+                sb.AppendLine();
+
+                // Build name[] method
+                sb.AppendLine($"{indent}            var __nameBody = new WarScript.Statement.FunctionStatement(__script, 0, \"{Esc(e.WsName)}#name\");");
+                sb.AppendLine($"{indent}            var __nameScope = new DefinitionScope(__script, null);");
+                sb.AppendLine($"{indent}            var __nameDef = new FunctionDefinition(");
+                sb.AppendLine($"{indent}                new FunctionDetails(\"name\", new List<string> {{ \"value\" }}),");
+                sb.AppendLine($"{indent}                __nameBody, __nameScope);");
+                sb.AppendLine($"{indent}            __enumScope.AddFunction(__nameDef);");
+                sb.AppendLine();
+
+                // Emit if-chain for name[] body
+                foreach (var (name, value) in e.Members)
+                {
+                    sb.AppendLine($"{indent}            {{");
+                    sb.AppendLine($"{indent}                var __cond = new WarScript.Statement.ConditionStatement(__script, 0, \"{Esc(e.WsName)}#name\");");
+                    sb.AppendLine($"{indent}                var __check = new WarScript.Expression.Operator.EqualsOperator(__script,");
+                    sb.AppendLine($"{indent}                    new WarScript.Expression.VariableExpression(__script, \"value\"),");
+                    sb.AppendLine($"{indent}                    new WarScript.Expression.Value.ConstantExpression(WarValue.FromNumeric({value})));");
+                    sb.AppendLine($"{indent}                var __then = new WarScript.Statement.CompositeStatement(__script, 0, \"{Esc(e.WsName)}#name\");");
+                    sb.AppendLine($"{indent}                __then.AddStatement(new WarScript.Statement.ReturnStatement(__script, 0, \"{Esc(e.WsName)}#name\",");
+                    sb.AppendLine($"{indent}                    new WarScript.Expression.Value.ConstantExpression(WarValue.FromText(\"{Esc(name)}\"))));");
+                    sb.AppendLine($"{indent}                __cond.AddCase(__check, __then);");
+                    sb.AppendLine($"{indent}                __nameBody.AddStatement(__cond);");
+                    sb.AppendLine($"{indent}            }}");
+                }
+                sb.AppendLine($"{indent}            __nameBody.AddStatement(new WarScript.Statement.ReturnStatement(__script, 0, \"{Esc(e.WsName)}#name\",");
+                sb.AppendLine($"{indent}                new WarScript.Expression.Value.ConstantExpression(WarValue.FromText(\"unknown\"))));");
+                sb.AppendLine();
+
+                // Create the instance and set it as a global + constant
+                sb.AppendLine($"{indent}            var __inst = new WarScript.Expression.ClassExpression(__script, \"{Esc(e.WsName)}\", new List<WarScript.Expression.IExpression>());");
+                sb.AppendLine($"{indent}            __script.DefinitionContext.PushScope(__scope);");
+                sb.AppendLine($"{indent}            __script.MemoryContext.PushScope(__script.GlobalMemoryScope);");
+                sb.AppendLine($"{indent}            try");
+                sb.AppendLine($"{indent}            {{");
+                sb.AppendLine($"{indent}                var __val = __inst.Evaluate();");
+
+                // Set member values on the instance
+                foreach (var (name, value) in e.Members)
+                    sb.AppendLine($"{indent}                __val.ClassValue.SetProperty(\"{Esc(name)}\", WarValue.FromNumeric({value}));");
+
+                // Set values array
+                sb.Append($"{indent}                __val.ClassValue.SetProperty(\"values\", WarValue.FromArray(new List<WarValue> {{ ");
+                sb.Append(string.Join(", ", e.Members.Select(m => $"WarValue.FromNumeric({m.Value})")));
+                sb.AppendLine(" }));");
+
+                // Set names array
+                sb.Append($"{indent}                __val.ClassValue.SetProperty(\"names\", WarValue.FromArray(new List<WarValue> {{ ");
+                sb.Append(string.Join(", ", e.Members.Select(m => $"WarValue.FromText(\"{Esc(m.Name)}\")")));
+                sb.AppendLine(" }));");
+
+                // Set count
+                sb.AppendLine($"{indent}                __val.ClassValue.SetProperty(\"count\", WarValue.FromNumeric({e.Members.Count}));");
+
+                sb.AppendLine($"{indent}                __script.GlobalMemoryScope.Set(\"{Esc(e.WsName)}\", __val);");
+                sb.AppendLine($"{indent}                __script.ConstantNames.Add(\"{Esc(e.WsName)}\");");
+                sb.AppendLine($"{indent}            }}");
+                sb.AppendLine($"{indent}            finally");
+                sb.AppendLine($"{indent}            {{");
+                sb.AppendLine($"{indent}                __script.MemoryContext.EndScope();");
+                sb.AppendLine($"{indent}                __script.DefinitionContext.EndScope();");
+                sb.AppendLine($"{indent}            }}");
+                sb.AppendLine($"{indent}        }}");
             }
 
             sb.AppendLine($"{indent}    }}");
@@ -335,12 +456,36 @@ namespace WarScript.Editor
         private static string Esc(string s) =>
             s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n");
 
+        private static string ConstValueLiteral(Type fieldType, object? val)
+        {
+            if (val == null) return "WarValue.Null";
+            if (fieldType == typeof(int)) return $"WarValue.FromNumeric({(int)val})";
+            if (fieldType == typeof(float)) return $"WarValue.FromNumeric({((float)val).ToString("R")}f)";
+            if (fieldType == typeof(double)) return $"WarValue.FromNumeric({((double)val).ToString("R")})";
+            if (fieldType == typeof(string)) return $"WarValue.FromText(\"{Esc((string)val)}\")";
+            if (fieldType == typeof(bool)) return (bool)val ? "WarValue.True" : "WarValue.False";
+            // Fallback for long, short, byte, etc.
+            return $"WarValue.FromNumeric({Convert.ToDouble(val).ToString("R")})";
+        }
+
         private struct FuncInfo
         {
             public MethodInfo Method;
             public string WsName;
             public string Doc;
             public string Returns;
+        }
+
+        private struct ConstInfo
+        {
+            public FieldInfo Field;
+            public string WsName;
+        }
+
+        private struct EnumInfo
+        {
+            public string WsName;
+            public List<(string Name, int Value)> Members;
         }
     }
 }

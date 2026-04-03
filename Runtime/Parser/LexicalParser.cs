@@ -322,6 +322,7 @@ namespace WarScript
                 case "begin": case "rescue": case "ensure":
                 case "import":
                 case "yield":
+                case "const": case "enum":
                     return Token.TokenType.Keyword;
 
                 // Word-operators
