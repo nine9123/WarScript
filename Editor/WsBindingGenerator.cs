@@ -226,10 +226,16 @@ namespace WarScript.Editor
 
                 sb.AppendLine();
                 sb.AppendLine($"{indent}        __scope.AddFunction(new NativeFunctionDefinition(");
-                sb.AppendLine($"{indent}            new FunctionDetails(\"{f.WsName}\", new List<string> {{ {string.Join(", ", wsParamNames)} }}),");
+                // Compute minArity from required (non-optional) parameters
+                var wsParams = parameters.Where(p => p.GetCustomAttribute<WsRawArgsAttribute>() == null).ToArray();
+                var requiredCount = wsParams.Count(p => !p.HasDefaultValue);
+                var totalCount = wsParams.Length;
+                var minArityArg = requiredCount < totalCount ? $", minArity: {requiredCount}" : "";
+                sb.AppendLine($"{indent}            new FunctionDetails(\"{f.WsName}\", new List<string> {{ {string.Join(", ", wsParamNames)} }}{minArityArg}),");
                 sb.AppendLine($"{indent}            (__args) =>");
                 sb.AppendLine($"{indent}            {{");
 
+                // Marshal arguments
                 // Marshal arguments
                 int argIdx = 0;
                 foreach (var p in parameters)
@@ -237,6 +243,13 @@ namespace WarScript.Editor
                     if (p.GetCustomAttribute<WsRawArgsAttribute>() != null)
                     {
                         sb.AppendLine($"{indent}                var @{SafeName(p.Name)} = __args;");
+                    }
+                    else if (p.HasDefaultValue)
+                    {
+                        // Optional param: use default when arg is missing or null
+                        var defaultLit = DefaultValueLiteral(p.ParameterType, p.DefaultValue);
+                        sb.AppendLine($"{indent}                {TypeName(p.ParameterType)} @{SafeName(p.Name)} = __args.Count > {argIdx} && __args[{argIdx}].Tag != ValueTag.Null ? {ArgMarshal(p.ParameterType, argIdx)} : {defaultLit};");
+                        argIdx++;
                     }
                     else
                     {
@@ -466,6 +479,31 @@ namespace WarScript.Editor
             if (fieldType == typeof(bool)) return (bool)val ? "WarValue.True" : "WarValue.False";
             // Fallback for long, short, byte, etc.
             return $"WarValue.FromNumeric({Convert.ToDouble(val).ToString("R")})";
+        }
+        
+        private static string DefaultValueLiteral(Type paramType, object? val)
+        {
+            if (val == null)
+            {
+                // Reference types default to null, value types need default(T)
+                return paramType.IsValueType ? $"default({TypeName(paramType)})" : "null!";
+            }
+            if (paramType == typeof(int)) return $"{(int)val}";
+            if (paramType == typeof(float))
+            {
+                var f = (float)val;
+                if (float.IsPositiveInfinity(f)) return "float.MaxValue";
+                return $"{f.ToString("R")}f";
+            }
+            if (paramType == typeof(double))
+            {
+                var d = (double)val;
+                if (double.IsPositiveInfinity(d)) return "double.MaxValue";
+                return $"{d.ToString("R")}";
+            }
+            if (paramType == typeof(string)) return $"\"{Esc((string)val)}\"";
+            if (paramType == typeof(bool)) return (bool)val ? "true" : "false";
+            return $"default({TypeName(paramType)})";
         }
 
         private struct FuncInfo
