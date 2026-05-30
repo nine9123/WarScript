@@ -6,6 +6,7 @@ using WarScript.Context.Definition;
 using WarScript.Expression;
 using WarScript.Expression.Value;
 using WarScript.Statement;
+using FixMath;
 
 namespace WarScript
 {
@@ -25,7 +26,7 @@ namespace WarScript
         private Dictionary<string, WarValue> _savedVariables;
 
         private YieldType _yieldType;
-        private double _waitRemaining;
+        private F64 _waitRemaining;
         private IExpression? _untilCondition;
 
         public Coroutine(
@@ -55,14 +56,14 @@ namespace WarScript
             _segments = SplitSegments(function.Statement);
         }
 
-        public bool IsReady(double dt)
+        public bool IsReady(F64 dt)
         {
             switch (_yieldType)
             {
                 case YieldType.NextTick: return true;
                 case YieldType.Wait:
                     _waitRemaining -= dt;
-                    return _waitRemaining <= 0;
+                    return _waitRemaining <= F64.Zero;
                 case YieldType.Until: return EvaluateUntilCondition();
                 default: return true;
             }
@@ -170,7 +171,7 @@ namespace WarScript
             {
                 if (stmt is YieldStatement yield)
                 {
-                    segments.Add(new CoroutineSegment(currentStatements, yield, 0));
+                    segments.Add(new CoroutineSegment(currentStatements, yield, F64.Zero));
                     currentStatements = new List<Statement.Statement>();
                 }
                 else
@@ -179,7 +180,7 @@ namespace WarScript
                 }
             }
 
-            segments.Add(new CoroutineSegment(currentStatements, null, 0));
+            segments.Add(new CoroutineSegment(currentStatements, null, F64.Zero));
             return segments;
         }
     }
@@ -188,12 +189,12 @@ namespace WarScript
     {
         public readonly List<Statement.Statement> Statements;
         public readonly YieldStatement? Yield;
-        public double YieldWaitDuration;
+        public F64 YieldWaitDuration;
 
         public CoroutineSegment(
             List<Statement.Statement> statements,
             YieldStatement? yield,
-            double yieldWaitDuration)
+            F64 yieldWaitDuration)
         {
             Statements = statements;
             Yield = yield;

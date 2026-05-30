@@ -1,3 +1,5 @@
+using FixMath;
+
 namespace WarScript
 {
     /// <summary>
@@ -7,7 +9,7 @@ namespace WarScript
     {
         int Id { get; }
         bool IsComplete { get; }
-        bool IsReady(double dt);
+        bool IsReady(F64 dt);
         void Resume();
     }
 }

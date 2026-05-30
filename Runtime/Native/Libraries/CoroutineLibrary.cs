@@ -36,7 +36,7 @@ namespace WarScript.Native
                 new FunctionDetails("stop_coroutine", new List<string> { "id" }),
                 args =>
                 {
-                    script.StopCoroutine((int)NativeHelper.NumericArg(args, 0));
+                    script.StopCoroutine(NativeHelper.IntArg(args, 0));
                     return WarValue.Null;
                 },
                 "Stops a coroutine by ID.", "null"));

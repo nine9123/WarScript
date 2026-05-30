@@ -20,9 +20,9 @@ namespace WarScript.Expression.Operator
                 return WarValue.FromNumeric(left.Numeric * right.Numeric);
 
             if (left.IsNumeric)
-                return WarValue.FromText(WarValue.RepeatString(right.ToString(), (int)left.Numeric));
+                return WarValue.FromText(WarValue.RepeatString(right.ToString(), WarValue.ToInt(left.Numeric)));
             if (right.IsNumeric)
-                return WarValue.FromText(WarValue.RepeatString(left.ToString(), (int)right.Numeric));
+                return WarValue.FromText(WarValue.RepeatString(left.ToString(), WarValue.ToInt(right.Numeric)));
 
             return _script.RaiseException($"Unable to multiply non numeric values `{left}` and `{right}`");
         }

@@ -4,6 +4,7 @@ using WarScript.Exception;
 using WarScript.Expression.Operator;
 using WarScript.Expression.Operator.Extensions;
 using WarScript.Expression.Value;
+using WarScript.Parser;
 using WarScript.Statement;
 using WarScript.Token;
 
@@ -96,7 +97,7 @@ namespace WarScript.Expression
                                 operand = ReadLambda(token);
                                 break;
                             case TokenType.Numeric:
-                                operand = new ConstantExpression(WarValue.FromNumeric(double.Parse(value)));
+                                operand = new ConstantExpression(WarValue.FromNumeric(NumericLiteral.Parse(value)));
                                 break;
                             case TokenType.Logical:
                                 operand = bool.Parse(value) ? _script.TrueExpr : _script.FalseExpr;

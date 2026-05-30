@@ -7,6 +7,7 @@ using WarScript.Context.Definition;
 using WarScript.Expression;
 using WarScript.Expression.Value;
 using WarScript.Statement;
+using FixMath;
 
 namespace WarScript.Bytecode
 {
@@ -76,7 +77,7 @@ namespace WarScript.Bytecode
         // wrapper reads them to determine how to wait.
         private bool _yielded;
         private YieldType _yieldType;
-        private double _yieldWaitDuration;
+        private F64 _yieldWaitDuration;
 
         /// <summary>True if the last Execute() stopped because of a yield opcode.</summary>
         public bool IsYielded => _yielded;
@@ -85,7 +86,7 @@ namespace WarScript.Bytecode
         public YieldType SuspendedYieldType => _yieldType;
 
         /// <summary>For YieldWait: the requested wait duration in seconds.</summary>
-        public double SuspendedWaitDuration => _yieldWaitDuration;
+        public F64 SuspendedWaitDuration => _yieldWaitDuration;
 
         /// <summary>True if the VM has finished executing (no more frames).</summary>
         public bool IsCompleted => _frameCount == 0 && !_yielded;
@@ -125,7 +126,7 @@ namespace WarScript.Bytecode
             _budget = _script.InstructionBudget;
             _yielded = false;
             _yieldType = YieldType.NextTick;
-            _yieldWaitDuration = 0;
+            _yieldWaitDuration = F64.Zero;
             _stepMode = StepMode.Continue;
             _stepFrameDepth = 0;
             _lastDebugLine = -1;
@@ -206,7 +207,7 @@ namespace WarScript.Bytecode
         {
             _yielded = false;
             _yieldType = YieldType.NextTick;
-            _yieldWaitDuration = 0;
+            _yieldWaitDuration = F64.Zero;
             _budget = _script.InstructionBudget;
             _memoryUsed = 0;
             _memoryBudget = _script.MemoryBudget;
@@ -394,13 +395,13 @@ namespace WarScript.Bytecode
                             Push(WarValue.FromNumeric(a.Numeric * b.Numeric));
                         else if (a.IsText && b.IsNumeric)
                         {
-                            var s = _interner.Intern(WarValue.RepeatString(a.TextValue, (int)b.Numeric));
+                            var s = _interner.Intern(WarValue.RepeatString(a.TextValue, WarValue.ToInt(b.Numeric)));
                             TrackAlloc(EstimateStringBytes(s));
                             Push(WarValue.FromText(s));
                         }
                         else if (b.IsText && a.IsNumeric)
                         {
-                            var s = _interner.Intern(WarValue.RepeatString(b.TextValue, (int)a.Numeric));
+                            var s = _interner.Intern(WarValue.RepeatString(b.TextValue, WarValue.ToInt(a.Numeric)));
                             TrackAlloc(EstimateStringBytes(s));
                             Push(WarValue.FromText(s));
                         }
@@ -416,7 +417,15 @@ namespace WarScript.Bytecode
                     {
                         var b = Pop(); var a = Pop();
                         if (a.IsNumeric && b.IsNumeric)
+                        {
+                            if (b.Numeric == F64.Zero)
+                            {
+                                RuntimeError("Division by zero");
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
                             Push(WarValue.FromNumeric(a.Numeric / b.Numeric));
+                        }
                         else
                         {
                             RuntimeError("Unable to divide non-numeric values");
@@ -428,7 +437,22 @@ namespace WarScript.Bytecode
                     case OpCode.Mod:
                     {
                         var b = Pop(); var a = Pop();
-                        Push(WarValue.FromNumeric(a.Numeric % b.Numeric));
+                        if (a.IsNumeric && b.IsNumeric)
+                        {
+                            if (b.Numeric == F64.Zero)
+                            {
+                                RuntimeError("Modulo by zero");
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
+                            Push(WarValue.FromNumeric(a.Numeric % b.Numeric));
+                        }
+                        else
+                        {
+                            RuntimeError("Unable to perform modulo for non-numeric values");
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         break;
                     }
                     case OpCode.Negate:
@@ -1007,9 +1031,9 @@ namespace WarScript.Bytecode
                     {
                         var index = Pop(); var target = Pop();
                         if (target.IsArray && index.IsNumeric)
-                            Push(target.GetArrayElement((int)index.Numeric));
+                            Push(target.GetArrayElement(WarValue.ToInt(index.Numeric)));
                         else if (target.IsText && index.IsNumeric)
-                            Push(target.GetTextChar((int)index.Numeric));
+                            Push(target.GetTextChar(WarValue.ToInt(index.Numeric)));
                         else
                             Push(WarValue.Null);
                         break;
@@ -1018,7 +1042,7 @@ namespace WarScript.Bytecode
                     {
                         var value = Pop(); var index = Pop(); var target = Pop();
                         if (target.IsArray && index.IsNumeric)
-                            target.SetArrayElement((int)index.Numeric, value);
+                            target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                         Push(value);
                         break;
                     }
@@ -1029,10 +1053,10 @@ namespace WarScript.Bytecode
                         var value = Pop(); var index = Pop();
                         var target = _stack[_frames[fi].StackBase + slot];
                         if (target.IsArray && index.IsNumeric)
-                            target.SetArrayElement((int)index.Numeric, value);
+                            target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                         else if (target.IsText && index.IsNumeric)
                         {
-                            var newText = target.SetTextChar((int)index.Numeric, value.ToString());
+                            var newText = target.SetTextChar(WarValue.ToInt(index.Numeric), value.ToString());
                             _stack[_frames[fi].StackBase + slot] = newText;
                         }
                         Push(value);
@@ -1046,10 +1070,10 @@ namespace WarScript.Bytecode
                         var value = Pop(); var index = Pop();
                         var target = _script.MemoryContext.GetScope().Get(name);
                         if (target.IsArray && index.IsNumeric)
-                            target.SetArrayElement((int)index.Numeric, value);
+                            target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                         else if (target.IsText && index.IsNumeric)
                         {
-                            var newText = target.SetTextChar((int)index.Numeric, value.ToString());
+                            var newText = target.SetTextChar(WarValue.ToInt(index.Numeric), value.ToString());
                             _script.MemoryContext.GetScope().Set(name, newText);
                         }
                         Push(value);
@@ -1083,10 +1107,10 @@ namespace WarScript.Bytecode
                             }
 
                             if (propVal.IsArray && index.IsNumeric)
-                                propVal.SetArrayElement((int)index.Numeric, value);
+                                propVal.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                             else if (propVal.IsText && index.IsNumeric)
                             {
-                                var newText = propVal.SetTextChar((int)index.Numeric, value.ToString());
+                                var newText = propVal.SetTextChar(WarValue.ToInt(index.Numeric), value.ToString());
                                 if (ReferenceEquals(cache.CachedType, details))
                                     cd.SetPropertyByIndex(cache.CachedIndex, newText);
                                 else
@@ -1408,13 +1432,13 @@ namespace WarScript.Bytecode
                     case OpCode.Yield:
                         _yielded = true;
                         _yieldType = YieldType.NextTick;
-                        _yieldWaitDuration = 0;
-                        _script.SetYielded(YieldType.NextTick, 0);
+                        _yieldWaitDuration = F64.Zero;
+                        _script.SetYielded(YieldType.NextTick, F64.Zero);
                         return;
                     case OpCode.YieldWait:
                     {
                         var dur = Pop();
-                        var d = dur.IsNumeric ? dur.Numeric : 0;
+                        var d = dur.IsNumeric ? dur.Numeric : F64.Zero;
                         _yielded = true;
                         _yieldType = YieldType.Wait;
                         _yieldWaitDuration = d;

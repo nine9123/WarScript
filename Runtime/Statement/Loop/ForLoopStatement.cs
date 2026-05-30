@@ -1,5 +1,6 @@
 using WarScript.Expression;
 using WarScript.Expression.Value;
+using FixMath;
 
 namespace WarScript.Statement.Loop
 {
@@ -19,9 +20,9 @@ namespace WarScript.Statement.Loop
         // Numeric fast-path state — mutable per-execution.
         // Saved/restored in Execute() to handle recursive reentry
         // (AST caching means the same node is shared across recursive calls).
-        private double _counter;
-        private double _upperBoundValue;
-        private double _stepValue;
+        private F64 _counter;
+        private F64 _upperBoundValue;
+        private F64 _stepValue;
 
         public ForLoopStatement(WarScriptLanguage script, int rowNumber, string blockName,
             VariableExpression variable, IExpression lowerBound, IExpression upperBound)

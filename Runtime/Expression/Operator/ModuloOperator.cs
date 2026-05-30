@@ -1,4 +1,5 @@
 using WarScript.Expression.Value;
+using FixMath;
 
 namespace WarScript.Expression.Operator
 {
@@ -14,7 +15,11 @@ namespace WarScript.Expression.Operator
             if (_script.HaltFlags != 0) return default;
 
             if (left.IsNumeric && right.IsNumeric)
+            {
+                if (right.Numeric == F64.Zero)
+                    return _script.RaiseException("Modulo by zero");
                 return WarValue.FromNumeric(left.Numeric % right.Numeric);
+            }
 
             return _script.RaiseException($"Unable to perform modulo for non numeric values `{left}` and `{right}`");
         }

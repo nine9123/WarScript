@@ -5,6 +5,7 @@ using WarScript.Context;
 using WarScript.Context.Definition;
 using WarScript.Expression.Value;
 using WarScript.Statement;
+using FixMath;
 
 namespace WarScript
 {
@@ -32,7 +33,7 @@ namespace WarScript
 
         // Yield timing
         private YieldType _yieldType;
-        private double _waitRemaining;
+        private F64 _waitRemaining;
 
         public BytecodeCoroutine(
             WarScriptLanguage script,
@@ -56,14 +57,14 @@ namespace WarScript
             _coroutineScope.Poolable = false;
         }
 
-        public bool IsReady(double dt)
+        public bool IsReady(F64 dt)
         {
             switch (_yieldType)
             {
                 case YieldType.NextTick: return true;
                 case YieldType.Wait:
                     _waitRemaining -= dt;
-                    return _waitRemaining <= 0;
+                    return _waitRemaining <= F64.Zero;
                 default: return true;
             }
         }
@@ -117,7 +118,7 @@ namespace WarScript
                     // Restart on next tick
                     _started = false;
                     _yieldType = YieldType.NextTick;
-                    _waitRemaining = 0;
+                    _waitRemaining = F64.Zero;
                 }
                 else
                 {

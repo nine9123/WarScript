@@ -1,6 +1,7 @@
 #nullable enable
 
 using System.Collections.Generic;
+using FixMath;
 
 namespace WarScript
 {
@@ -68,10 +69,10 @@ namespace WarScript
         /// Fast path for numeric ToString: if the number is a small non-negative
         /// integer, return the pre-allocated string directly without hashing.
         /// </summary>
-        public static string? TryGetIntegerString(double value)
+        public static string? TryGetIntegerString(F64 value)
         {
-            if (value >= 0 && value < IntegerRangeMax && value % 1 == 0)
-                return IntegerStrings[(int)value];
+            if (value >= F64.Zero && value < F64.FromInt(IntegerRangeMax) && F64.Fract(value) == F64.Zero)
+                return IntegerStrings[F64.FloorToInt(value)];
             return null;
         }
     }

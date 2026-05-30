@@ -1,5 +1,6 @@
 #nullable enable
 
+using FixMath;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -151,7 +152,7 @@ namespace WarScript
 
         public bool IsYielded { get; private set; }
         public YieldType YieldedType { get; private set; }
-        public double YieldedWaitDuration { get; private set; }
+        public F64 YieldedWaitDuration { get; private set; }
 
         public WarScriptLanguage(
             string scriptName,
@@ -175,7 +176,7 @@ namespace WarScript
             NextContext = new NextContext();
             BreakContext = new BreakContext();
             ClassInstanceContext = new ClassInstanceContext();
-            DefaultStep = new ConstantExpression(WarValue.FromNumeric(1.0));
+            DefaultStep = new ConstantExpression(WarValue.FromNumeric(1));
 
             _tokens = LexicalParser.Parse(sourceCode);
 
@@ -540,7 +541,7 @@ namespace WarScript
         //  Yield support
         // ────────────────────────────────────────────────────────
 
-        public void SetYielded(YieldType type, double waitDuration)
+        public void SetYielded(YieldType type, F64 waitDuration)
         {
             IsYielded = true;
             HaltFlags |= HaltFlag.Yield;
@@ -553,7 +554,7 @@ namespace WarScript
             IsYielded = false;
             HaltFlags &= ~HaltFlag.Yield;
             YieldedType = YieldType.NextTick;
-            YieldedWaitDuration = 0;
+            YieldedWaitDuration = F64.Zero;
         }
 
         // ────────────────────────────────────────────────────────
@@ -609,7 +610,7 @@ namespace WarScript
 
         public void StopAllCoroutines() => _coroutines.Clear();
 
-        public int TickCoroutines(double dt)
+        public int TickCoroutines(F64 dt)
         {
             for (var i = _coroutines.Count - 1; i >= 0; i--)
             {

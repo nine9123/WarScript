@@ -14,9 +14,9 @@ namespace WarScript.Expression.Operator
             if (_script.HaltFlags != 0) return default;
 
             if (left.IsArray && right.IsNumeric)
-                return left.GetArrayElement((int)right.Numeric);
+                return left.GetArrayElement(WarValue.ToInt(right.Numeric));
             if (left.IsText && right.IsNumeric)
-                return left.GetTextChar((int)right.Numeric);
+                return left.GetTextChar(WarValue.ToInt(right.Numeric));
 
             return left;
         }
@@ -29,10 +29,10 @@ namespace WarScript.Expression.Operator
             if (_script.HaltFlags != 0) return default;
 
             if (left.IsArray && right.IsNumeric)
-                left.SetArrayElement((int)right.Numeric, value);
+                left.SetArrayElement(WarValue.ToInt(right.Numeric), value);
             else if (left.IsText && right.IsNumeric)
             {
-                var newText = left.SetTextChar((int)right.Numeric, value.ToString());
+                var newText = left.SetTextChar(WarValue.ToInt(right.Numeric), value.ToString());
                 if (Left is IAssignExpression assignable)
                     assignable.Assign(newText);
             }

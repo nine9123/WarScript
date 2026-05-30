@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using FixMath;
 using WarScript.Expression.Value;
 
 namespace WarScript
@@ -20,9 +21,15 @@ namespace WarScript
             return val;
         }
 
-        public static double NumericArg(List<WarValue> args, int index)
+        public static F64 NumericArg(List<WarValue> args, int index)
         {
             return Arg(args, index, ValueTag.Numeric).Numeric;
+        }
+
+        /// <summary>Numeric argument truncated to int (toward zero, matching D1).</summary>
+        public static int IntArg(List<WarValue> args, int index)
+        {
+            return WarValue.ToInt(Arg(args, index, ValueTag.Numeric).Numeric);
         }
 
         public static WarValue ArrayArg(List<WarValue> args, int index)

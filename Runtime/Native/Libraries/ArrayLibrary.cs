@@ -13,7 +13,7 @@ namespace WarScript.Native
                 args =>
                 {
                     var arr = NativeHelper.ArrayArg(args, 0);
-                    var index = (int)NativeHelper.NumericArg(args, 1);
+                    var index = NativeHelper.IntArg(args, 1);
                     var list = arr.ArrayValue;
                     if (index < 0 || index >= list.Count) return WarValue.Null;
                     var removed = list[index];
@@ -92,7 +92,7 @@ namespace WarScript.Native
                 args =>
                 {
                     var arr = NativeHelper.ArrayArg(args, 0);
-                    var index = (int)NativeHelper.NumericArg(args, 1);
+                    var index = NativeHelper.IntArg(args, 1);
                     var value = args[2];
                     var list = arr.ArrayValue;
                     if (index < 0) index = 0;

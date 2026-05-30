@@ -1,5 +1,10 @@
 {
     "name": "WarScript.Tests",
-    "references": ["WarScript.Runtime"],
-    "includePlatforms": ["Editor"]
+    "references": [
+        "WarScript.Runtime",
+        "FixPointCS"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ]
 }

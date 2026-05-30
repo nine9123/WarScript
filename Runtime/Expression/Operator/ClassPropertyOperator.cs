@@ -28,9 +28,9 @@ namespace WarScript.Expression.Operator
                     if (_script.HaltFlags != 0) return default;
 
                     if (propValue.IsArray && index.IsNumeric)
-                        return propValue.GetArrayElement((int)index.Numeric);
+                        return propValue.GetArrayElement(WarValue.ToInt(index.Numeric));
                     if (propValue.IsText && index.IsNumeric)
-                        return propValue.GetTextChar((int)index.Numeric);
+                        return propValue.GetTextChar(WarValue.ToInt(index.Numeric));
                 }
             }
 
@@ -57,10 +57,10 @@ namespace WarScript.Expression.Operator
                     if (_script.HaltFlags != 0) return default;
 
                     if (propValue.IsArray && index.IsNumeric)
-                        propValue.SetArrayElement((int)index.Numeric, value);
+                        propValue.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                     else if (propValue.IsText && index.IsNumeric)
                     {
-                        var newText = propValue.SetTextChar((int)index.Numeric, value.ToString());
+                        var newText = propValue.SetTextChar(WarValue.ToInt(index.Numeric), value.ToString());
                         classData.SetProperty(arrayVar.Name, newText);
                     }
                 }

@@ -534,7 +534,7 @@ namespace WarScript
                     var explicitExpr = ExpressionReader.ReadExpression(_script, Tokens);
 
                     if (explicitExpr is ConstantExpression ce && ce.Value.IsNumeric)
-                        nextValue = (int)ce.Value.NumericValue;
+                        nextValue = WarValue.ToInt(ce.Value.NumericValue);
                     else
                         throw new SyntaxException(
                             $"Enum value for '{memberName.Value}' must be a numeric literal");

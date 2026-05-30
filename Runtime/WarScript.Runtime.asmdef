@@ -2,7 +2,8 @@
     "name": "WarScript.Runtime",
     "rootNamespace": "WarScript",
     "references": [
-        "WarScript.Attributes"
+        "WarScript.Attributes",
+        "FixPointCS"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

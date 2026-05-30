@@ -152,7 +152,7 @@ namespace WarScript.Bytecode
                 case ValueTag.Null:
                     break;
                 case ValueTag.Numeric:
-                    w.Write(val.Numeric);
+                    w.Write(val.Numeric.Raw);
                     break;
                 case ValueTag.Text:
                     WriteString(w, val.TextValue);
@@ -327,7 +327,7 @@ namespace WarScript.Bytecode
             switch (tag)
             {
                 case ValueTag.Null:    return WarValue.Null;
-                case ValueTag.Numeric: return WarValue.FromNumeric(r.ReadDouble());
+                case ValueTag.Numeric: return WarValue.FromRawNumeric(r.ReadInt64());
                 case ValueTag.Text:    return WarValue.FromText(ReadString(r));
                 case ValueTag.Logical: return WarValue.FromLogical(r.ReadByte() != 0);
                 case ValueTag.NativeObject:

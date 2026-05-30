@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using FixMath;
 
 namespace WarScript.Expression.Value
 {
@@ -27,9 +28,11 @@ namespace WarScript.Expression.Value
         public ValueTag Tag;
 
         /// <summary>
-        /// Holds numeric value (Tag.Numeric) or encoded boolean (Tag.Logical: 1.0=true, 0.0=false).
+        /// Holds numeric value (Tag.Numeric) or encoded boolean
+        /// (Tag.Logical: F64.One=true, F64.Zero=false).
+        /// Deterministic 32.32 fixed-point — no IEEE floats anywhere in the VM.
         /// </summary>
-        public double Numeric;
+        public F64 Numeric;
 
         /// <summary>
         /// Holds reference types:
@@ -50,23 +53,45 @@ namespace WarScript.Expression.Value
 
         // ── Typed accessors ──
 
-        public double NumericValue => Numeric;
-        public bool LogicalValue => Numeric != 0;
+        public F64 NumericValue => Numeric;
+        public bool LogicalValue => Numeric != F64.Zero;
         public string TextValue => (string)Ref!;
         public List<WarValue> ArrayValue => (List<WarValue>)Ref!;
         public ClassData ClassValue => (ClassData)Ref!;
 
+        /// <summary>
+        /// Converts an F64 to int by truncating toward zero — matches the
+        /// semantics of the old (int)double cast (D1). Used for array/string
+        /// indices, repeat counts, etc. F64.FloorToInt floors toward -inf and
+        /// would differ for negatives, so it must not be used in its place.
+        /// </summary>
+        public static int ToInt(F64 v) =>
+            v.Raw >= 0 ? (int)(v.Raw >> 32) : -(int)((-v.Raw) >> 32);
+
         // ── Factory methods ──
 
         public static readonly WarValue Null = default;
-        public static readonly WarValue True = new() { Tag = ValueTag.Logical, Numeric = 1.0 };
-        public static readonly WarValue False = new() { Tag = ValueTag.Logical, Numeric = 0.0 };
+        public static readonly WarValue True = new() { Tag = ValueTag.Logical, Numeric = F64.One };
+        public static readonly WarValue False = new() { Tag = ValueTag.Logical, Numeric = F64.Zero };
 
-        public static WarValue FromNumeric(double v) =>
+        public static WarValue FromNumeric(F64 v) =>
             new() { Tag = ValueTag.Numeric, Numeric = v };
 
+        // Convenience overloads so integer call-sites (counts, indices, enum
+        // members, literal 0/1) stay clean WITHOUT re-admitting double/float.
+        public static WarValue FromNumeric(int v) =>
+            new() { Tag = ValueTag.Numeric, Numeric = F64.FromInt(v) };
+
+        public static WarValue FromNumeric(long v) =>
+            new() { Tag = ValueTag.Numeric, Numeric = F64.FromInt((int)v) };
+
+        /// <summary>Build a numeric value straight from a fixed-point raw long
+        /// (used by the bytecode deserializer).</summary>
+        public static WarValue FromRawNumeric(long raw) =>
+            new() { Tag = ValueTag.Numeric, Numeric = F64.FromRaw(raw) };
+
         public static WarValue FromLogical(bool v) =>
-            new() { Tag = ValueTag.Logical, Numeric = v ? 1.0 : 0.0 };
+            new() { Tag = ValueTag.Logical, Numeric = v ? F64.One : F64.Zero };
 
         public static WarValue FromText(string v) =>
             new() { Tag = ValueTag.Text, Ref = v };
@@ -171,7 +196,9 @@ namespace WarScript.Expression.Value
                 case ValueTag.Null: return "null";
                 case ValueTag.Numeric:
                     return StringInterner.TryGetIntegerString(Numeric)
-                        ?? (Numeric % 1 == 0 ? ((int)Numeric).ToString() : Numeric.ToString());
+                        ?? (F64.Fract(Numeric) == F64.Zero
+                                ? ToInt(Numeric).ToString()
+                                : Numeric.ToString());
                 case ValueTag.Logical: return LogicalValue ? "True" : "False";
                 case ValueTag.Text: return TextValue;
                 case ValueTag.Array:

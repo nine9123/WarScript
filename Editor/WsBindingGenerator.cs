@@ -194,6 +194,7 @@ namespace WarScript.Editor
             sb.AppendLine("using WarScript;");
             sb.AppendLine("using WarScript.Context.Definition;");
             sb.AppendLine("using WarScript.Expression.Value;");
+            sb.AppendLine("using FixMath;");
             sb.AppendLine();
 
             var ns = type.Namespace;
@@ -399,35 +400,48 @@ namespace WarScript.Editor
 
         private static string ArgMarshal(Type t, int i)
         {
-            if (t == typeof(double)) return $"NativeHelper.NumericArg(__args, {i})";
-            if (t == typeof(int)) return $"(int)NativeHelper.NumericArg(__args, {i})";
-            if (t == typeof(float)) return $"(float)NativeHelper.NumericArg(__args, {i})";
+            if (t.FullName == "FixMath.F64") return $"NativeHelper.NumericArg(__args, {i})";
+            if (t == typeof(int)) return $"NativeHelper.IntArg(__args, {i})";
+            if (t == typeof(double) || t == typeof(float))
+                throw new InvalidOperationException(
+                    $"WsBindingGenerator: parameter type '{t.Name}' is not allowed in deterministic WarScript. " +
+                    "Use FixMath.F64 (or int) instead of double/float.");
             if (t == typeof(string)) return $"NativeHelper.TextArg(__args, {i})";
-            if (t == typeof(bool)) return $"(__args[{i}].IsLogical ? __args[{i}].LogicalValue : __args[{i}].IsNumeric && __args[{i}].Numeric != 0)";
+            if (t == typeof(bool)) return $"(__args[{i}].IsLogical ? __args[{i}].LogicalValue : __args[{i}].IsNumeric && __args[{i}].Numeric != F64.Zero)";
             if (t.FullName == "WarScript.Expression.Value.WarValue") return $"__args[{i}]";
             if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(List<>))
                 return $"NativeHelper.ArrayArg(__args, {i}).ArrayValue";
+            // F64Vec3 and any other native type arrive as an opaque NativeObject (D5).
             return $"NativeHelper.NativeArg<{TypeName(t)}>(__args, {i})";
         }
 
         private static string ReturnMarshal(Type t)
         {
-            if (t == typeof(double) || t == typeof(int) || t == typeof(float))
+            if (t.FullName == "FixMath.F64" || t == typeof(int))
                 return "WarValue.FromNumeric(__result)";
+            if (t == typeof(double) || t == typeof(float))
+                throw new InvalidOperationException(
+                    $"WsBindingGenerator: return type '{t.Name}' is not allowed in deterministic WarScript. " +
+                    "Return FixMath.F64 (or int) instead of double/float.");
             if (t == typeof(string))
                 return "__result != null ? WarValue.FromText(__result) : WarValue.Null";
             if (t == typeof(bool))
                 return "WarValue.FromLogical(__result)";
             if (t.FullName == "WarScript.Expression.Value.WarValue")
                 return "__result";
+            // F64Vec3 and other native types are returned as an opaque NativeObject (D5).
             return "WarValue.FromNativeObject(__result)";
         }
 
         private static string TypeName(Type t)
         {
-            if (t == typeof(double)) return "double";
+            if (t.FullName == "FixMath.F64") return "FixMath.F64";
+            if (t.FullName == "FixMath.F64Vec3") return "FixMath.F64Vec3";
+            if (t == typeof(double) || t == typeof(float))
+                throw new InvalidOperationException(
+                    $"WsBindingGenerator: type '{t.Name}' is not allowed in deterministic WarScript. " +
+                    "Use FixMath.F64 instead of double/float.");
             if (t == typeof(int)) return "int";
-            if (t == typeof(float)) return "float";
             if (t == typeof(string)) return "string";
             if (t == typeof(bool)) return "bool";
             if (t == typeof(void)) return "void";
@@ -439,7 +453,8 @@ namespace WarScript.Editor
 
         private static string InferReturnsDoc(Type t)
         {
-            if (t == typeof(double) || t == typeof(int) || t == typeof(float)) return "NumericValue";
+            if (t.FullName == "FixMath.F64" || t == typeof(int)) return "NumericValue";
+            if (t.FullName == "FixMath.F64Vec3") return "NativeObject";
             if (t == typeof(string)) return "TextValue";
             if (t == typeof(bool)) return "LogicalValue";
             if (t == typeof(void)) return "null";
@@ -473,12 +488,20 @@ namespace WarScript.Editor
         {
             if (val == null) return "WarValue.Null";
             if (fieldType == typeof(int)) return $"WarValue.FromNumeric({(int)val})";
-            if (fieldType == typeof(float)) return $"WarValue.FromNumeric({((float)val).ToString("R")}f)";
-            if (fieldType == typeof(double)) return $"WarValue.FromNumeric({((double)val).ToString("R")})";
+            if (fieldType == typeof(float) || fieldType == typeof(double))
+            {
+                // Bake to a 32.32 fixed-point raw at generation time using the exact
+                // Fixed64.FromDouble truncation (long)(v * 2^32). The generated code
+                // references only FixMath.F64.FromRaw — no float/double literal is
+                // emitted, preserving cross-platform determinism (D2).
+                long raw = (long)(Convert.ToDouble(val) * 4294967296.0);
+                return $"WarValue.FromNumeric(FixMath.F64.FromRaw({raw}L))";
+            }
             if (fieldType == typeof(string)) return $"WarValue.FromText(\"{Esc((string)val)}\")";
             if (fieldType == typeof(bool)) return (bool)val ? "WarValue.True" : "WarValue.False";
-            // Fallback for long, short, byte, etc.
-            return $"WarValue.FromNumeric({Convert.ToDouble(val).ToString("R")})";
+            // Fallback for long, short, byte, etc. — bake the raw the same way.
+            long rawFallback = (long)(Convert.ToDouble(val) * 4294967296.0);
+            return $"WarValue.FromNumeric(FixMath.F64.FromRaw({rawFallback}L))";
         }
         
         private static string DefaultValueLiteral(Type paramType, object? val)
@@ -489,18 +512,10 @@ namespace WarScript.Editor
                 return paramType.IsValueType ? $"default({TypeName(paramType)})" : "null!";
             }
             if (paramType == typeof(int)) return $"{(int)val}";
-            if (paramType == typeof(float))
-            {
-                var f = (float)val;
-                if (float.IsPositiveInfinity(f)) return "float.MaxValue";
-                return $"{f.ToString("R")}f";
-            }
-            if (paramType == typeof(double))
-            {
-                var d = (double)val;
-                if (double.IsPositiveInfinity(d)) return "double.MaxValue";
-                return $"{d.ToString("R")}";
-            }
+            if (paramType == typeof(float) || paramType == typeof(double))
+                throw new InvalidOperationException(
+                    $"WsBindingGenerator: default value of type '{paramType.Name}' is not allowed. " +
+                    "Use FixMath.F64 parameters (which take no compile-time default) instead.");
             if (paramType == typeof(string)) return $"\"{Esc((string)val)}\"";
             if (paramType == typeof(bool)) return (bool)val ? "true" : "false";
             return $"default({TypeName(paramType)})";

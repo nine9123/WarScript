@@ -1,5 +1,6 @@
 using WarScript.Expression;
 using WarScript.Expression.Value;
+using FixMath;
 
 namespace WarScript.Statement
 {
@@ -19,7 +20,7 @@ namespace WarScript.Statement
 
         public override void Execute()
         {
-            double waitDuration = 0;
+            F64 waitDuration = F64.Zero;
             if (YieldType == YieldType.Wait && Expression != null)
             {
                 var val = Expression.Evaluate();
