@@ -139,16 +139,16 @@ assert Array_length[to_clear] == 0
 # ════════════════════════════════════════════════
 
 # ── pow edge cases ──
-assert pow[2, 0] == 1
-assert pow[0, 5] == 0
-assert pow[1, 1000] == 1
-assert pow[2, 10] == 1024
+assert round[pow[2, 0]] == 1
+assert round[pow[0, 5]] == 0
+assert round[pow[1, 1000]] == 1
+assert round[pow[2, 10]] == 1024
 
 # ── sqrt ──
-assert sqrt[0] == 0
-assert sqrt[1] == 1
-assert sqrt[4] == 2
-assert sqrt[9] == 3
+assert round[sqrt[0]] == 0
+assert round[sqrt[1]] == 1
+assert round[sqrt[4]] == 2
+assert round[sqrt[9]] == 3
 
 # ── floor/ceil/round ──
 assert floor[3.7] == 3

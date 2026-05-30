@@ -198,7 +198,7 @@ namespace WarScript.Expression.Value
                     return StringInterner.TryGetIntegerString(Numeric)
                         ?? (F64.Fract(Numeric) == F64.Zero
                                 ? ToInt(Numeric).ToString()
-                                : Numeric.ToString());
+                                : FormatFractional(Numeric));
                 case ValueTag.Logical: return LogicalValue ? "True" : "False";
                 case ValueTag.Text: return TextValue;
                 case ValueTag.Array:
@@ -217,6 +217,39 @@ namespace WarScript.Expression.Value
                     return Ref?.ToString() ?? "null";
                 default: return "";
             }
+        }
+
+        private static readonly long[] Pow10 =
+            { 1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000 };
+
+        // Display a fractional fixed-point value as the shortest decimal string that
+        // round-trips to the same raw — so a literal like 3.14 prints as "3.14" rather
+        // than its full binary expansion "3.1399999998975545". Computed with integer
+        // math only (no float/double in runtime); the Parse round-trip check guarantees
+        // correctness. Values with no short round-tripping form (e.g. transcendental
+        // results) fall back to full precision.
+        private static string FormatFractional(F64 v)
+        {
+            long raw = v.Raw;
+            bool neg = raw < 0;
+            ulong mag = neg ? (ulong)(-raw) : (ulong)raw;
+            ulong intPart = mag >> 32;
+            ulong frac = mag & 0xFFFFFFFFUL;
+            for (int p = 1; p <= 9; p++)
+            {
+                ulong pow = (ulong)Pow10[p];
+                ulong scaled = (frac * pow + (1UL << 31)) >> 32; // round to nearest
+                ulong ip = intPart;
+                if (scaled >= pow) { ip++; scaled -= pow; }      // rounding carry
+                string candidate = (neg ? "-" : "") + ip + "." + scaled.ToString().PadLeft(p, '0');
+                try
+                {
+                    if (WarScript.Parser.NumericLiteral.Parse(candidate).Raw == raw)
+                        return candidate;
+                }
+                catch { /* candidate out of range / malformed at this precision — try next */ }
+            }
+            return v.ToString();
         }
 
         // ── Comparison helpers (used by comparison operators) ──

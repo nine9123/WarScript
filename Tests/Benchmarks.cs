@@ -9,6 +9,7 @@ using NUnit.Framework;
 using WarScript;
 using WarScript.Context.Definition;
 using WarScript.Expression.Value;
+using FixMath;
 using WarScript.Statement;
 
 namespace Tests
@@ -893,7 +894,7 @@ namespace Tests
                 end
             ");
             var tick = script.GetFunction("tick", 1);
-            var dt = WarValue.FromNumeric(0.016);
+            var dt = WarValue.FromNumeric(F64.FromDouble(0.016));
 
             Measure("Call API: tick(dt) 10k with arg", () =>
             {
@@ -921,8 +922,8 @@ namespace Tests
                 end
             ");
             var tick = script.GetFunction("tick", 2);
-            var dx = WarValue.FromNumeric(0.5);
-            var dy = WarValue.FromNumeric(0.3);
+            var dx = WarValue.FromNumeric(F64.FromDouble(0.5));
+            var dy = WarValue.FromNumeric(F64.FromDouble(0.3));
 
             Measure("Call API: heavy tick (class r/w + math) 1k", () =>
             {
@@ -948,8 +949,8 @@ namespace Tests
                 end
             ");
             var tick = script.GetFunction("tick", 2);
-            var dx = WarValue.FromNumeric(0.5);
-            var dy = WarValue.FromNumeric(0.3);
+            var dx = WarValue.FromNumeric(F64.FromDouble(0.5));
+            var dy = WarValue.FromNumeric(F64.FromDouble(0.3));
 
             // Warmup
             for (var i = 0; i < 1000; i++)

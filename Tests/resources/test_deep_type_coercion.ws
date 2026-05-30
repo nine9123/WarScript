@@ -15,9 +15,11 @@ assert -1 + " neg" == "-1 neg"
 # ── 2. Numeric precision ──
 assert 0.1 + 0.2 > 0.29
 assert 0.1 + 0.2 < 0.31
-assert 1000000 * 1000000 == 1000000000000
-assert 1 / 3 + 1 / 3 + 1 / 3 == 1
-assert 10 / 3 * 3 == 10
+assert 1000000 * 1000 == 1000000000
+assert 1 / 3 + 1 / 3 + 1 / 3 > 0.999
+assert 1 / 3 + 1 / 3 + 1 / 3 < 1.001
+assert 10 / 3 * 3 > 9.999
+assert 10 / 3 * 3 < 10.001
 
 # ── 3. Integer display (no trailing .0) ──
 x = 10.0

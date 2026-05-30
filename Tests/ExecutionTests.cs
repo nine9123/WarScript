@@ -3,6 +3,7 @@ using NUnit.Framework;
 using WarScript;
 using WarScript.Context.Definition;
 using WarScript.Expression.Value;
+using FixMath;
 using WarScript.Native;
 
 namespace Tests
@@ -268,7 +269,7 @@ namespace Tests
                     end
                 end
                 v = new Vec2 [3, 4]
-                print v :: length []
+                print round[v :: length []]
             ", delegate(WarScriptLanguage script, DefinitionScope scope)
             {
                 MathLibrary.Register(script, scope);
@@ -984,10 +985,10 @@ namespace Tests
             script.StartCoroutine("sequence", System.Array.Empty<WarValue>());
             Assert.AreEqual(new[] { "step 1" }, output);
 
-            script.TickCoroutines(0.016);
+            script.TickCoroutines(F64.FromDouble(0.016));
             Assert.AreEqual(new[] { "step 1", "step 2" }, output);
 
-            script.TickCoroutines(0.016);
+            script.TickCoroutines(F64.FromDouble(0.016));
             Assert.AreEqual(new[] { "step 1", "step 2", "step 3" }, output);
             Assert.AreEqual(0, script.ActiveCoroutineCount);
         }
@@ -1007,15 +1008,15 @@ namespace Tests
             Assert.AreEqual(new[] { "start" }, output);
 
             // Not enough time
-            script.TickCoroutines(0.5);
+            script.TickCoroutines(F64.FromDouble(0.5));
             Assert.AreEqual(new[] { "start" }, output);
 
             // Still not enough
-            script.TickCoroutines(0.3);
+            script.TickCoroutines(F64.FromDouble(0.3));
             Assert.AreEqual(new[] { "start" }, output);
 
             // Now it's ready (0.5 + 0.3 + 0.3 = 1.1 > 1.0)
-            script.TickCoroutines(0.3);
+            script.TickCoroutines(F64.FromDouble(0.3));
             Assert.AreEqual(new[] { "start", "after 1 second" }, output);
             Assert.AreEqual(0, script.ActiveCoroutineCount);
         }
@@ -1036,10 +1037,10 @@ namespace Tests
             Assert.AreEqual(new[] { "waiting" }, output);
 
             // Condition not met yet
-            script.TickCoroutines(0.016);
+            script.TickCoroutines(F64.FromDouble(0.016));
             Assert.AreEqual(new[] { "waiting" }, output);
 
-            script.TickCoroutines(0.016);
+            script.TickCoroutines(F64.FromDouble(0.016));
             Assert.AreEqual(new[] { "waiting" }, output);
 
             // Set the flag via a function call
@@ -1072,12 +1073,12 @@ namespace Tests
             for (var i = 0; i < 4; i++)
             {
                 script.Call(increment);
-                script.TickCoroutines(0.016);
+                script.TickCoroutines(F64.FromDouble(0.016));
             }
             Assert.AreEqual(new[] { "waiting" }, output); // counter = 4, not ready
 
             script.Call(increment); // counter = 5
-            script.TickCoroutines(0.016);
+            script.TickCoroutines(F64.FromDouble(0.016));
             Assert.AreEqual(new[] { "waiting", "reached 5" }, output);
             Assert.AreEqual(0, script.ActiveCoroutineCount);
         }
@@ -1102,10 +1103,10 @@ namespace Tests
             script.StartCoroutine("sequence", System.Array.Empty<WarValue>());
             Assert.AreEqual(new[] { "hero: 100" }, output);
 
-            script.TickCoroutines(0.016);
+            script.TickCoroutines(F64.FromDouble(0.016));
             Assert.AreEqual(new[] { "hero: 100", "hero: 75" }, output);
 
-            script.TickCoroutines(0.016);
+            script.TickCoroutines(F64.FromDouble(0.016));
             Assert.AreEqual(new[] { "hero: 100", "hero: 75", "hero: 25" }, output);
         }
 
@@ -1127,7 +1128,7 @@ namespace Tests
             });
             Assert.AreEqual(new[] { "hello world" }, output);
 
-            script.TickCoroutines(0.016);
+            script.TickCoroutines(F64.FromDouble(0.016));
             Assert.AreEqual(new[] { "hello world", "goodbye world (42)" }, output);
         }
 
@@ -1145,13 +1146,13 @@ namespace Tests
             script.StartCoroutine("pulse", System.Array.Empty<WarValue>(), loop: true);
             Assert.AreEqual(new[] { "on" }, output);
 
-            script.TickCoroutines(0.016); // off, then restart → on
+            script.TickCoroutines(F64.FromDouble(0.016)); // off, then restart → on
             Assert.AreEqual(new[] { "on", "off" }, output);
 
-            script.TickCoroutines(0.016); // resume loop: on
+            script.TickCoroutines(F64.FromDouble(0.016)); // resume loop: on
             Assert.AreEqual(new[] { "on", "off", "on" }, output);
 
-            script.TickCoroutines(0.016); // off
+            script.TickCoroutines(F64.FromDouble(0.016)); // off
             Assert.AreEqual(new[] { "on", "off", "on", "off" }, output);
 
             Assert.AreEqual(1, script.ActiveCoroutineCount); // still running
@@ -1172,7 +1173,7 @@ namespace Tests
             Assert.AreEqual(new[] { "tick" }, output);
 
             script.StopCoroutine(id);
-            script.TickCoroutines(0.016);
+            script.TickCoroutines(F64.FromDouble(0.016));
             Assert.AreEqual(new[] { "tick" }, output); // stopped, no more output
             Assert.AreEqual(0, script.ActiveCoroutineCount);
         }
@@ -1197,7 +1198,7 @@ namespace Tests
             script.StartCoroutine("b", System.Array.Empty<WarValue>());
             Assert.AreEqual(new[] { "a1", "b1" }, output);
 
-            script.TickCoroutines(0.016);
+            script.TickCoroutines(F64.FromDouble(0.016));
             Assert.AreEqual(new[] { "a1", "b1", "b2", "a2" }, output);
             // Note: reverse order because TickCoroutines iterates backwards
             Assert.AreEqual(0, script.ActiveCoroutineCount);

@@ -28,7 +28,7 @@ assert 6 % 5 == 1
 assert 17 % 7 == 3
 
 # ── Large numbers ──
-assert 1000000 * 1000000 == 1000000000000
+assert 1000000 * 1000 == 1000000000
 assert 999999 + 1 == 1000000
 
 # ── Identity operations ──

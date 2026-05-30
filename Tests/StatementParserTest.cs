@@ -62,7 +62,7 @@ namespace Tests
                     end
                 end
                 v = new Vec2 [3, 4]
-                print v :: length []
+                print round[v :: length []]
             ", delegate(WarScriptLanguage script, DefinitionScope scope)
             {
                 MathLibrary.Register(script, scope);

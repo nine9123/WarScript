@@ -4,6 +4,7 @@ using NUnit.Framework;
 using WarScript;
 using WarScript.Bytecode;
 using WarScript.Expression.Value;
+using FixMath;
 
 namespace Tests
 {
@@ -211,9 +212,9 @@ print add [10, 20]
 
             Assert.IsNotNull(capturedLocals);
             Assert.IsTrue(capturedLocals.ContainsKey("a"));
-            Assert.AreEqual(10.0, capturedLocals["a"].Numeric);
+            Assert.AreEqual(F64.FromInt(10), capturedLocals["a"].Numeric);
             Assert.IsTrue(capturedLocals.ContainsKey("b"));
-            Assert.AreEqual(20.0, capturedLocals["b"].Numeric);
+            Assert.AreEqual(F64.FromInt(20), capturedLocals["b"].Numeric);
         }
 
         [Test]
@@ -314,7 +315,7 @@ print hp
             });
 
             Assert.IsTrue(capturedHp.IsNumeric);
-            Assert.AreEqual(75.0, capturedHp.Numeric);
+            Assert.AreEqual(F64.FromInt(75), capturedHp.Numeric);
         }
 
         [Test]

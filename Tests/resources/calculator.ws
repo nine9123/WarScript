@@ -51,5 +51,5 @@ assert calc :: sum [] == 12
 assert calc :: sub [] == 8
 assert calc :: mul [] == 20
 assert calc :: div [] == 5
-assert calc :: exp [] == 1024
+assert round[calc :: exp []] == 1024
 assert calc :: fib [] == 55

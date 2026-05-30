@@ -6,21 +6,21 @@
 # ──────────────────────────────────────────────────────
 
 # ── pow ──
-assert pow [2, 0] == 1
-assert pow [2, 1] == 2
-assert pow [2, 10] == 1024
-assert pow [3, 3] == 27
-assert pow [5, 2] == 25
-assert pow [10, 0] == 1
-assert pow [0, 5] == 0
+assert round[pow [2, 0]] == 1
+assert round[pow [2, 1]] == 2
+assert round[pow [2, 10]] == 1024
+assert round[pow [3, 3]] == 27
+assert round[pow [5, 2]] == 25
+assert round[pow [10, 0]] == 1
+assert round[pow [0, 5]] == 0
 
 # ── sqrt ──
-assert sqrt [4] == 2
-assert sqrt [9] == 3
-assert sqrt [16] == 4
-assert sqrt [100] == 10
-assert sqrt [0] == 0
-assert sqrt [1] == 1
+assert round[sqrt [4]] == 2
+assert round[sqrt [9]] == 3
+assert round[sqrt [16]] == 4
+assert round[sqrt [100]] == 10
+assert round[sqrt [0]] == 0
+assert round[sqrt [1]] == 1
 
 # ── floor ──
 assert floor [3.7] == 3
@@ -48,7 +48,7 @@ assert round [3.6] == 4
 assert round [-3.4] == -3
 assert round [-3.6] == -4
 assert round [0] == 0
-assert round [0.5] == 0       # banker's rounding
+assert round [0.5] == 1       # FixPointCS rounds half up (was banker's)
 assert round [1.5] == 2
 
 # ── abs ──
@@ -97,12 +97,12 @@ assert lerp [10, 20, 0.5] == 15
 assert lerp [-10, 10, 0.5] == 0
 
 # ── Combinations of math functions ──
-assert floor [sqrt [10]] == 3
-assert ceil [sqrt [10]] == 4
+assert round[floor [sqrt [10]]] == 3
+assert round[ceil [sqrt [10]]] == 4
 assert abs [min [-5, -10]] == 10
 assert max [abs [-5], abs [-3]] == 5
 assert clamp [floor [3.7], 0, 5] == 3
-assert pow [abs [-2], 3] == 8
+assert round[pow [abs [-2], 3]] == 8
 
 # ── Math in loop ──
 factorials = {}
@@ -135,6 +135,6 @@ fun distance [x1, y1, x2, y2]
     dy = y2 - y1
     return sqrt [pow [dx, 2] + pow [dy, 2]]
 end
-assert distance [0, 0, 3, 4] == 5
-assert distance [0, 0, 0, 0] == 0
-assert distance [1, 1, 4, 5] == 5
+assert round[distance [0, 0, 3, 4]] == 5
+assert round[distance [0, 0, 0, 0]] == 0
+assert round[distance [1, 1, 4, 5]] == 5

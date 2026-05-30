@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using NUnit.Framework;
 using WarScript;
 using WarScript.Expression.Value;
+using FixMath;
 
 namespace Tests
 {
@@ -176,7 +177,7 @@ namespace Tests
             ");
 
             var hp = script.UserMemoryScope.Get("hero").ClassValue.GetProperty("hp");
-            Assert.AreEqual(100.0, hp.Numeric);
+            Assert.AreEqual(F64.FromInt(100), hp.Numeric);
 
             script.Reload(@"
                 class Entity [name, hp]
@@ -191,7 +192,7 @@ namespace Tests
 
             // Old instance is preserved
             var hpAfter = script.UserMemoryScope.Get("hero").ClassValue.GetProperty("hp");
-            Assert.AreEqual(100.0, hpAfter.Numeric);
+            Assert.AreEqual(F64.FromInt(100), hpAfter.Numeric);
         }
 
         [Test]
@@ -204,7 +205,7 @@ namespace Tests
             ");
 
             Assert.AreEqual(new[] { "init" }, output);
-            Assert.AreEqual(1.0, script.UserMemoryScope.Get("counter").Numeric);
+            Assert.AreEqual(F64.FromInt(1), script.UserMemoryScope.Get("counter").Numeric);
 
             // Reload with same source — should NOT print "init" again
             // or increment counter again
@@ -216,7 +217,7 @@ namespace Tests
 
             // counter still 1 from the original Run(), not re-executed
             Assert.AreEqual(new[] { "init" }, output);
-            Assert.AreEqual(1.0, script.UserMemoryScope.Get("counter").Numeric);
+            Assert.AreEqual(F64.FromInt(1), script.UserMemoryScope.Get("counter").Numeric);
         }
 
         // ── Coroutines ──
@@ -268,7 +269,7 @@ namespace Tests
             script.StartCoroutine("patrol", Array.Empty<WarValue>());
             Assert.AreEqual(new[] { "new patrol" }, output);
 
-            script.TickCoroutines(0.016);
+            script.TickCoroutines(F64.FromDouble(0.016));
             Assert.AreEqual(new[] { "new patrol", "new patrol done" }, output);
         }
 

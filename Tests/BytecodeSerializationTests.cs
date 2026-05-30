@@ -3,6 +3,7 @@ using System.IO;
 using NUnit.Framework;
 using WarScript;
 using WarScript.Expression.Value;
+using FixMath;
 
 namespace Tests
 {
@@ -284,13 +285,13 @@ namespace Tests
             script2.StartCoroutine("patrol", System.Array.Empty<WarValue>());
             Assert.AreEqual(new[] { "step 0" }, output2);
 
-            script2.TickCoroutines(0.016);
+            script2.TickCoroutines(F64.FromDouble(0.016));
             Assert.AreEqual(new[] { "step 0", "step 1" }, output2);
 
-            script2.TickCoroutines(0.016);
+            script2.TickCoroutines(F64.FromDouble(0.016));
             Assert.AreEqual(new[] { "step 0", "step 1", "step 2" }, output2);
 
-            script2.TickCoroutines(0.016);
+            script2.TickCoroutines(F64.FromDouble(0.016));
             Assert.AreEqual(0, script2.ActiveCoroutineCount);
         }
 

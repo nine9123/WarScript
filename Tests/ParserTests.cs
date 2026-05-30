@@ -4,6 +4,7 @@ using WarScript;
 using WarScript.Expression;
 using WarScript.Expression.Operator;
 using WarScript.Expression.Value;
+using FixMath;
 using WarScript.Expression;
 using WarScript.Statement;
 using WarScript.Token;
@@ -94,11 +95,11 @@ namespace Tests
 
             Assert.IsInstanceOf<ConstantExpression>(addOperator.Left);
             var left = ((ConstantExpression)addOperator.Left).Evaluate();
-            Assert.AreEqual(2, left.Numeric);
+            Assert.AreEqual(F64.FromInt(2), left.Numeric);
 
             Assert.IsInstanceOf<ConstantExpression>(addOperator.Right);
             var right = ((ConstantExpression)addOperator.Right).Evaluate();
-            Assert.AreEqual(5, right.Numeric);
+            Assert.AreEqual(F64.FromInt(5), right.Numeric);
         }
 
         [Test]
@@ -146,7 +147,7 @@ namespace Tests
             Assert.AreEqual("a", ((VariableExpression)gtOp.Left).Name);
 
             Assert.IsInstanceOf<ConstantExpression>(gtOp.Right);
-            Assert.AreEqual(5, ((ConstantExpression)gtOp.Right).Evaluate().Numeric);
+            Assert.AreEqual(F64.FromInt(5), ((ConstantExpression)gtOp.Right).Evaluate().Numeric);
 
             Assert.AreEqual(1, ifBody.StatementsToExecute.Count);
             Assert.IsInstanceOf<PrintStatement>(ifBody.StatementsToExecute[0]);
@@ -165,7 +166,7 @@ namespace Tests
             Assert.AreEqual("a", ((VariableExpression)gteOp.Left).Name);
 
             Assert.IsInstanceOf<ConstantExpression>(gteOp.Right);
-            Assert.AreEqual(1, ((ConstantExpression)gteOp.Right).Evaluate().Numeric);
+            Assert.AreEqual(F64.FromInt(1), ((ConstantExpression)gteOp.Right).Evaluate().Numeric);
 
             Assert.AreEqual(1, elifBody.StatementsToExecute.Count);
             Assert.IsInstanceOf<PrintStatement>(elifBody.StatementsToExecute[0]);
@@ -294,7 +295,7 @@ namespace Tests
             Assert.IsInstanceOf<ConstantExpression>(assignStatement.Right);
             var numericValue = ((ConstantExpression)assignStatement.Right).Evaluate();
 
-            Assert.AreEqual(5, numericValue.Numeric);
+            Assert.AreEqual(F64.FromInt(5), numericValue.Numeric);
         }
     }
 }
