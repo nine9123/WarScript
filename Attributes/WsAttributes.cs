@@ -16,7 +16,7 @@ namespace WarScript.Attributes
     /// public static partial class MathModule
     /// {
     ///     [WsFunction("pow")]
-    ///     public static double Pow(double @base, double exp) => Math.Pow(@base, exp);
+    ///     public static F64 Pow(F64 @base, F64 exp) => F64.Pow(@base, exp);
     /// }
     /// </code>
     /// </summary>
@@ -37,20 +37,28 @@ namespace WarScript.Attributes
     /// produces the marshaling code (WarValue ↔ C# types) automatically.
     ///
     /// Parameter types are auto-marshaled:
-    ///   double       → NumericArg
-    ///   int          → (int)NumericArg
-    ///   float        → (float)NumericArg
+    ///   FixMath.F64  → NumericArg            (the only fractional numeric type)
+    ///   int          → IntArg (truncating)
     ///   string       → TextArg
     ///   bool         → LogicalArg (Numeric != 0)
     ///   WarValue     → passthrough (no marshaling)
+    ///   F64Vec3      → opaque NativeObject handle
     ///   List&lt;WarValue&gt; → ArrayArg.ArrayValue
+    ///   double/float → REJECTED at generation time — WarScript is deterministic
+    ///                  fixed-point; use F64 (or int) instead.
     ///
     /// Return types:
-    ///   double/int/float → FromNumeric
-    ///   string           → FromText
-    ///   bool             → FromLogical
-    ///   void             → Null
-    ///   WarValue         → passthrough
+    ///   F64 / int → FromNumeric
+    ///   string    → FromText
+    ///   bool      → FromLogical
+    ///   void      → Null
+    ///   WarValue  → passthrough
+    ///   F64Vec3   → NativeObject
+    ///   double/float → REJECTED — return F64 (or int) instead.
+    ///
+    /// Note: an F64 parameter cannot carry a C# compile-time default, so F64
+    /// parameters are always required. For an optional numeric, take a WarValue
+    /// (= default) and read it with `.IsNumeric ? v.Numeric : fallback`.
     ///
     /// Methods can be static or instance. Instance methods capture `this`
     /// in the generated lambda.
@@ -130,7 +138,9 @@ namespace WarScript.Attributes
 
     /// <summary>
     /// Marks a const field to be exposed as a WarScript constant.
-    /// Supported types: int, float, double, string, bool.
+    /// Supported types: int, float, double, string, bool. (float/double const
+    /// values are baked to a deterministic 32.32 fixed-point raw at generation
+    /// time — no float/double literal is emitted into the generated code.)
     ///
     /// <code>
     /// [WsModule("config")]
