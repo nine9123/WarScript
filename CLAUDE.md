@@ -6,6 +6,23 @@ WarScript is a custom embeddable scripting language with a bytecode VM, written 
 
 Repository: `https://github.com/nine9123/WarScript.git#upm`
 
+## Determinism & Fixed-Point Numerics (READ FIRST)
+
+WarScript is **deterministic**: it is the scripting layer for a lockstep-networked game, so identical inputs must produce bit-identical results on every machine and platform (x86-64, ARM; Windows, macOS, Linux/SteamDeck). Floating point cannot guarantee that, so **the language has no `double`/`float` anywhere**.
+
+- **Every WarScript number is a `FixMath.F64`** — a signed 32.32 fixed-point value (64-bit raw). `WarValue.Numeric` is `F64`; `WarValue.FromNumeric`, `NativeHelper.NumericArg`, and every numeric operator are F64. There is no `double`/`float` in `Runtime/`.
+- **WarScript references FixPointCS, it does not vendor it.** `WarScript.Runtime.asmdef` references the `FixPointCS` assembly by name and keeps `noEngineReferences: true`. The consuming Unity project must provide FixPointCS — it is not declared in `package.json` `dependencies` and is not copied into this package.
+- **No nondeterminism sources in Runtime:** no `System.Random`, no `UnityEngine` types, no wall-clock. `MathLibrary`'s `random*` functions were removed (D6); deterministic randomness is supplied by the engine as a separate module.
+
+### What this means when working in the codebase
+
+- **Numeric literals** (`LexicalParser` + `Parser/NumericLiteral.cs`): the grammar is `'-'? digit+ ('.' digit+)?`, so fractional literals like `1.0`, `0.5`, `99.5` ARE valid and are parsed to exact F64 **using integer arithmetic only** (`(frac << 32) / den`) — never touching float/double, so the raw is bit-identical cross-platform. "Integer-only" describes the *parsing*, not a restriction to whole numbers. Values exactly representable in 32.32 (`0.5`, `99.5`) round-trip exactly; others (`0.7`) are deterministically truncated. Fractional precision past 9 digits is truncated; integer-part range is ±2147483647. Malformed literals throw `SyntaxException` (D2a) — no silent coercion.
+- **`F64` → `int` truncates** (`NativeHelper.IntArg`, the generator's `int` marshal). To round, call `F64.RoundToInt(...)`. **`F64` has no conversion operator to/from `int`/`float`/`double`** — `(int)someF64` does NOT compile; use `RoundToInt` / `F64.FromInt`. F64↔int *arithmetic and comparison* operators do exist (so `someF64 == 3` is fine).
+- **Transcendentals are approximate.** `MathLibrary` `sqrt`, `pow`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan2`, `lerp`, `pi`, etc. are FixPointCS fixed-point implementations: deterministic but not bit-exact to real math (`pow[2,10] != 1024`, `sqrt[4] != 2` exactly). `round` is **half-up**, not banker's rounding.
+- **`F64Vec3` is an opaque `NativeObject`** handle in WarScript (D5) — scripts pass it around but don't introspect components from script.
+- **Divide / modulo by zero raise a catchable exception** (`"Division by zero"` / `"Modulo by zero"`), not a crash (D4) — handle with `begin/rescue`.
+- **Coroutine timing** (`yield wait <seconds>`) uses an F64 `dt` supplied by the host each tick (D7); there is no internal clock.
+
 ## Project Structure
 
 ```
@@ -52,7 +69,7 @@ WarScript/
 │   │   ├── CompiledFunction.cs  # Compiled function + CallFrame struct
 │   │   ├── Compiler.cs          # Single-pass AST→bytecode compiler
 │   │   ├── WarVM.cs             # Stack-based bytecode VM ← HOTTEST FILE
-│   │   ├── BytecodeSerializer.cs # Binary serialization (v2: MinArity + lambda constants)
+│   │   ├── BytecodeSerializer.cs # Binary serialization (v1: MinArity, lambda constants, F64-raw numerics)
 │   │   └── DebugContext.cs      # Source-map debugger (StepMode, DebugHook, StackEntry)
 │   ├── Context/
 │   │   ├── MemoryScope.cs       # Variable storage (dict-based, parent chain lookup)
@@ -70,11 +87,11 @@ WarScript/
 │   │   ├── Coroutine.cs         # Tree-walk coroutine (legacy)
 │   │   └── BytecodeCoroutine.cs # VM-backed coroutine — owns its own WarVM
 │   ├── Native/
-│   │   ├── NativeHelper.cs      # Arg extraction helpers (NumericArg, TextArg, etc.)
+│   │   ├── NativeHelper.cs      # Arg extraction (NumericArg→F64, IntArg→truncated int, TextArg, etc.)
 │   │   ├── StringInterner.cs    # String dedup + pre-allocated "0".."999"
 │   │   ├── ScriptRunner.cs      # Convenience runner for import system
 │   │   ├── WarScriptLibraryRegistry.cs  # Central stdlib registration
-│   │   └── Libraries/           # MathLibrary, ArrayLibrary, CoroutineLibrary, UtilityLibrary
+│   │   └── Libraries/           # MathLibrary (F64; no random — D6), ArrayLibrary, CoroutineLibrary, UtilityLibrary
 │   └── Exception/
 │       └── SyntaxException.cs
 └── Tests/
@@ -108,7 +125,7 @@ After compilation, the AST is discarded. Bytecode is the source of truth.
 x = 42
 name = "hello"
 
-# Types: Numeric (double), Logical (true/false), Text, Array, Class, Null, NativeObject
+# Types: Numeric (F64 — 32.32 fixed-point, NOT double), Logical (true/false), Text, Array, Class, Null, NativeObject
 # Arithmetic: + - * / %     String ops: + (concat), - (remove), * (repeat)
 # Comparison: == != < <= > >=     Logical: and or !
 # Assignment: = += -= *= /=
@@ -215,13 +232,15 @@ scope.AddFunction(new NativeFunctionDefinition(
 [WsModule("my_module")]
 public static partial class MyModule
 {
-    [WsFunction("my_func")] public static double MyFunc(double a, string b) => a + b.Length;
+    [WsFunction("my_func")] public static F64 MyFunc(F64 a, string b) => a + b.Length;
     [WsEnum] public enum State { Idle, Moving, Attacking }
     [WsConst] public const int MAX_UNITS = 50;
 }
 ```
 
 Run **WarScript → Generate Bindings**. The generator produces `Register()` that handles functions (auto-marshaling), enums (class instances with `::` access, `name[]`, `values/names/count`), and consts (immutable globals via `GlobalMemoryScope`).
+
+**Binding type contract (enforced at generation time).** Marshalable parameter/return types are: `F64` (→ `NumericArg`), `int` (→ truncating `IntArg`), `bool`, `string`, `WarValue` (passthrough), `List<WarValue>` (array), and `F64Vec3` (opaque NativeObject). `double`/`float` are **rejected** — a single one throws `InvalidOperationException` and aborts the whole `Generate Bindings` run (use `F64`). An `F64` parameter cannot carry a C# compile-time default, so for an optional numeric take a `WarValue x = default` and read `x.IsNumeric ? x.Numeric : fallback` (an omitted argument arrives as `Null`). `[WsConst]` `float`/`double` values are baked to a fixed-point raw at generation time (no float literal reaches the generated code).
 
 ## Scope System
 
@@ -248,7 +267,7 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 - **Lambda limitations**: No closures (params + globals only). No postfix call syntax (`arr{0}[args]` — use temp variable). TCO disabled for local lambda calls.
 - **Enums** are class instances. Members are properties. `name[]` is a method. Protected from reassignment via `ConstantNames`.
 - **`[WsEnum]`/`[WsConst]` codegen** uses `GlobalMemoryScope.Set()` because `Register()` is called before `Run()` when the scope stack is empty.
-- **BytecodeSerializer format version is 2.** Includes `MinArity` in function definitions and handles `NativeObject(CompiledFunction)` constants for lambda serialization.
+- **BytecodeSerializer format version is 1.** Includes `MinArity` and `NativeObject(CompiledFunction)` (lambda) constants. Numeric constants serialize as the 64-bit **F64 raw** (`Numeric.Raw` / `FromRawNumeric`), replacing the old IEEE-754 `double` encoding — so bytecode produced before the fixed-point migration is **binary-incompatible despite sharing the version byte**; regenerate it from source.
 - **Function lookup is by (name, argCount).** Default params register at all valid arities.
 - **Lexer caches globally** by source string. Call `LexicalParser.ClearCache()` for hot reload.
 
@@ -258,6 +277,7 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 - **Helper**: `TestHelper.Run("name", source)` → `(script, List<string> output)`
 - **Helper**: `TestHelper.RunFile("filename.ws")` → loads from `Tests/resources/`
 - **Pattern**: Check print output or rely on `assert` in .ws scripts
+- **Comparing numerics**: `WarValue.Numeric` is `F64`. Compare against `F64.FromInt(n)` (the `==(F64,int)` operator also works), or project with `F64.RoundToInt(...)` — there is no `(int)F64` cast. For approximate results (sqrt/pow/trig, or non-representable values like `0.7`), assert on `.Float` with a tolerance: `Assert.AreEqual(1.3f, v.Float, 0.001f)`.
 
 ## Performance-Sensitive Areas
 

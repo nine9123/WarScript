@@ -10,6 +10,8 @@
 
 WarScript is a custom scripting language designed to be easily embedded into C# applications and Unity projects. It provides a simple yet expressive syntax for scripting game logic, automation, and runtime behavior without recompiling your project.
 
+All numbers are deterministic 32.32 fixed-point (`FixMath.F64`) rather than floating point, so the same script produces bit-identical results on every platform — built for lockstep-networked games.
+
 ## Installation
 
 ### Unity (UPM)
@@ -41,7 +43,7 @@ WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
 script.Run();
 
 var tick = script.GetFunction("tick", 1);
-script.Call(tick, WarValue.FromNumeric(deltaTime));
+script.Call(tick, WarValue.FromNumeric(F64.FromFloat(deltaTime)));
 ```
 
 ## Language Guide
@@ -59,7 +61,9 @@ data = null
 
 ### Types
 
-WarScript has 7 value types: **Numeric** (double), **Logical** (true/false), **Text** (string), **Array**, **Class**, **Null**, and **NativeObject** (C# objects exposed to scripts).
+WarScript has 7 value types: **Numeric** (`F64` — deterministic 32.32 fixed-point, *not* floating point), **Logical** (true/false), **Text** (string), **Array**, **Class**, **Null**, and **NativeObject** (C# objects exposed to scripts).
+
+Fractional literals like `0.5` and `99.5` are written normally and are exact where representable in fixed-point; values such as `0.7` are deterministically truncated. `Math` transcendentals (`sqrt`, `pow`, `sin`, …) are fixed-point approximations.
 
 ### Operators
 
@@ -337,11 +341,13 @@ public static partial class CombatModule
     [WsConst] public const float CRIT_MULTIPLIER = 2.5f;
 
     [WsFunction("deal_damage")]
-    public static double DealDamage(double amount, double type) => amount;
+    public static F64 DealDamage(F64 amount, F64 type) => amount;
 }
 ```
 
 Run **WarScript → Generate Bindings** in Unity.
+
+> Function parameters and return types must be `F64` (or `int`/`bool`/`string`/`WarValue`/`List<WarValue>`) — `double`/`float` are rejected at generation time. `[WsConst]` values may still be `float`/`double` (baked to a fixed-point raw during generation). An `F64` parameter can't have a C# default; for an optional numeric, take a `WarValue x = default` and read `x.IsNumeric ? x.Numeric : fallback`.
 
 ### Manual Binding
 
