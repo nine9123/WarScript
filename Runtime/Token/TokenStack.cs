@@ -8,11 +8,12 @@ namespace WarScript.Token
         private readonly List<Token> _tokens;
         private int _position;
 
-        private static readonly HashSet<TokenType> EmptyTokens = new HashSet<TokenType>()
-        {
-            TokenType.LineBreak,
-            TokenType.Comment
-        };
+        // LineBreak and Comment are "empty" tokens skipped between meaningful lexemes.
+        // Skipping runs on every Next/Peek/HasNext, so this is extremely hot: a direct
+        // comparison beats a HashSet<enum> lookup, which on Unity's Mono routes through
+        // EnumEqualityComparer / JitHelpers.UnsafeEnumCast on each Contains() call.
+        private static bool IsEmptyToken(TokenType type) =>
+            type == TokenType.LineBreak || type == TokenType.Comment;
 
         public TokensStack(List<Token> tokens)
         {
@@ -140,11 +141,36 @@ namespace WarScript.Token
             return false;
         }
 
+        /// <summary>
+        /// Peek the next token on the current line WITHOUT skipping empty tokens and
+        /// without allocating. Lets a caller inspect the token's type/value directly
+        /// instead of making several PeekSameLine calls (each building a params array).
+        /// </summary>
+        public bool TryPeekSameLine(out Token token)
+        {
+            if (_position < _tokens.Count)
+            {
+                token = _tokens[_position];
+                return true;
+            }
+            token = default;
+            return false;
+        }
+
+        /// <summary>
+        /// Skip empty tokens (LineBreak, Comment), then peek the next token without allocating.
+        /// </summary>
+        public bool TryPeek(out Token token)
+        {
+            SkipEmptyTokens();
+            return TryPeekSameLine(out token);
+        }
+
         private Token Previous() => _tokens[_position - 1];
 
         private void SkipEmptyTokens()
         {
-            while (_position < _tokens.Count && EmptyTokens.Contains(_tokens[_position].Type))
+            while (_position < _tokens.Count && IsEmptyToken(_tokens[_position].Type))
                 _position++;
         }
     }

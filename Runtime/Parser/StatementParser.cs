@@ -16,6 +16,13 @@ namespace WarScript
         private readonly CompositeStatement _compositeStatement;
 
         private readonly WarScriptLanguage _script;
+
+        // Cached vararg arrays: passing a shared array to a `params` parameter reuses it
+        // instead of allocating a fresh one on every call. (TokensStack only reads them.)
+        private static readonly TokenType[] StatementLeadTypes =
+            { TokenType.Variable, TokenType.This, TokenType.Operator };
+        private static readonly string[] IfBranchKeywords = { "elif", "else" };
+        private static readonly string[] CommaValue = { "," };
         
         private StatementParser(WarScriptLanguage script, TokensStack tokens, CompositeStatement compositeStatement)
         {
@@ -74,18 +81,29 @@ namespace WarScript
 
         private bool HasNextStatement()
         {
-            if (!Tokens.HasNext())
+            // Single peek (after skipping empties) + switch, instead of up to four Peek
+            // calls that each re-skip empties and allocate params arrays.
+            if (!Tokens.TryPeek(out var token))
                 return false;
-            if (Tokens.Peek(TokenType.Operator, TokenType.Variable, TokenType.This))
-                return true;
-            if (Tokens.Peek(TokenType.Keyword))
-                return !Tokens.Peek(TokenType.Keyword, "elif", "else", "rescue", "ensure", "end");
-            return false;
+            switch (token.Type)
+            {
+                case TokenType.Operator:
+                case TokenType.Variable:
+                case TokenType.This:
+                    return true;
+                case TokenType.Keyword:
+                    // A keyword continues the block unless it closes or branches it.
+                    return token.Value != "elif" && token.Value != "else"
+                        && token.Value != "rescue" && token.Value != "ensure"
+                        && token.Value != "end";
+                default:
+                    return false;
+            }
         }
 
         private void ParseExpression()
         {
-            var token = Tokens.Next(TokenType.Keyword, TokenType.Variable, TokenType.This, TokenType.Operator);
+            var token = Tokens.Next(TokenType.Keyword, StatementLeadTypes);
             switch (token.Type)
             {
                 case TokenType.Variable:
@@ -154,7 +172,7 @@ namespace WarScript
             while (!Tokens.Peek(TokenType.Keyword, "end"))
             {
                 // read condition case
-                var type = Tokens.Next(TokenType.Keyword, "if", "elif", "else");
+                var type = Tokens.Next(TokenType.Keyword, "if", IfBranchKeywords);
                 IExpression caseCondition;
                 if (type.Value == "else")
                     caseCondition = new ConstantExpression(WarValue.True); // else has no condition
@@ -182,7 +200,7 @@ namespace WarScript
             var baseTypes = new List<ClassDetails>();
             if (Tokens.Peek(TokenType.GroupDivider, ":"))
             {
-                while (Tokens.Peek(TokenType.GroupDivider, ":", ","))
+                while (Tokens.Peek(TokenType.GroupDivider, ":", CommaValue))
                 {
                     Tokens.Next();
                     baseTypes.Add(ReadClassDetails());

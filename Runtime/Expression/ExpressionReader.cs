@@ -39,15 +39,28 @@ namespace WarScript.Expression
 
         private bool HasNextToken()
         {
-            if (Tokens.PeekSameLine(TokenType.Operator, TokenType.Variable, TokenType.Numeric,
-                    TokenType.Logical, TokenType.Null, TokenType.This, TokenType.Text))
-                return true;
-            if (Tokens.PeekSameLine(TokenType.GroupDivider, "{"))
-                return true;
-            // Lambda: fun [...] ... end in expression position
-            if (Tokens.PeekSameLine(TokenType.Keyword, "fun"))
-                return true;
-            return false;
+            // Single same-line peek + switch — avoids allocating a params TokenType[]
+            // on every call and avoids making up to three PeekSameLine calls. Must NOT
+            // skip empty tokens here: a line break ends the expression.
+            if (!Tokens.TryPeekSameLine(out var token))
+                return false;
+            switch (token.Type)
+            {
+                case TokenType.Operator:
+                case TokenType.Variable:
+                case TokenType.Numeric:
+                case TokenType.Logical:
+                case TokenType.Null:
+                case TokenType.This:
+                case TokenType.Text:
+                    return true;
+                case TokenType.GroupDivider:
+                    return token.Value == "{";   // array literal
+                case TokenType.Keyword:
+                    return token.Value == "fun";  // lambda in expression position
+                default:
+                    return false;
+            }
         }
 
         private IExpression ReadExpression()
