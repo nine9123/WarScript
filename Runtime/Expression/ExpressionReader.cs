@@ -14,9 +14,17 @@ namespace WarScript.Expression
     {
         private readonly Stack<IExpression> _operands;
         private readonly Stack<Operator.Operator> _operators;
-        public TokensStack Tokens { get; }
+        public TokensStack Tokens { get; private set; }
 
         private WarScriptLanguage _script;
+
+        // Reader pool. ReadExpression recurses once per nested sub-expression
+        // (function args, parens, array/class literals), and each level used to
+        // allocate a fresh reader plus two Stacks. Pooling reuses a handful of
+        // readers — one per active recursion level — across the whole parse.
+        // ThreadStatic so parses on different threads stay isolated; the
+        // depth-first usage makes the per-thread pool behave like a stack.
+        [System.ThreadStatic] private static Stack<ExpressionReader>? _pool;
 
         private ExpressionReader(WarScriptLanguage script, TokensStack tokens)
         {
@@ -28,13 +36,44 @@ namespace WarScript.Expression
 
         public static IExpression ReadExpression(WarScriptLanguage script, TokensStack tokens)
         {
-            var reader = new ExpressionReader(script, tokens);
-            return reader.ReadExpression();
+            var reader = Rent(script, tokens);
+            try
+            {
+                return reader.ReadExpression();
+            }
+            finally
+            {
+                Return(reader);
+            }
         }
 
         public static IExpression ReadExpression(WarScriptLanguage script, ExpressionReader reader)
         {
             return ReadExpression(script, reader.Tokens);
+        }
+
+        private static ExpressionReader Rent(WarScriptLanguage script, TokensStack tokens)
+        {
+            var pool = _pool;
+            if (pool != null && pool.Count > 0)
+            {
+                var reader = pool.Pop(); // its stacks were cleared on Return
+                reader._script = script;
+                reader.Tokens = tokens;
+                return reader;
+            }
+            return new ExpressionReader(script, tokens);
+        }
+
+        private static void Return(ExpressionReader reader)
+        {
+            // Release references and guarantee empty stacks for the next rent,
+            // even if ReadExpression threw mid-parse.
+            reader._operands.Clear();
+            reader._operators.Clear();
+            reader._script = null!;
+            reader.Tokens = null!;
+            (_pool ??= new Stack<ExpressionReader>()).Push(reader);
         }
 
         private bool HasNextToken()
@@ -212,7 +251,9 @@ namespace WarScript.Expression
                 Tokens.Next(TokenType.GroupDivider, "[");
 
                 // Detect whether arguments are named (first non-whitespace arg is `name:`)
-                var namedArgs = new Dictionary<string, IExpression>();
+                // Allocated lazily — only if an argument turns out to be named.
+                // The common case (positional args) never touches this dictionary.
+                Dictionary<string, IExpression>? namedArgs = null;
                 var isNamed = false;
                 var checkedNaming = false;
 
@@ -234,7 +275,7 @@ namespace WarScript.Expression
                         var argName = Tokens.Next(TokenType.Variable).Value;
                         Tokens.Next(TokenType.GroupDivider, ":");
                         var argExpr = ReadExpression(_script, this);
-                        namedArgs[argName] = argExpr;
+                        (namedArgs ??= new Dictionary<string, IExpression>())[argName] = argExpr;
                     }
                     else
                     {
@@ -248,7 +289,7 @@ namespace WarScript.Expression
                 Tokens.Next(TokenType.GroupDivider, "]");
 
                 // Reorder named args to match declared parameter positions
-                if (isNamed && namedArgs.Count > 0)
+                if (isNamed && namedArgs is { Count: > 0 })
                 {
                     var definition = _script.DefinitionContext.GetScope()
                         .GetFunction(token.Value, namedArgs.Count);
