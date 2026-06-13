@@ -45,18 +45,47 @@ namespace WarScript.Bytecode
 
         // ── Constant pool ──
 
+        // Dedup indices for the constant pool, keyed on the value's underlying
+        // representation (fixed-point raw bits for numerics, the ordinal string for
+        // text).
+        private Dictionary<long, int>? _numericConstantIndex;
+        private Dictionary<string, int>? _textConstantIndex;
+
         public int AddConstant(in WarValue value)
         {
-            for (int i = 0; i < Constants.Count; i++)
+            // Deduplicate identical constants so repeated literals and identifiers
+            // (e.g. a function name emitted at every call site) share one pool slot.
+            // A hash index makes this O(1) amortized.
+            //
+            // Only Numeric and Text are deduplicated.
+            switch (value.Tag)
             {
-                if (Constants[i].Tag == value.Tag)
+                case ValueTag.Numeric:
                 {
-                    if (value.IsNumeric && Constants[i].Numeric == value.Numeric) return i;
-                    if (value.IsText && Constants[i].TextValue == value.TextValue) return i;
+                    var key = value.Numeric.Raw;
+                    _numericConstantIndex ??= new Dictionary<long, int>();
+                    if (_numericConstantIndex.TryGetValue(key, out var existing))
+                        return existing;
+                    var idx = Constants.Count;
+                    Constants.Add(value);
+                    _numericConstantIndex[key] = idx;
+                    return idx;
                 }
+                case ValueTag.Text:
+                {
+                    var key = value.TextValue;
+                    _textConstantIndex ??= new Dictionary<string, int>(System.StringComparer.Ordinal);
+                    if (_textConstantIndex.TryGetValue(key, out var existing))
+                        return existing;
+                    var idx = Constants.Count;
+                    Constants.Add(value);
+                    _textConstantIndex[key] = idx;
+                    return idx;
+                }
+                default:
+                    Constants.Add(value);
+                    return Constants.Count - 1;
             }
-            Constants.Add(value);
-            return Constants.Count - 1;
         }
 
         // ── Emit helpers ──
