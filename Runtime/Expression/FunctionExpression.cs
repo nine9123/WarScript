@@ -1,7 +1,6 @@
 #nullable enable
 
 using System.Collections.Generic;
-using WarScript.Context;
 using WarScript.Context.Definition;
 using WarScript.Expression.Value;
 
@@ -20,60 +19,54 @@ namespace WarScript.Expression
             ArgumentExpression = argumentExpression;
         }
 
-        public IValue? Evaluate()
+        public WarValue Evaluate()
         {
-            // initialize function arguments
-            var values = new List<IValue>(ArgumentExpression.Count);
-            foreach (var expression in ArgumentExpression)
+            var values = new List<WarValue>(ArgumentExpression.Count);
+            for (int i = 0; i < ArgumentExpression.Count; i++)
             {
-                var value = expression.Evaluate();
-                if (value == null) return null;
+                var value = ArgumentExpression[i].Evaluate();
+                if (_script.HaltFlags != 0) return default;
                 values.Add(value);
             }
-            return Evaluate(values);
+            return Evaluate(values, isClassMethod: false);
         }
 
         /// <summary>
         /// Evaluate class's function
         /// </summary>
-        /// <param name="classValue">instance of class where the function is placed in</param>
-        public IValue? Evaluate(ClassValue classValue)
+        public WarValue Evaluate(ClassData classData)
         {
-            // initialize function arguments
-            var values = new List<IValue>(ArgumentExpression.Count);
-            foreach (var expression in ArgumentExpression)
+            var values = new List<WarValue>(ArgumentExpression.Count);
+            for (int i = 0; i < ArgumentExpression.Count; i++)
             {
-                var value = expression.Evaluate();
-                if (value == null) return null;
+                var value = ArgumentExpression[i].Evaluate();
+                if (_script.HaltFlags != 0) return default;
                 values.Add(value);
             }
-            
-            // find a class containing the function
-            var classDefinition = FindClassDefinitionContainingFunction(classValue.GetValue(), Name, values.Count);
+
+            var classDefinition = FindClassDefinitionContainingFunction(classData.Definition, Name, values.Count);
             if (classDefinition == null)
             {
                 var args = "";
                 for (var i = 0; i < values.Count; i++)
                 {
                     args += $"arg {values[i]}";
-                    if (i < values.Count - 1)
-                        args += ", ";
+                    if (i < values.Count - 1) args += ", ";
                 }
-                return _script.ExceptionContext.RaiseException($"Function '{classValue.GetValue().ClassDetails.Name}#{Name} [{args}]' is not defined");
+                return _script.RaiseException($"Function '{classData.Definition.ClassDetails.Name}#{Name} [{args}]' is not defined");
             }
+
             var classDefinitionScope = classDefinition.GetDefinitionScope();
-            var functionClassValue = classValue.GetRelation(classDefinition.ClassDetails.Name);
-            var memoryScope = functionClassValue.MemoryScope;
-            
-            // set class's definition and memory scopes
+            var functionClassData = classData.GetRelation(classDefinition.ClassDetails.Name);
+            var memoryScope = functionClassData!.MemoryScope;
+
             _script.DefinitionContext.PushScope(classDefinitionScope);
             _script.MemoryContext.PushScope(memoryScope);
-            _script.ClassInstanceContext.PushValue(functionClassValue);
+            _script.ClassInstanceContext.PushValue(functionClassData);
 
             try
             {
-                // proceed function
-                return Evaluate(values);
+                return Evaluate(values, isClassMethod: true);
             }
             finally
             {
@@ -83,9 +76,8 @@ namespace WarScript.Expression
             }
         }
 
-        private IValue Evaluate(List<IValue> values)
+        private WarValue Evaluate(List<WarValue> values, bool isClassMethod)
         {
-            // get function's definition and statement
             var definition = _script.DefinitionContext.GetScope().GetFunction(Name, values.Count);
             if (definition == null)
             {
@@ -93,92 +85,70 @@ namespace WarScript.Expression
                 for (var i = 0; i < values.Count; i++)
                 {
                     args += $"arg {values[i]}";
-                    if (i < values.Count - 1)
-                        args += ", ";
+                    if (i < values.Count - 1) args += ", ";
                 }
-                return _script.ExceptionContext.RaiseException($"Function '{Name} [{args}]' is not defined");
+                return _script.RaiseException($"Function '{Name} [{args}]' is not defined");
             }
-            
+
             // Native binding
-            if (definition is NativeFunctionDefinition nativeFunctionDefinition)
+            if (definition is NativeFunctionDefinition nativeFn)
             {
                 try
                 {
-                    return nativeFunctionDefinition.NativeBody(values);
+                    return nativeFn.NativeBody(values);
                 }
                 catch (System.Exception e)
                 {
-                    return _script.ExceptionContext.RaiseException(
-                        $"Native function '{Name}' failed: {e.Message}"
-                    );
+                    return _script.RaiseException($"Native function '{Name}' failed: {e.Message}");
                 }
             }
-            
+
             // User-defined function
             var statement = definition.Statement;
             var details = definition.Details;
-            
-            // set new memory scope
-            _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
+
+            if (isClassMethod)
+                _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
+            else
+                _script.MemoryContext.PushScope(
+                    _script.MemoryContext.NewScope(_script.UserMemoryScope));
 
             try
             {
-                // initialize function arguments
                 for (var i = 0; i < details.Arguments.Count; i++)
                 {
-                    _script.MemoryContext.GetScope().SetLocal(details.Arguments[i], values.Count > i ? values[i] : _script.Null);
+                    _script.MemoryContext.GetScope().SetLocal(
+                        details.Arguments[i],
+                        values.Count > i ? values[i] : WarValue.Null);
                 }
-                
-                //execute function body
+
                 statement.Execute();
-                
-                // obtain function result
+
                 return _script.ReturnContext.GetScope().Result;
             }
             finally
             {
-                // release function memory and return context
                 _script.MemoryContext.EndScope();
                 _script.ReturnContext.Reset();
+                _script.HaltFlags &= ~WarScriptLanguage.HaltFlag.Return;
             }
         }
 
-        /// <summary>
-        /// Find a Base class that contains the required function
-        /// 
-        /// <code>
-        /// class A
-        ///      fun action
-        ///      end
-        /// end
-        /// 
-        /// class B
-        /// end
-        /// 
-        /// b = new B
-        /// # Function `action` is not available from the DefinitionScope of class B as it's declared in the class A
-        /// b :: action []
-        /// </code>
-        /// 
-        /// </summary>
         private ClassDefinition? FindClassDefinitionContainingFunction(ClassDefinition classDefinition, string functionName, int argumentsSize)
         {
             var definitionScope = classDefinition.GetDefinitionScope();
             if (definitionScope.ContainsFunction(functionName, argumentsSize))
-            {
                 return classDefinition;
-            }
-            else
+
+            foreach (var baseType in classDefinition.BaseTypes)
             {
-                foreach (var baseType in classDefinition.BaseTypes)
-                {
-                    var baseTypeDefinition = definitionScope.GetClass(baseType.Name);
-                    var functionClassDefinition = FindClassDefinitionContainingFunction(baseTypeDefinition, functionName, argumentsSize);
-                    if (functionClassDefinition != null)
-                        return functionClassDefinition;
-                }
-                return null;
+                var baseTypeDefinition = definitionScope.GetClass(baseType.Name);
+                if (baseTypeDefinition == null) continue;
+                var result = FindClassDefinitionContainingFunction(baseTypeDefinition, functionName, argumentsSize);
+                if (result != null)
+                    return result;
             }
+            return null;
         }
     }
 }

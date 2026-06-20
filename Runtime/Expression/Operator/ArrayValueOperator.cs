@@ -1,40 +1,41 @@
-using WarScript.Expression;
 using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class ArrayValueOperator : BinaryOperatorExpression, IAssignExpression
+    public sealed class ArrayValueOperator : BinaryOperatorExpression, IAssignExpression
     {
         public ArrayValueOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
             var left = Left.Evaluate();
-            if (left == null) return null;
+            if (_script.HaltFlags != 0) return default;
             var right = Right.Evaluate();
-            if (right == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
-            if (left is ArrayValue leftArr && right is NumericValue numericValue)
-                return leftArr.GetValue((int)numericValue.GetValue());
-
-            if (left is TextValue leftText && right is NumericValue numericValue2)
-                return leftText.GetValue((int)numericValue2.GetValue());
+            if (left.IsArray && right.IsNumeric)
+                return left.GetArrayElement(WarValue.ToInt(right.Numeric));
+            if (left.IsText && right.IsNumeric)
+                return left.GetTextChar(WarValue.ToInt(right.Numeric));
 
             return left;
         }
 
-        public IValue Assign(IValue value)
+        public WarValue Assign(WarValue value)
         {
             var left = Left.Evaluate();
-            if (left == null) return null;
+            if (_script.HaltFlags != 0) return default;
             var right = Right.Evaluate();
-            if (right == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
-            if (left is ArrayValue leftArr && right is NumericValue numericValue)
-                leftArr.SetValue((int)numericValue.GetValue(), value);
-
-            if (left is TextValue leftText && right is NumericValue numericValue2)
-                leftText.SetValue((int)numericValue2.GetValue(), value);
+            if (left.IsArray && right.IsNumeric)
+                left.SetArrayElement(WarValue.ToInt(right.Numeric), value);
+            else if (left.IsText && right.IsNumeric)
+            {
+                var newText = left.SetTextChar(WarValue.ToInt(right.Numeric), value.ToString());
+                if (Left is IAssignExpression assignable)
+                    assignable.Assign(newText);
+            }
 
             return left;
         }

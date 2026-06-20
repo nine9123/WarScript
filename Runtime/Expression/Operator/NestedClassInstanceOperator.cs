@@ -1,29 +1,20 @@
-using WarScript.Context;
-using WarScript.Expression;
 using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class NestedClassInstanceOperator : BinaryOperatorExpression
+    public sealed class NestedClassInstanceOperator : BinaryOperatorExpression
     {
         public NestedClassInstanceOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
             var left = Left.Evaluate();
-            if (left == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
-            // access class's property via this instance
-            // this :: new NestedClass []
-            if (left is ThisValue thisValue)
-                left = thisValue.GetValue();
+            if (left.IsClass && Right is ClassExpression classExpr)
+                return classExpr.Evaluate(left.ClassValue);
 
-            if (left is ClassValue classInstance && Right is ClassExpression classExpr)
-                // instantiate nested class
-                // new Class [] :: new NestedClass []
-                return classExpr.Evaluate(classInstance);
-
-            return _script.ExceptionContext.RaiseException($"Unable to access class's nested class `{Right}`");
+            return _script.RaiseException($"Unable to access class's nested class `{Right}`");
         }
     }
 }

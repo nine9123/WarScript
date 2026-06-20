@@ -1,31 +1,22 @@
-using System;
-using WarScript.Context;
-using WarScript.Expression;
 using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class LessThanOrEqualToOperator : BinaryOperatorExpression
+    public sealed class LessThanOrEqualToOperator : BinaryOperatorExpression
     {
         public LessThanOrEqualToOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
             var left = Left.Evaluate();
-            if (left == null) return null;
+            if (_script.HaltFlags != 0) return default;
             var right = Right.Evaluate();
-            if (right == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
-            if (left == _script.Null || right == _script.Null)
-                return _script.ExceptionContext.RaiseException($"Unable to perform less than or equal to for NULL values `{left}`, `{right}`");
+            if (left.IsNull || right.IsNull)
+                return _script.RaiseException($"Unable to perform less than or equal to for NULL values `{left}`, `{right}`");
 
-            bool result;
-            if (left.GetType() == right.GetType() && left is IComparableValue)
-                result = ((IComparable)left.GetObjectValue()).CompareTo(right.GetObjectValue()) <= 0;
-            else
-                result = string.Compare(left.ToString(), right.ToString(), StringComparison.Ordinal) <= 0;
-
-            return new LogicalValue(_script, result);
+            return WarValue.FromLogical(left.CompareTo(right) <= 0);
         }
     }
 }

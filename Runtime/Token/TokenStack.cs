@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Generic;
-using System.Linq;
 using WarScript.Exception;
 
 namespace WarScript.Token
@@ -10,11 +8,12 @@ namespace WarScript.Token
         private readonly List<Token> _tokens;
         private int _position;
 
-        private static readonly HashSet<TokenType> EmptyTokens = new HashSet<TokenType>()
-        {
-            TokenType.LineBreak,
-            TokenType.Comment
-        };
+        // LineBreak and Comment are "empty" tokens skipped between meaningful lexemes.
+        // Skipping runs on every Next/Peek/HasNext, so this is extremely hot: a direct
+        // comparison beats a HashSet<enum> lookup, which on Unity's Mono routes through
+        // EnumEqualityComparer / JitHelpers.UnsafeEnumCast on each Contains() call.
+        private static bool IsEmptyToken(TokenType type) =>
+            type == TokenType.LineBreak || type == TokenType.Comment;
 
         public TokensStack(List<Token> tokens)
         {
@@ -25,17 +24,24 @@ namespace WarScript.Token
         public Token Next(TokenType type, params TokenType[] types)
         {
             SkipEmptyTokens();
-            var tokenTypes = types.Append(type);
             if (_position < _tokens.Count)
             {
                 var token = _tokens[_position];
-                if (tokenTypes.Any(t => t == token.Type))
+                if (token.Type == type)
                 {
                     _position++;
                     return token;
                 }
+                for (var i = 0; i < types.Length; i++)
+                {
+                    if (types[i] == token.Type)
+                    {
+                        _position++;
+                        return token;
+                    }
+                }
             }
-            throw new SyntaxException($"After `{Previous()}` declaration expected any of the following lexemes `{string.Join(", ", types)}`");
+            throw new SyntaxException($"After `{Previous()}` declaration expected any of the following lexemes `{type}, {string.Join(", ", types)}`");
         }
 
         /// <summary>
@@ -46,12 +52,22 @@ namespace WarScript.Token
             SkipEmptyTokens();
             if (_position < _tokens.Count)
             {
-                var allValues = values.Append(value);
                 var token = _tokens[_position];
-                if (token.Type == type && allValues.Any(v => v == token.Value))
+                if (token.Type == type)
                 {
-                    _position++;
-                    return token;
+                    if (token.Value == value)
+                    {
+                        _position++;
+                        return token;
+                    }
+                    for (var i = 0; i < values.Length; i++)
+                    {
+                        if (values[i] == token.Value)
+                        {
+                            _position++;
+                            return token;
+                        }
+                    }
                 }
             }
             throw new SyntaxException($"After `{Previous()}` declaration expected `{type}, {value}` lexeme");
@@ -87,9 +103,16 @@ namespace WarScript.Token
         {
             if (_position < _tokens.Count)
             {
-                var allValues = values.Append(value);
                 var token = _tokens[_position];
-                return token.Type == type && allValues.Any(v => v == token.Value);
+                if (token.Type != type)
+                    return false;
+                if (token.Value == value)
+                    return true;
+                for (var i = 0; i < values.Length; i++)
+                {
+                    if (values[i] == token.Value)
+                        return true;
+                }
             }
             return false;
         }
@@ -106,18 +129,48 @@ namespace WarScript.Token
         {
             if (_position < _tokens.Count)
             {
-                var tokenTypes = types.Append(type);
                 var token = _tokens[_position];
-                return tokenTypes.Any(t => t == token.Type);
+                if (token.Type == type)
+                    return true;
+                for (var i = 0; i < types.Length; i++)
+                {
+                    if (types[i] == token.Type)
+                        return true;
+                }
             }
             return false;
+        }
+
+        /// <summary>
+        /// Peek the next token on the current line WITHOUT skipping empty tokens and
+        /// without allocating. Lets a caller inspect the token's type/value directly
+        /// instead of making several PeekSameLine calls (each building a params array).
+        /// </summary>
+        public bool TryPeekSameLine(out Token token)
+        {
+            if (_position < _tokens.Count)
+            {
+                token = _tokens[_position];
+                return true;
+            }
+            token = default;
+            return false;
+        }
+
+        /// <summary>
+        /// Skip empty tokens (LineBreak, Comment), then peek the next token without allocating.
+        /// </summary>
+        public bool TryPeek(out Token token)
+        {
+            SkipEmptyTokens();
+            return TryPeekSameLine(out token);
         }
 
         private Token Previous() => _tokens[_position - 1];
 
         private void SkipEmptyTokens()
         {
-            while (_position < _tokens.Count && EmptyTokens.Contains(_tokens[_position].Type))
+            while (_position < _tokens.Count && IsEmptyToken(_tokens[_position].Type))
                 _position++;
         }
     }

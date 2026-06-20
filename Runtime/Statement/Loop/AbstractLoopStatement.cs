@@ -25,46 +25,52 @@ namespace WarScript.Statement.Loop
                 // Init loop
                 Init();
 
+                var stmts = StatementsToExecute;
+
                 while (HasNext())
                 {
                     PreIncrement();
-                    
-                    // Isolated memory scope for each iteration
+
+                    // Isolated memory scope for each iteration (pooled via MemoryContext)
                     _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
 
                     try
                     {
                         // Execute inner statements
-                        foreach (var statement in StatementsToExecute)
+                        for (int i = 0; i < stmts.Count; i++)
                         {
-                            statement.Execute();
-                            
-                            // Stop the execution in case Exception occurred
-                            if (_script.ExceptionContext.IsRaised())
-                                return;
+                            stmts[i].Execute();
 
-                            // Stop the execution in case ReturnStatement is invoked
-                            if (_script.ReturnContext.GetScope().Invoked)
-                                return;
+                            if (_script.HaltFlags != 0)
+                            {
+                                // Check specific flags only when something is set
+                                if ((_script.HaltFlags & (WarScriptLanguage.HaltFlag.Exception
+                                    | WarScriptLanguage.HaltFlag.Return
+                                    | WarScriptLanguage.HaltFlag.Break
+                                    | WarScriptLanguage.HaltFlag.Yield)) != 0)
+                                    return;
 
-                            // Stop the execution in case BreakStatement is invoked
-                            if (_script.BreakContext.GetScope().Invoked)
-                                return;
-
-                            // Jump to the next iteration in case NextStatement is invoked
-                            if (_script.NextContext.GetScope().Invoked)
-                                break;
+                                // Next: break inner loop, continue outer while
+                                if ((_script.HaltFlags & WarScriptLanguage.HaltFlag.Next) != 0)
+                                    break;
+                            }
                         }
                     }
                     finally
                     {
+                        // Clear Next flag
                         _script.NextContext.Reset();
-                        // Release each iteration memory
+                        _script.HaltFlags &= ~WarScriptLanguage.HaltFlag.Next;
+                        // Release each iteration memory (returns to pool)
                         _script.MemoryContext.EndScope();
                         
                         // Increment the counter even if the NextStatement is called
                         PostIncrement();
                     }
+                    
+                    // Break the outer while loop if yielded
+                    if (_script.IsYielded)
+                        break;
                 }
             }
             finally
@@ -72,6 +78,7 @@ namespace WarScript.Statement.Loop
                 // Release loop memory
                 _script.MemoryContext.EndScope();
                 _script.BreakContext.Reset();
+                _script.HaltFlags &= ~WarScriptLanguage.HaltFlag.Break;
             }
         }
     }

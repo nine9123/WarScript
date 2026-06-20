@@ -14,7 +14,7 @@ namespace WarScript.Statement
         public override void Execute()
         {
             var value = Expression.Evaluate();
-            if (value != null)
+            if (_script.HaltFlags == 0)
             {
                 _script.Logger?.Invoke(_script, value.ToString());
             }

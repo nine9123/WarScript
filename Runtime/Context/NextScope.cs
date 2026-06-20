@@ -16,5 +16,13 @@ namespace WarScript.Context
         {
             Invoked = true;
         }
+
+        /// <summary>
+        /// Reset the scope for reuse
+        /// </summary>
+        public void Reset()
+        {
+            Invoked = false;
+        }
     }
 }

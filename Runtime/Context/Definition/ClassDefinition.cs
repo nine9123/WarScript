@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using WarScript.Bytecode;
 using WarScript.Statement;
 
 namespace WarScript.Context.Definition
@@ -21,14 +22,20 @@ namespace WarScript.Context.Definition
         public List<ClassDetails> BaseTypes { get; }
         
         /// <summary>
-        /// Constructor statement
+        /// Constructor statement.
+        /// Nulled after bytecode compilation to free AST memory.
         /// </summary>
-        public ClassStatement Statement { get; }
+        public ClassStatement Statement { get; internal set; }
 
         /// <summary>
         /// Contains nested classes and functions defined in this class
         /// </summary>
         private readonly DefinitionScope _definitionScope;
+
+        /// <summary>
+        /// Bytecode-compiled constructor body (null until compiled).
+        /// </summary>
+        public CompiledFunction CompiledConstructor { get; set; }
 
         public ClassDefinition(
             ClassDetails classDetails,

@@ -1,53 +1,69 @@
-using WarScript.Context;
-using WarScript.Expression;
 using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class ClassPropertyOperator : BinaryOperatorExpression, IAssignExpression
+    public sealed class ClassPropertyOperator : BinaryOperatorExpression, IAssignExpression
     {
         public ClassPropertyOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
             var left = Left.Evaluate();
-            if (left == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
-            // access class's property via this instance
-            // this :: class_argument
-            if (left is ThisValue thisValue)
-                left = thisValue.GetValue();
-
-            if (left is ClassValue classInstance)
+            if (left.IsClass)
             {
+                var classData = left.ClassValue;
+
                 if (Right is VariableExpression varExpr)
-                    // access class's property
-                    // new Class [] :: class_property
-                    return classInstance.GetValue(varExpr.Name);
+                    return classData.GetProperty(varExpr.Name);
 
                 if (Right is FunctionExpression funcExpr)
-                    // execute class's function
-                    // new Class [] :: class_function []
-                    return funcExpr.Evaluate(classInstance);
+                    return funcExpr.Evaluate(classData);
+
+                if (Right is ArrayValueOperator arrayOp && arrayOp.Left is VariableExpression arrayVar)
+                {
+                    var propValue = classData.GetProperty(arrayVar.Name);
+                    var index = arrayOp.Right.Evaluate();
+                    if (_script.HaltFlags != 0) return default;
+
+                    if (propValue.IsArray && index.IsNumeric)
+                        return propValue.GetArrayElement(WarValue.ToInt(index.Numeric));
+                    if (propValue.IsText && index.IsNumeric)
+                        return propValue.GetTextChar(WarValue.ToInt(index.Numeric));
+                }
             }
 
-            return _script.ExceptionContext.RaiseException($"Unable to access class's property `{Right}`");
+            return _script.RaiseException($"Unable to access class's property `{Right}`");
         }
 
-        public IValue Assign(IValue value)
+        public WarValue Assign(WarValue value)
         {
             var left = Left.Evaluate();
-            if (left == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
-            // access class's property via this instance
-            // this :: class_argument
-            if (left is ThisValue thisValue)
-                left = thisValue.GetValue();
-
-            if (left is ClassValue classInstance && Right is VariableExpression varExpr)
+            if (left.IsClass)
             {
-                var propertyName = varExpr.Name;
-                classInstance.SetValue(propertyName, value);
+                var classData = left.ClassValue;
+
+                if (Right is VariableExpression varExpr)
+                {
+                    classData.SetProperty(varExpr.Name, value);
+                }
+                else if (Right is ArrayValueOperator arrayOp && arrayOp.Left is VariableExpression arrayVar)
+                {
+                    var propValue = classData.GetProperty(arrayVar.Name);
+                    var index = arrayOp.Right.Evaluate();
+                    if (_script.HaltFlags != 0) return default;
+
+                    if (propValue.IsArray && index.IsNumeric)
+                        propValue.SetArrayElement(WarValue.ToInt(index.Numeric), value);
+                    else if (propValue.IsText && index.IsNumeric)
+                    {
+                        var newText = propValue.SetTextChar(WarValue.ToInt(index.Numeric), value.ToString());
+                        classData.SetProperty(arrayVar.Name, newText);
+                    }
+                }
             }
 
             return left;

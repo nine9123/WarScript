@@ -10,7 +10,13 @@ namespace WarScript.Context
         private readonly Stack<MemoryScope> _scopes = new();
 
         private readonly WarScriptLanguage _script;
-        
+
+        // ── Object pool for short-lived scopes ──
+        // Avoids allocating a new MemoryScope + Dictionary on every
+        // loop iteration, if-block, and function call.
+        private readonly Stack<MemoryScope> _pool = new();
+        private const int MaxPoolSize = 64;
+
         public MemoryContext(WarScriptLanguage script)
         {
             _script = script;
@@ -25,11 +31,29 @@ namespace WarScript.Context
         }
 
         /// <summary>
-        /// Create and set a new MemoryScope to enter a nested block
+        /// Create a MemoryScope to enter a nested block.
+        /// Reuses a pooled scope if available; allocates only if the pool is empty.
         /// </summary>
         public MemoryScope NewScope()
         {
-            return new MemoryScope(_script, _scopes.Count == 0 ? null : _scopes.Peek());
+            var parent = _scopes.Count == 0 ? null : _scopes.Peek();
+            return NewScope(parent);
+        }
+
+        /// <summary>
+        /// Create a MemoryScope with an explicit parent.
+        /// Used by standalone function calls (Bug 6 fix) to parent
+        /// to the user scope rather than the caller's scope.
+        /// </summary>
+        public MemoryScope NewScope(MemoryScope parent)
+        {
+            if (_pool.Count > 0)
+            {
+                var scope = _pool.Pop();
+                scope.Reset(parent);
+                return scope;
+            }
+            return new MemoryScope(_script, parent);
         }
 
         /// <summary>
@@ -41,11 +65,14 @@ namespace WarScript.Context
         }
         
         /// <summary>
-        /// Terminate the current scope to exit block
+        /// Terminate the current scope to exit block.
+        /// Returns the scope to the pool for reuse if it's poolable and there's room.
         /// </summary>
         public void EndScope()
         {
-            _scopes.Pop();
+            var scope = _scopes.Pop();
+            if (scope.Poolable && _pool.Count < MaxPoolSize)
+                _pool.Push(scope);
         }
     }
 }

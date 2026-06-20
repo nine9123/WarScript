@@ -21,16 +21,13 @@ namespace WarScript.Statement
 
         public override void Execute()
         {
-            foreach (var statement in StatementsToExecute)
+            var stmts = StatementsToExecute;
+            for (int i = 0; i < stmts.Count; i++)
             {
-                statement.Execute();
+                stmts[i].Execute();
                 
-                // Stop the execution in case Exception occurred
-                if (_script.ExceptionContext.IsRaised())
-                    return;
-
-                // Stop the execution in case ReturnStatement is invoked
-                if (_script.ReturnContext.GetScope().Invoked)
+                // Single flag check instead of 3 separate property lookups
+                if (_script.HaltFlags != 0)
                     return;
             }
         }

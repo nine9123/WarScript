@@ -1,31 +1,25 @@
-using System.Text.RegularExpressions;
-using WarScript.Context;
-using WarScript.Expression;
 using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class SubtractionOperator : BinaryOperatorExpression
+    public sealed class SubtractionOperator : BinaryOperatorExpression
     {
-        public SubtractionOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right)
-        {
-            _script = script;
-        }
+        public SubtractionOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
             var left = Left.Evaluate();
-            if (left == null) return null;
+            if (_script.HaltFlags != 0) return default;
             var right = Right.Evaluate();
-            if (right == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
-            if (left == _script.Null || right == _script.Null)
-                return _script.ExceptionContext.RaiseException($"Unable to perform subtraction for NULL values `{left}`, `{right}`");
+            if (left.IsNull || right.IsNull)
+                return _script.RaiseException($"Unable to perform subtraction for NULL values `{left}`, `{right}`");
 
-            if (left is NumericValue leftNum && right is NumericValue rightNum)
-                return new NumericValue(_script, leftNum.GetValue() - rightNum.GetValue());
+            if (left.IsNumeric && right.IsNumeric)
+                return WarValue.FromNumeric(left.Numeric - right.Numeric);
 
-            return new TextValue(_script, Regex.Replace(left.ToString(), right.ToString(), ""));
+            return WarValue.FromText(left.ToString().Replace(right.ToString(), ""));
         }
     }
 }

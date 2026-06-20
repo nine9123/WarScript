@@ -2,26 +2,26 @@ using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class NotEqualsOperator : BinaryOperatorExpression
+    public sealed class NotEqualsOperator : BinaryOperatorExpression
     {
         public NotEqualsOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
             var left = Left.Evaluate();
-            if (left == null) return null;
+            if (_script.HaltFlags != 0) return default;
             var right = Right.Evaluate();
-            if (right == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
             bool result;
-            if (left == _script.Null || right == _script.Null)
-                result = left != right;
-            else if (left.GetType() == right.GetType())
-                result = !left.GetObjectValue().Equals(right.GetObjectValue());
+            if (left.IsNull || right.IsNull)
+                result = !(left.IsNull && right.IsNull);
+            else if (left.Tag == right.Tag)
+                result = !left.Equals(right);
             else
                 result = left.ToString() != right.ToString();
 
-            return new LogicalValue(_script, result);
+            return WarValue.FromLogical(result);
         }
     }
 }

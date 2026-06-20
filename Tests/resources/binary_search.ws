@@ -1,6 +1,6 @@
 fun binary_search [ arr, n, lo, hi, key ]
     if hi >= lo
-        mid = (hi + lo) // 2
+        mid = floor[(hi + lo) / 2]
         if arr{mid} < key
             return binary_search [ arr, n, mid + 1, hi, key ]
         elif arr{mid} > key

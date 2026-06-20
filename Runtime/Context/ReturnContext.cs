@@ -9,7 +9,7 @@ namespace WarScript.Context
     /// </summary>
     public class ReturnContext
     {
-        private ReturnScope _scope = new ReturnScope();
+        private readonly ReturnScope _scope = new ReturnScope();
 
         /// <summary>
         /// Get current <see cref="ReturnScope"/>
@@ -25,7 +25,7 @@ namespace WarScript.Context
         /// </summary>
         public void Reset()
         {
-            _scope = new ReturnScope();
+            _scope.Reset();
         }
     }
 }

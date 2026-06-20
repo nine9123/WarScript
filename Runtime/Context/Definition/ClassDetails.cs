@@ -20,10 +20,19 @@ namespace WarScript.Context.Definition
         /// </summary>
         public List<string> Properties { get; private set; }
 
+        /// <summary>
+        /// Property name to index lookup. Built once at construction time.
+        /// Used by inline caches for O(1) property access.
+        /// </summary>
+        internal readonly Dictionary<string, int> PropertyIndex;
+
         public ClassDetails(string name, List<string> properties)
         {
             Name = name;
             Properties = properties;
+            PropertyIndex = new Dictionary<string, int>(properties.Count);
+            for (int i = 0; i < properties.Count; i++)
+                PropertyIndex[properties[i]] = i;
         }
         
         public override bool Equals(object obj)

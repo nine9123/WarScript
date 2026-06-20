@@ -1,9 +1,7 @@
 #nullable enable
 
-using System.Collections;
 using System.Collections.Generic;
 using WarScript.Context;
-using WarScript.Context.Definition;
 using WarScript.Expression.Value;
 
 namespace WarScript.Expression
@@ -11,64 +9,34 @@ namespace WarScript.Expression
     public class ClassExpression : IExpression
     {
         private readonly string _name;
-        private readonly List<IExpression?> _propertiesExpressions;
-        
-        // contains Derived class and all the Base classes chain that Derived class inherits
-        private readonly Dictionary<string, ClassValue> _relations;
-
+        private readonly List<IExpression> _propertiesExpressions;
         private readonly WarScriptLanguage _script;
-        
-        public ClassExpression(WarScriptLanguage script, string name, List<IExpression?> propertiesExpressions)
+
+        // Compiler accessors
+        internal string ClassName => _name;
+        internal List<IExpression> PropertiesExpressions => _propertiesExpressions;
+
+        public ClassExpression(WarScriptLanguage script, string name, List<IExpression> propertiesExpressions)
         {
             _script = script;
             _name = name;
             _propertiesExpressions = propertiesExpressions;
-            _relations = new Dictionary<string, ClassValue>();
         }
 
-        private ClassExpression(WarScriptLanguage script, string name, List<IExpression?> propertiesExpressions, Dictionary<string, ClassValue> relations)
+        public WarValue Evaluate()
         {
-            _script = script;
-            _name = name;
-            _propertiesExpressions = propertiesExpressions;
-            _relations = relations;
-        }
-
-        public IValue? Evaluate()
-        {
-            // initialize class's properties
-            var values = new List<ValueReference>(_propertiesExpressions.Count);
-            foreach (var expression in _propertiesExpressions)
-            {
-                var value = ValueReference.InstanceOf(expression);
-                if (value == null) return null;
-                values.Add(value);
-            }
-            return Evaluate(values);
+            return EvaluateWith(new Dictionary<string, ClassData>());
         }
 
         /// <summary>
         /// Evaluate nested class
         /// </summary>
-        /// <param name="classValue">instance of the parent class</param>
-        public IValue? Evaluate(ClassValue classValue)
+        public WarValue Evaluate(ClassData parentClassData)
         {
-            // initialize class's properties
-            var values = new List<ValueReference>(_propertiesExpressions.Count);
-            foreach (var expression in _propertiesExpressions)
-            {
-                var value = ValueReference.InstanceOf(expression);
-                if (value == null) return null;
-                values.Add(value);
-            }
-            
-            // set parent class's definition
-            var classDefinition = classValue.GetValue();
-            _script.DefinitionContext.PushScope(classDefinition.GetDefinitionScope());
-
+            _script.DefinitionContext.PushScope(parentClassData.Definition.GetDefinitionScope());
             try
             {
-                return Evaluate(values);
+                return EvaluateWith(new Dictionary<string, ClassData>());
             }
             finally
             {
@@ -76,60 +44,69 @@ namespace WarScript.Expression
             }
         }
 
-        private IValue? Evaluate(List<ValueReference> values)
+        private WarValue EvaluateWith(Dictionary<string, ClassData> relations)
         {
-            // get class's definition and statement
+            // evaluate property expressions into ValueReferences
+            // If the expression is already a ValueReference (from a parent constructor),
+            // InstanceOf returns the SAME object — this is how derived and base class
+            // scopes share property references for inheritance.
+            var values = new List<ValueReference>(_propertiesExpressions.Count);
+            foreach (var expression in _propertiesExpressions)
+            {
+                var valRef = ValueReference.InstanceOf(expression);
+                if (_script.HaltFlags != 0) return default;
+                values.Add(valRef!);
+            }
+
+            // get class's definition
             var definition = _script.DefinitionContext.GetScope().GetClass(_name);
             if (definition == null)
-                return _script.ExceptionContext.RaiseException($"Class '{_name}' is not defined");
+                return _script.RaiseException($"Class '{_name}' is not defined");
 
             var classStatement = definition.Statement;
-            
-            // set separate scope
-            var classScope = new MemoryScope(_script, null);
+
+            // set separate scope (non-poolable, class instances outlive the scope stack)
+            var classScope = new MemoryScope(_script, null, poolable: false);
             _script.MemoryContext.PushScope(classScope);
-            
-            // initialize constructor arguments
-            var classValue = new ClassValue(_script, definition, classScope, _relations);
-            _relations.Add(_name, classValue);
-            
-            // fill the missing properties with NullValue.NULL_INSTANCE
-            // class A [arg1, arg2]
-            // new A [arg1] -> new A [arg1, null]
-            // new A [arg1, arg2, arg3] -> new A [arg1, arg2]
-            var valuesToSet = new ValueReference?[definition.ClassDetails.Properties.Count];
-            for (var i = 0; i < definition.ClassDetails.Properties.Count; i++)
+
+            // create class data
+            var classData = new ClassData(definition, classScope, relations);
+            relations[_name] = classData;
+
+            // fill missing properties with Null
+            var propCount = definition.ClassDetails.Properties.Count;
+            var valuesToSet = new ValueReference[propCount];
+            for (var i = 0; i < propCount; i++)
             {
-                valuesToSet[i] = i >= values.Count
-                    ? ValueReference.InstanceOf(_script.Null)
-                    : values[i];
+                valuesToSet[i] = i < values.Count
+                    ? values[i]
+                    : ValueReference.InstanceOf(WarValue.Null);
             }
-            
-            // invoke constructors of the base classes and set a ClassValue relation
+
+            // invoke constructors of base classes
+            // Pass the SAME ValueReference objects so both scopes share them
             foreach (var baseType in definition.BaseTypes)
             {
-                // initialize base class's properties
-                // class A [a_arg]
-                // class B [b_arg1, b_arg2]: A [b_arg1]
-                var baseClassProperties = new List<IExpression?>();
+                var baseClassProperties = new List<IExpression>();
                 foreach (var property in baseType.Properties)
                 {
                     var index = definition.ClassDetails.Properties.IndexOf(property);
                     baseClassProperties.Add(valuesToSet[index]);
                 }
-                var baseExpression = new ClassExpression(_script, baseType.Name, baseClassProperties, _relations);
-                baseExpression.Evaluate();
+                var baseExpression = new ClassExpression(_script, baseType.Name, baseClassProperties);
+                baseExpression.EvaluateWith(relations);
             }
-            
+
             try
             {
-                _script.ClassInstanceContext.PushValue(classValue);
-                for (var i = 0; i < definition.ClassDetails.Properties.Count; i++)
+                _script.ClassInstanceContext.PushValue(classData);
+                for (var i = 0; i < propCount; i++)
                 {
+                    // Use SetLocal(name, ValueReference) overload to store the shared reference
                     _script.MemoryContext.GetScope().SetLocal(definition.ClassDetails.Properties[i], valuesToSet[i]);
                 }
-                
-                // execute function body
+
+                // execute constructor body
                 _script.DefinitionContext.PushScope(definition.GetDefinitionScope());
                 try
                 {
@@ -139,12 +116,11 @@ namespace WarScript.Expression
                 {
                     _script.DefinitionContext.EndScope();
                 }
-                
-                // if exception have been thrown in the constructor
-                if (_script.ExceptionContext.IsRaised())
-                    return null;
 
-                return classValue;
+                if (_script.ExceptionContext.IsRaised())
+                    return default;
+
+                return WarValue.FromClass(classData);
             }
             finally
             {

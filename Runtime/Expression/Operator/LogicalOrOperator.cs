@@ -2,21 +2,30 @@ using WarScript.Expression.Value;
 
 namespace WarScript.Expression.Operator
 {
-    public class LogicalOrOperator : BinaryOperatorExpression
+    public sealed class LogicalOrOperator : BinaryOperatorExpression
     {
         public LogicalOrOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
 
-        public override IValue Evaluate()
+        public override WarValue Evaluate()
         {
             var left = Left.Evaluate();
-            if (left == null) return null;
-            var right = Right.Evaluate();
-            if (right == null) return null;
+            if (_script.HaltFlags != 0) return default;
 
-            if (left is LogicalValue leftLog && right is LogicalValue rightLog)
-                return new LogicalValue(_script, leftLog.GetValue() || rightLog.GetValue());
+            if (left.IsLogical)
+            {
+                if (left.LogicalValue)
+                    return WarValue.True;
 
-            return _script.ExceptionContext.RaiseException($"Unable to perform OR operator for non logical values `{left}`, `{right}`");
+                var right = Right.Evaluate();
+                if (_script.HaltFlags != 0) return default;
+
+                if (right.IsLogical)
+                    return WarValue.FromLogical(right.LogicalValue);
+
+                return _script.RaiseException($"Unable to perform OR operator for non logical values `{left}`, `{right}`");
+            }
+
+            return _script.RaiseException($"Unable to perform OR operator for non logical value `{left}`");
         }
     }
 }
