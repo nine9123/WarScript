@@ -183,7 +183,7 @@ loop v in DamageType :: values      # iterate all members
 # Classes — constructor args in [], property access with ::
 class Point [x, y]
     fun magnitude []
-        return Math_sqrt [this :: x * this :: x + this :: y * this :: y]
+        return sqrt [this :: x * this :: x + this :: y * this :: y]   # MathLibrary names are unprefixed
     end
 end
 p = new Point [3, 4]
