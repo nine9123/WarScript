@@ -192,7 +192,9 @@ p = new Point [3, 4]
 # Casting: obj as Animal     Type check: obj is Animal
 
 # Exception handling: begin / rescue err / ensure / end
-# String interpolation: "Hello {name}, you are {age} years old"
+# String interpolation: "Hello {name}, you are {age} years old"   (or explicitly $"Hello {name}")
+# String escapes: \" \\ \{ \} \n \t \r   — anything else is a SyntaxException
+# Raw strings (no escapes, no interpolation, multi-line): """print "{x}""""  — for embedded source
 # Coroutines: yield, yield wait 2.0, yield until condition
 # Import: import "other_script"
 # Builtins: print value, assert condition
@@ -250,7 +252,7 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 
 ## Existing Desugar Patterns
 
-1. **String interpolation** — Lexer: `"hello {x}"` → `"hello " + (x)` tokens
+1. **String interpolation** — Lexer: `"hello {x}"` → `"hello " + (x)` tokens. `$"..."` is the same path. Escapes are folded into the `Text` token at lex time; `"""..."""` skips both and emits one verbatim `Text` token.
 2. **Default parameters** — Parser: `fun f [a, b = 1]` → inject `if b == null then b = 1` body prefix. Multi-arity registration. VM null-pads stack.
 3. **Compound assignment** — Expression reader: `x += 1` → `x = x + 1`
 4. **Constants** — Parser: `const X = 5` → assignment + `ConstantNames.Add()`. Parse-time immutability.
@@ -261,6 +263,7 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 
 - **`{` and `}` are array delimiters**, not block delimiters. Blocks end with `end`. Array indexing is `arr{i}`. Function args use `[`, `]`.
 - **`::` is the property access operator** — `obj :: name`, `this :: x`, `DamageType :: PHYSICAL`.
+- **Text literals come in three forms**: `"..."` and `$"..."` (identical — interpolation + escapes) and `"""..."""` (raw: no escapes, no interpolation, multi-line, drops the line breaks adjoining the delimiters). A raw literal closes on the *last* three quotes of a run, so its content may end in `"` but may not contain `"""`. `$"""` is rejected.
 - **AST is discarded after compilation.** Bytecode is the source of truth.
 - **`WarValue` is a struct.** Passed by value. Lambda function values stored as `NativeObject(CompiledFunction)`.
 - **Default parameters**: `null` triggers the default (deliberate design — no way to pass "missing" vs "null").

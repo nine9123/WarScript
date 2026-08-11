@@ -134,7 +134,7 @@ WarScript has 7 value types:
 |---|---|---|
 | **Numeric** | `42`, `0.5`, `-3` | `F64` 32.32 fixed-point — *not* a float or double |
 | **Logical** | `true`, `false` | prints as `True` / `False` |
-| **Text** | `"hello"` | supports interpolation |
+| **Text** | `"hello"` | interpolation, escapes, and raw `"""..."""` |
 | **Array** | `{1, 2, 3}` | prints as `[1, 2, 3]` |
 | **Class** | `new Point [1, 2]` | prints as the class name |
 | **Null** | `null` | |
@@ -225,6 +225,48 @@ age = 7
 print "Hello {name}, you are {age} years old"   # → Hello hero, you are 7 years old
 print "sum: {1 + 2}"                            # → sum: 3
 ```
+
+`$"..."` is the same literal written explicitly, for when the intent matters:
+
+```ruby
+print $"Hello {name}"                           # → Hello hero
+```
+
+Braces nest, so `"{arr{0}}"` indexes inside an interpolation, and a text literal *inside* an
+interpolation keeps its own braces and quotes: `"result: {"a}b"}"` is `result: a}b`.
+
+#### Escapes
+
+A backslash escapes the character after it. The sequences are `\"`, `\\`, `\{`, `\}`, `\n`, `\t`
+and `\r`; anything else is a syntax error, so a stray backslash is caught rather than silently
+kept.
+
+```ruby
+print "she said \"hi\""     # → she said "hi"
+print "\{name\} is literal" # → {name} is literal
+print "a\nb"                # → two lines
+```
+
+#### Raw literals
+
+`"""..."""` interprets nothing — no escapes, no interpolation — and may span lines. This is how
+you carry WarScript source, JSON, or anything else brace- and quote-heavy as a value.
+
+```ruby
+snippet = """print "{greeting}, {party{0}}""""
+
+dialog = """
+if reputation > 50
+    npc_say ["Good to see you again."]
+end
+"""
+```
+
+A line break immediately after the opening delimiter and one immediately before the closing
+delimiter are dropped, so the block above is exactly its three lines with no leading or trailing
+blank line. A run of four or more quotes closes with its last three, which is why the `snippet`
+line above ends in a quote character; content containing a run of three quotes cannot be written
+raw. `$"""..."""` is a syntax error — raw literals do not interpolate; concatenate instead.
 
 ### Arrays
 
@@ -1083,6 +1125,13 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 - There is no postfix call on an index expression (`arr{0}[args]`) — use a temporary.
 - A `fun` nested inside another `fun` is not callable from the outer body; use a lambda value.
 - `this` outside a class method throws a host-level exception rather than a script error.
+- A raw `"""..."""` literal cannot contain a run of three quotes, and does not interpolate.
+- An unknown escape sequence, an unterminated literal, and an unterminated `{` interpolation are
+  all syntax errors — they used to be accepted silently.
+- Escapes changed the meaning of a backslash inside a literal: `"C:\new"` used to be the six
+  characters it looks like, and is now `C:` followed by a line break and `ew`. Double it —
+  `"C:\\new"` — or use a raw literal.
+- `""""` (four adjacent quotes) used to be two empty literals; it now opens a raw literal.
 
 **Semantics**
 
