@@ -606,7 +606,10 @@ namespace WarScript
         /// <summary>
         /// Determines if a minus sign should be treated as a negative number
         /// rather than a subtraction operator.
-        /// Negative if preceded by: nothing, operator, group divider, or keyword.
+        /// Negative if preceded by: nothing, operator, group divider, or keyword —
+        /// except tokens that themselves end an operand: a closing paren, or a
+        /// closing array/argument bracket, after which `-` is subtraction
+        /// (e.g. `(1+2)-3`, `arr{0}-1`, `f[x]-1`).
         /// </summary>
         private bool IsNegativeSign()
         {
@@ -614,10 +617,18 @@ namespace WarScript
                 return true;
 
             var prev = _tokens[_tokens.Count - 1];
-            return prev.Type == Token.TokenType.Operator
-                || prev.Type == Token.TokenType.GroupDivider
-                || prev.Type == Token.TokenType.Keyword
-                || prev.Type == Token.TokenType.LineBreak;
+            switch (prev.Type)
+            {
+                case Token.TokenType.Operator:
+                    return prev.Value != ")";
+                case Token.TokenType.GroupDivider:
+                    return prev.Value != "}" && prev.Value != "]";
+                case Token.TokenType.Keyword:
+                case Token.TokenType.LineBreak:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         private static bool IsIdentStart(char c)
