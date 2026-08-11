@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text;
 using WarScript.Exception;
 using WarScript.Token;
 
@@ -96,6 +97,22 @@ namespace WarScript
             // ── String literal ──
             if (c == '"')
             {
+                // """ ... """ is a raw literal: no escapes, no interpolation.
+                if (Peek(1) == '"' && Peek(2) == '"')
+                    ScanRawString();
+                else
+                    ScanString();
+                return;
+            }
+
+            // ── Explicitly interpolated string: $"..." ──
+            if (c == '$' && Peek() == '"')
+            {
+                if (Peek(2) == '"' && Peek(3) == '"')
+                    throw new SyntaxException(
+                        $"Raw text literals (\"\"\") do not support interpolation at line {_row}");
+
+                _pos++; // skip $
                 ScanString();
                 return;
             }
@@ -193,79 +210,320 @@ namespace WarScript
             throw new SyntaxException($"Unexpected character '{c}' at line {_row}");
         }
         
+        /// <summary>
+        /// Scans a regular text literal: <c>"..."</c> or <c>$"..."</c>.
+        /// Supports <c>{expr}</c> interpolation and backslash escapes.
+        /// The opening quote is expected at the current position.
+        /// </summary>
         private void ScanString()
         {
+            var openRow = _row;
             _pos++; // skip opening quote
-            var start = _pos;
-            var hasInterpolation = false;
-            var isFirstSegment = true;
 
-            while (!AtEnd && Current != '"')
+            // Text of the current segment. The builder stays null while the
+            // segment is a plain run of source characters, so an escape-free
+            // literal costs exactly one Substring — same as before.
+            var segStart = _pos;
+            var segRow = _row;
+            StringBuilder segment = null;
+            var emittedAny = false;
+            var terminated = false;
+
+            while (!AtEnd)
             {
-                if (Current == '{')
+                var c = Current;
+
+                if (c == '"')
                 {
-                    hasInterpolation = true;
+                    terminated = true;
+                    break;
+                }
 
+                if (c == '\\')
+                {
+                    segment ??= new StringBuilder();
+                    segment.Append(_source, segStart, _pos - segStart);
+                    _pos++; // skip backslash
+                    segment.Append(ReadEscape());
+                    segStart = _pos;
+                    continue;
+                }
+
+                if (c == '{')
+                {
                     // Emit the text segment before the { (if non-empty)
-                    if (_pos > start)
+                    var text = TakeSegment(ref segment, ref segStart);
+                    if (text.Length > 0)
                     {
-                        if (!isFirstSegment)
-                            _tokens.Add(new Token.Token(TokenType.Operator, "+", _row));
-                        _tokens.Add(new Token.Token(TokenType.Text, _source.Substring(start, _pos - start), _row));
-                        isFirstSegment = false;
+                        if (emittedAny)
+                            _tokens.Add(new Token.Token(TokenType.Operator, "+", segRow));
+                        _tokens.Add(new Token.Token(TokenType.Text, text, segRow));
+                        emittedAny = true;
                     }
 
+                    var exprRow = _row;
                     _pos++; // skip {
-
-                    // Collect expression content, tracking brace depth
-                    var exprStart = _pos;
-                    var depth = 1;
-                    while (!AtEnd && depth > 0)
-                    {
-                        if (Current == '{') depth++;
-                        else if (Current == '}') depth--;
-                        if (depth > 0) _pos++;
-                    }
-
-                    var exprSource = _source.Substring(exprStart, _pos - exprStart);
-                    _pos++; // skip closing }
+                    var exprSource = ReadInterpolatedExpression(openRow);
 
                     // Emit: + ( <expression tokens> )
-                    if (!isFirstSegment)
-                        _tokens.Add(new Token.Token(TokenType.Operator, "+", _row));
-                    _tokens.Add(new Token.Token(TokenType.Operator, "(", _row));
+                    if (emittedAny)
+                        _tokens.Add(new Token.Token(TokenType.Operator, "+", exprRow));
+                    _tokens.Add(new Token.Token(TokenType.Operator, "(", exprRow));
 
                     // Recursively lex the expression
                     var innerParser = new LexicalParser(exprSource);
-                    innerParser._row = _row;
+                    innerParser._row = exprRow;
                     innerParser.Scan();
                     foreach (var token in innerParser._tokens)
                         _tokens.Add(token);
 
                     _tokens.Add(new Token.Token(TokenType.Operator, ")", _row));
-                    isFirstSegment = false;
+                    emittedAny = true;
 
                     // Next text segment starts after the }
-                    start = _pos;
+                    segStart = _pos;
+                    segRow = _row;
+                    continue;
                 }
-                else
-                {
-                    _pos++;
-                }
+
+                // A raw line break inside a literal is allowed, but the row
+                // counter has to follow it or every later error points at the
+                // wrong line.
+                if (c == '\n')
+                    _row++;
+
+                _pos++;
             }
 
-            // Emit trailing text segment (or the whole string if no interpolation)
-            if (!hasInterpolation)
+            if (!terminated)
+                throw new SyntaxException($"Unterminated text literal starting at line {openRow}");
+
+            // Emit the trailing segment — or the whole (possibly empty) literal
+            // when there was no interpolation at all.
+            var tail = TakeSegment(ref segment, ref segStart);
+            if (tail.Length > 0 || !emittedAny)
             {
-                _tokens.Add(new Token.Token(TokenType.Text, _source.Substring(start, _pos - start), _row));
-            }
-            else if (_pos > start)
-            {
-                _tokens.Add(new Token.Token(TokenType.Operator, "+", _row));
-                _tokens.Add(new Token.Token(TokenType.Text, _source.Substring(start, _pos - start), _row));
+                if (emittedAny)
+                    _tokens.Add(new Token.Token(TokenType.Operator, "+", segRow));
+                _tokens.Add(new Token.Token(TokenType.Text, tail, segRow));
             }
 
             _pos++; // skip closing quote
+        }
+
+        /// <summary>
+        /// Scans a raw text literal: <c>"""..."""</c>. Nothing inside is
+        /// interpreted — no escapes, no interpolation — so it can carry
+        /// WarScript source verbatim, quotes and braces included. A line break
+        /// directly after the opening delimiter, and one directly before the
+        /// closing delimiter, are dropped so a block reads as its lines and
+        /// nothing else.
+        /// </summary>
+        private void ScanRawString()
+        {
+            var openRow = _row;
+            _pos += 3; // skip opening """
+
+            var end = FindRawStringEnd(_pos);
+            if (end < 0)
+                throw new SyntaxException($"Unterminated raw text literal starting at line {openRow}");
+
+            var start = _pos;
+            var stop = end;
+
+            // Drop the line break that follows the opening delimiter.
+            if (start < stop && _source[start] == '\r' && start + 1 < stop && _source[start + 1] == '\n')
+                start += 2;
+            else if (start < stop && (_source[start] == '\n' || _source[start] == '\r'))
+                start += 1;
+
+            // Drop the final line break plus the indentation of the closing
+            // delimiter, so `"""` may sit on its own line without adding one.
+            // The floor is the *untrimmed* start, so a block whose only content
+            // is that one line break comes out empty rather than as indentation.
+            var trimmed = stop;
+            while (trimmed > _pos && (_source[trimmed - 1] == ' ' || _source[trimmed - 1] == '\t'))
+                trimmed--;
+            if (trimmed > _pos && (_source[trimmed - 1] == '\n' || _source[trimmed - 1] == '\r'))
+            {
+                trimmed--;
+                if (_source[trimmed] == '\n' && trimmed > _pos && _source[trimmed - 1] == '\r')
+                    trimmed--;
+                stop = trimmed;
+            }
+
+            var value = stop > start ? _source.Substring(start, stop - start) : string.Empty;
+            _tokens.Add(new Token.Token(TokenType.Text, value, openRow));
+
+            // The literal may span lines; keep the row counter in step.
+            for (var i = _pos; i < end; i++)
+                if (_source[i] == '\n')
+                    _row++;
+
+            _pos = end + 3; // skip closing """
+        }
+
+        /// <summary>
+        /// Finds where the content of a raw literal ends, searching from the
+        /// first character after the opening delimiter. Returns -1 if the
+        /// literal is never closed.
+        ///
+        /// A run of four or more quotes closes with its *last* three, so
+        /// content may end in a quote: <c>"""say "hi""""</c> is <c>say "hi"</c>.
+        /// Content containing a run of three quotes therefore cannot be
+        /// written raw.
+        /// </summary>
+        private int FindRawStringEnd(int from)
+        {
+            for (var i = from; i + 2 < _source.Length; i++)
+            {
+                if (_source[i] != '"' || _source[i + 1] != '"' || _source[i + 2] != '"')
+                    continue;
+
+                var runEnd = i + 3;
+                while (runEnd < _source.Length && _source[runEnd] == '"')
+                    runEnd++;
+
+                return runEnd - 3;
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// Returns the text accumulated for the current segment and resets it.
+        /// </summary>
+        private string TakeSegment(ref StringBuilder segment, ref int segStart)
+        {
+            string text;
+            if (segment == null)
+            {
+                text = _pos > segStart ? _source.Substring(segStart, _pos - segStart) : string.Empty;
+            }
+            else
+            {
+                segment.Append(_source, segStart, _pos - segStart);
+                text = segment.ToString();
+                segment = null;
+            }
+
+            segStart = _pos;
+            return text;
+        }
+
+        /// <summary>
+        /// Reads the character named by an escape sequence. The backslash has
+        /// already been consumed; the position is left after the sequence.
+        /// </summary>
+        private char ReadEscape()
+        {
+            if (AtEnd)
+                throw new SyntaxException($"Text literal ends with a dangling '\\' at line {_row}");
+
+            var c = Current;
+            _pos++;
+
+            switch (c)
+            {
+                case '"': return '"';
+                case '\\': return '\\';
+                case '{': return '{';
+                case '}': return '}';
+                case 'n': return '\n';
+                case 't': return '\t';
+                case 'r': return '\r';
+                default:
+                    throw new SyntaxException($"Unknown escape sequence '\\{c}' at line {_row}");
+            }
+        }
+
+        /// <summary>
+        /// Reads the source of a <c>{...}</c> interpolation, starting just
+        /// after the opening brace and leaving the position after the matching
+        /// closing brace. Braces nest (so <c>{arr{0}}</c> works) and braces
+        /// inside a nested text literal are ignored.
+        /// </summary>
+        private string ReadInterpolatedExpression(int openRow)
+        {
+            var start = _pos;
+            var depth = 1;
+
+            while (!AtEnd)
+            {
+                var c = Current;
+
+                if (c == '"')
+                {
+                    SkipNestedLiteral();
+                    continue;
+                }
+
+                if (c == '{')
+                {
+                    depth++;
+                }
+                else if (c == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        var source = _source.Substring(start, _pos - start);
+                        _pos++; // skip closing }
+                        return source;
+                    }
+                }
+                else if (c == '\n')
+                {
+                    _row++;
+                }
+
+                _pos++;
+            }
+
+            throw new SyntaxException($"Unterminated interpolation in text literal at line {openRow}");
+        }
+
+        /// <summary>
+        /// Advances past a text literal nested inside an interpolation, so its
+        /// braces and escaped quotes are not mistaken for expression syntax.
+        /// The opening quote is expected at the current position.
+        /// </summary>
+        private void SkipNestedLiteral()
+        {
+            var start = _pos;
+            int stop;
+
+            if (Peek(1) == '"' && Peek(2) == '"')
+            {
+                var end = FindRawStringEnd(_pos + 3);
+                stop = end < 0 ? _source.Length : end + 3;
+            }
+            else
+            {
+                stop = _pos + 1; // skip opening quote
+                while (stop < _source.Length)
+                {
+                    if (_source[stop] == '\\')
+                    {
+                        stop += 2;
+                        continue;
+                    }
+
+                    stop++;
+                    if (_source[stop - 1] == '"')
+                        break;
+                }
+
+                if (stop > _source.Length)
+                    stop = _source.Length;
+            }
+
+            // The nested literal may span lines; keep the row counter in step.
+            for (var i = start; i < stop; i++)
+                if (_source[i] == '\n')
+                    _row++;
+
+            _pos = stop;
         }
 
         private void ScanNumber()
