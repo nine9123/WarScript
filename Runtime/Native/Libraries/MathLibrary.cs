@@ -16,15 +16,33 @@ namespace WarScript.Native
         public static void Register(WarScriptLanguage script, DefinitionScope scope)
         {
             // -- Powers & roots --
+            // NOTE: the domain checks below are deliberate. FixPointCS returns 0 for
+            // out-of-domain inputs in a player build, but in the editor (and in
+            // development builds) the same inputs go through FixedUtil.InvalidArgument,
+            // whose default handler throws. Guarding here gives one behavior everywhere:
+            // out-of-domain input yields 0, never a build-configuration-dependent throw.
             scope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("pow", new List<string> { "base", "exp" }),
-                args => WarValue.FromNumeric(F64.Pow(NativeHelper.NumericArg(args, 0), NativeHelper.NumericArg(args, 1))),
-                "Returns base raised to the power of exp.", "NumericValue"));
+                args =>
+                {
+                    var b = NativeHelper.NumericArg(args, 0);
+                    var e = NativeHelper.NumericArg(args, 1);
+                    if (e == F64.Zero)
+                        return WarValue.FromNumeric(F64.One);
+                    if (b <= F64.Zero)
+                        return WarValue.FromNumeric(F64.Zero);
+                    return WarValue.FromNumeric(F64.Pow(b, e));
+                },
+                "Returns base raised to the power of exp. A base of 0 or less yields 0 (except exp 0, which yields 1).", "NumericValue"));
 
             scope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("sqrt", new List<string> { "n" }),
-                args => WarValue.FromNumeric(F64.Sqrt(NativeHelper.NumericArg(args, 0))),
-                "Returns the square root of n.", "NumericValue"));
+                args =>
+                {
+                    var n = NativeHelper.NumericArg(args, 0);
+                    return WarValue.FromNumeric(n <= F64.Zero ? F64.Zero : F64.Sqrt(n));
+                },
+                "Returns the square root of n. A negative n yields 0.", "NumericValue"));
 
             // -- Rounding --
             scope.AddFunction(new NativeFunctionDefinition(

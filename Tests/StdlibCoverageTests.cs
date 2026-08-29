@@ -95,7 +95,9 @@ namespace Tests
         [Test]
         public void Sqrt_OfNegative_IsZero()
         {
-            // FixPointCS clamps instead of throwing — deterministic and safe.
+            // MathLibrary checks the domain itself: FixPointCS only returns 0 for a
+            // negative input in a player build, and routes it through the (throwing)
+            // invalid-argument handler in the editor.
             Assert.AreEqual("0", Output("print sqrt [-4]")[0]);
         }
 
@@ -103,6 +105,12 @@ namespace Tests
         public void Pow_NegativeBaseFractionalExponent_IsZero()
         {
             Assert.AreEqual("0", Output("print pow [-2, 0.5]")[0]);
+        }
+
+        [Test]
+        public void Pow_OfZeroExponent_IsOne_EvenForNegativeBase()
+        {
+            Assert.AreEqual("1", Output("print pow [-2, 0]")[0]);
         }
 
         [Test]
