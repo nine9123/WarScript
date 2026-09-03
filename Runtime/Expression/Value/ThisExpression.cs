@@ -14,6 +14,11 @@ namespace WarScript.Expression.Value
 
         public WarValue Evaluate()
         {
+            if (!_script.ClassInstanceContext.HasValue)
+            {
+                _script.ExceptionContext.RaiseException("'this' can only be used inside a class");
+                return WarValue.Null;
+            }
             return WarValue.FromClass(_script.ClassInstanceContext.GetValue());
         }
     }

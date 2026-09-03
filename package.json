@@ -1,6 +1,6 @@
 {
   "name": "com.nine9.warscript",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "displayName": "WarScript",
   "description": "WarScript is a custom scripting language with an interpreter written in C#.",
   "unity": "6000.3",

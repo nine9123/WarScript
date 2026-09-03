@@ -8,6 +8,13 @@ namespace WarScript.Token
         private readonly List<Token> _tokens;
         private int _position;
 
+        /// <summary>
+        /// Current read position. Lets parser loops detect that a
+        /// sub-expression read made no progress (which would otherwise
+        /// spin forever on malformed input).
+        /// </summary>
+        public int Position => _position;
+
         // LineBreak and Comment are "empty" tokens skipped between meaningful lexemes.
         // Skipping runs on every Next/Peek/HasNext, so this is extremely hot: a direct
         // comparison beats a HashSet<enum> lookup, which on Unity's Mono routes through

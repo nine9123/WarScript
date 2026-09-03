@@ -51,6 +51,13 @@ namespace WarScript
             var parser = new StatementParser(script, new TokensStack(tokens), compositeStatement);
             while (parser.HasNextStatement())
                 parser.ParseExpression();
+
+            // At the top level, anything left over is a construct we cannot
+            // start a statement with (stray `end`, dangling `else`, a literal…).
+            // Silently stopping here would discard the rest of the script.
+            if (parser.Tokens.TryPeek(out var leftover))
+                throw new SyntaxException(
+                    $"Unexpected `{leftover.Value}` at line {leftover.RowNumber} — not a valid start of a statement");
         }
 
         /// <summary>
@@ -334,8 +341,9 @@ namespace WarScript
         private void ParseLoopStatement(Token.Token rowToken)
         {
             var loopExpression = ExpressionReader.ReadExpression(_script, Tokens);
-            if (!(loopExpression is IOperatorExpression || loopExpression is VariableExpression))
-                return;
+            if (ReferenceEquals(loopExpression, _script.NullExpr))
+                throw new SyntaxException(
+                    $"'loop' at line {rowToken.RowNumber} requires a condition or an iterable");
 
             AbstractLoopStatement loopStatement;
 

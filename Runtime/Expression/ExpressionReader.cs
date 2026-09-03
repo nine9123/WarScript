@@ -126,6 +126,9 @@ namespace WarScript.Expression
                             case Operator.Operator.RightParen:
                                 while (_operators.Count > 0 && _operators.Peek() != Operator.Operator.LeftParen)
                                     ApplyTopOperator();
+                                if (_operators.Count == 0)
+                                    throw new SyntaxException(
+                                        $"Unbalanced ')' at line {token.RowNumber}");
                                 _operators.Pop();
                                 lastWasOperand = true;
                                 break;
@@ -141,6 +144,13 @@ namespace WarScript.Expression
                         break;
 
                     default:
+                        // Two operands in a row means an operator is missing
+                        // (`x = 1 2`, `print a b`). Without this check the first
+                        // operand would be silently discarded.
+                        if (lastWasOperand)
+                            throw new SyntaxException(
+                                $"Unexpected `{token.Value}` at line {token.RowNumber}: expected an operator or end of expression");
+
                         var value = token.Value;
                         IExpression operand;
                         switch (token.Type)
@@ -234,7 +244,9 @@ namespace WarScript.Expression
                 Tokens.Next(TokenType.GroupDivider, "[");
                 while (!Tokens.Peek(TokenType.GroupDivider, "]"))
                 {
+                    var before = Tokens.Position;
                     properties.Add(ReadExpression(_script, this));
+                    RequireProgress(before, "]");
                     if (Tokens.Peek(TokenType.GroupDivider, ","))
                         Tokens.Next();
                 }
@@ -270,6 +282,7 @@ namespace WarScript.Expression
                         checkedNaming = true;
                     }
 
+                    var before = Tokens.Position;
                     if (isNamed)
                     {
                         var argName = Tokens.Next(TokenType.Variable).Value;
@@ -281,6 +294,7 @@ namespace WarScript.Expression
                     {
                         arguments.Add(ReadExpression(_script, this));
                     }
+                    RequireProgress(before, "]");
 
                     // Consume comma, then re-check for trailing comma before ]
                     if (Tokens.Peek(TokenType.GroupDivider, ","))
@@ -337,12 +351,32 @@ namespace WarScript.Expression
             var values = new List<IExpression>();
             while (!Tokens.Peek(TokenType.GroupDivider, "}"))
             {
+                var before = Tokens.Position;
                 values.Add(ReadExpression(_script, this));
+                RequireProgress(before, "}");
                 if (Tokens.Peek(TokenType.GroupDivider, ","))
                     Tokens.Next();
             }
             Tokens.Next(TokenType.GroupDivider, "}");
             return new ArrayExpression(_script, values);
+        }
+
+        /// <summary>
+        /// Guards the bracket-scanning loops against an element read that made
+        /// no progress — at end of input, or facing a token that cannot start
+        /// an expression, ReadExpression consumes nothing and the enclosing
+        /// while-loop would spin forever.
+        /// </summary>
+        private void RequireProgress(int positionBefore, string closing)
+        {
+            if (Tokens.Position != positionBefore)
+                return;
+
+            if (Tokens.TryPeek(out var next))
+                throw new SyntaxException(
+                    $"Unexpected `{next.Value}` at line {next.RowNumber}: expected an expression, ',' or '{closing}'");
+
+            throw new SyntaxException($"Unexpected end of script: expected '{closing}'");
         }
 
         private ArrayValueOperator ReadArrayValue(Token.Token token)

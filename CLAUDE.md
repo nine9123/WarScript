@@ -18,7 +18,7 @@ WarScript is **deterministic**: it is the scripting layer for a lockstep-network
 
 - **Numeric literals** (`LexicalParser` + `Parser/NumericLiteral.cs`): the grammar is `'-'? digit+ ('.' digit+)?`, so fractional literals like `1.0`, `0.5`, `99.5` ARE valid and are parsed to exact F64 **using integer arithmetic only** (`(frac << 32) / den`) — never touching float/double, so the raw is bit-identical cross-platform. "Integer-only" describes the *parsing*, not a restriction to whole numbers. Values exactly representable in 32.32 (`0.5`, `99.5`) round-trip exactly; others (`0.7`) are deterministically truncated. Fractional precision past 9 digits is truncated; integer-part range is ±2147483647. Malformed literals throw `SyntaxException` (D2a) — no silent coercion.
 - **`F64` → `int` truncates** (`NativeHelper.IntArg`, the generator's `int` marshal). To round, call `F64.RoundToInt(...)`. **`F64` has no conversion operator to/from `int`/`float`/`double`** — `(int)someF64` does NOT compile; use `RoundToInt` / `F64.FromInt`. F64↔int *arithmetic and comparison* operators do exist (so `someF64 == 3` is fine).
-- **Transcendentals are approximate.** `MathLibrary` `sqrt`, `pow`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan2`, `lerp`, `pi`, etc. are FixPointCS fixed-point implementations: deterministic but not bit-exact to real math (`pow[2,10] != 1024`, `sqrt[4] != 2` exactly). `round` is **half-up**, not banker's rounding.
+- **Transcendentals are approximate.** `MathLibrary` `sqrt`, `pow`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan2`, `lerp`, `pi`, etc. are FixPointCS fixed-point implementations: deterministic but not bit-exact to real math (`pow[2,10] != 1024`, `sqrt[4] != 2` exactly). `round` is **half-up**, not banker's rounding. `sqrt` and `pow` check their own domain before calling FixPointCS (`sqrt[n<0]` → 0, `pow[b<=0, e!=0]` → 0, `pow[b, 0]` → 1) — FixPointCS itself only returns 0 for those inputs in a player build and routes them through the invalid-argument handler (which throws) in the editor.
 - **`F64Vec3` is an opaque `NativeObject`** handle in WarScript (D5) — scripts pass it around but don't introspect components from script.
 - **Divide / modulo by zero raise a catchable exception** (`"Division by zero"` / `"Modulo by zero"`), not a crash (D4) — handle with `begin/rescue`.
 - **Coroutine timing** (`yield wait <seconds>`) uses an F64 `dt` supplied by the host each tick (D7); there is no internal clock.
@@ -183,7 +183,7 @@ loop v in DamageType :: values      # iterate all members
 # Classes — constructor args in [], property access with ::
 class Point [x, y]
     fun magnitude []
-        return Math_sqrt [this :: x * this :: x + this :: y * this :: y]
+        return sqrt [this :: x * this :: x + this :: y * this :: y]   # MathLibrary names are unprefixed
     end
 end
 p = new Point [3, 4]
@@ -192,7 +192,9 @@ p = new Point [3, 4]
 # Casting: obj as Animal     Type check: obj is Animal
 
 # Exception handling: begin / rescue err / ensure / end
-# String interpolation: "Hello {name}, you are {age} years old"
+# String interpolation: "Hello {name}, you are {age} years old"   (or explicitly $"Hello {name}")
+# String escapes: \" \\ \{ \} \n \t \r   — anything else is a SyntaxException
+# Raw strings (no escapes, no interpolation, multi-line): """print "{x}""""  — for embedded source
 # Coroutines: yield, yield wait 2.0, yield until condition
 # Import: import "other_script"
 # Builtins: print value, assert condition
@@ -250,7 +252,7 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 
 ## Existing Desugar Patterns
 
-1. **String interpolation** — Lexer: `"hello {x}"` → `"hello " + (x)` tokens
+1. **String interpolation** — Lexer: `"hello {x}"` → `"hello " + (x)` tokens. `$"..."` is the same path. Escapes are folded into the `Text` token at lex time; `"""..."""` skips both and emits one verbatim `Text` token.
 2. **Default parameters** — Parser: `fun f [a, b = 1]` → inject `if b == null then b = 1` body prefix. Multi-arity registration. VM null-pads stack.
 3. **Compound assignment** — Expression reader: `x += 1` → `x = x + 1`
 4. **Constants** — Parser: `const X = 5` → assignment + `ConstantNames.Add()`. Parse-time immutability.
@@ -261,6 +263,7 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 
 - **`{` and `}` are array delimiters**, not block delimiters. Blocks end with `end`. Array indexing is `arr{i}`. Function args use `[`, `]`.
 - **`::` is the property access operator** — `obj :: name`, `this :: x`, `DamageType :: PHYSICAL`.
+- **Text literals come in three forms**: `"..."` and `$"..."` (identical — interpolation + escapes) and `"""..."""` (raw: no escapes, no interpolation, multi-line, drops the line breaks adjoining the delimiters). A raw literal closes on the *last* three quotes of a run, so its content may end in `"` but may not contain `"""`. `$"""` is rejected.
 - **AST is discarded after compilation.** Bytecode is the source of truth.
 - **`WarValue` is a struct.** Passed by value. Lambda function values stored as `NativeObject(CompiledFunction)`.
 - **Default parameters**: `null` triggers the default (deliberate design — no way to pass "missing" vs "null").

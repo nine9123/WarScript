@@ -218,7 +218,36 @@ namespace WarScript.Bytecode
         //  Main dispatch loop
         // ────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Runs the dispatch loop, converting a value-stack overflow into a
+        /// catchable script exception. The push helper itself is branch-free
+        /// (hot path); the array's own bounds check is what detects overflow,
+        /// and the filter re-throws anything that is not an actual push past
+        /// the top of the stack so genuine VM bugs still surface.
+        /// </summary>
         private void Execute()
+        {
+            while (true)
+            {
+                try
+                {
+                    ExecuteLoop();
+                    return;
+                }
+                catch (System.IndexOutOfRangeException) when (_sp > StackMax)
+                {
+                    RuntimeError("Value stack overflow");
+                    int fi = _frameCount - 1;
+                    var code = _frames[fi].Function.Chunk.Code;
+                    var constants = _frames[fi].Function.Chunk.Constants;
+                    if (!DoHandleException(ref fi, ref code, ref constants))
+                        return;
+                    // Handled: loop and re-enter the dispatch loop.
+                }
+            }
+        }
+
+        private void ExecuteLoop()
         {
             // These are reloaded from the _frames array whenever the current
             // frame changes (after Call or Return).
@@ -1288,6 +1317,12 @@ namespace WarScript.Bytecode
                         break;
                     }
                     case OpCode.This:
+                        if (!_script.ClassInstanceContext.HasValue)
+                        {
+                            RuntimeError("'this' can only be used inside a class");
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         Push(WarValue.FromClass(_script.ClassInstanceContext.GetValue()));
                         break;
 
@@ -1296,6 +1331,12 @@ namespace WarScript.Bytecode
                     {
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
                         var cacheSlot = ReadU16(code, ref _frames[fi].IP);
+                        if (!_script.ClassInstanceContext.HasValue)
+                        {
+                            RuntimeError("'this' can only be used inside a class");
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         var cd = _script.ClassInstanceContext.GetValue();
                         var details = cd.Definition.ClassDetails;
                         ref var cache = ref _frames[fi].Function.Chunk.PropertyCaches[cacheSlot];
@@ -1320,6 +1361,12 @@ namespace WarScript.Bytecode
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
                         var cacheSlot = ReadU16(code, ref _frames[fi].IP);
                         var value = Pop();
+                        if (!_script.ClassInstanceContext.HasValue)
+                        {
+                            RuntimeError("'this' can only be used inside a class");
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         var cd = _script.ClassInstanceContext.GetValue();
                         var details = cd.Definition.ClassDetails;
                         ref var cache = ref _frames[fi].Function.Chunk.PropertyCaches[cacheSlot];
@@ -1399,6 +1446,12 @@ namespace WarScript.Bytecode
                         var ensureIP = ReadU16(code, ref _frames[fi].IP);
                         var endIP    = ReadU16(code, ref _frames[fi].IP);
                         var hasRescue = code[_frames[fi].IP++] != 0;
+                        if (_handlerCount >= HandlersMax)
+                        {
+                            RuntimeError("Exception handler stack overflow (begin blocks nested too deeply)");
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         _handlers[_handlerCount++] = new TryHandler
                         {
                             RescueIP = rescueIP,
