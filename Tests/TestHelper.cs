@@ -20,14 +20,16 @@ namespace Tests
             string scriptName,
             string source,
             Action<WarScriptLanguage, DefinitionScope> setupScope = null,
-            Func<string, string> fileResolver = null)
+            Func<string, string> fileResolver = null,
+            Func<string, byte[]> bytecodeResolver = null)
         {
             var output = new List<string>();
             var script = new WarScriptLanguage(
                 scriptName:scriptName,
                 sourceCode: source,
                 fileResolver: fileResolver,
-                logger: (s, msg) => output.Add(msg));
+                logger: (s, msg) => output.Add(msg),
+                bytecodeResolver: bytecodeResolver);
             
             setupScope?.Invoke(script, script.GlobalDefinitionScope);
             
@@ -43,13 +45,14 @@ namespace Tests
         public static (WarScriptLanguage script, List<string> output) RunFile(
             string resourceName,
             Action<WarScriptLanguage, DefinitionScope> setupScope = null,
-            Func<string, string> fileResolver = null)
+            Func<string, string> fileResolver = null,
+            Func<string, byte[]> bytecodeResolver = null)
         {
             var path = GetResourcePath(resourceName);
             var sourceCode = File.ReadAllText(path);
             var scriptName = Path.GetFileName(path);
 
-            return Run(scriptName, sourceCode, setupScope, fileResolver);
+            return Run(scriptName, sourceCode, setupScope, fileResolver, bytecodeResolver);
         }
         
         private static string GetResourcePath(

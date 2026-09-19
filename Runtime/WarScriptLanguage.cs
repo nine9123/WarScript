@@ -44,6 +44,24 @@ namespace WarScript
         public readonly IExpression DefaultStep;
 
         public readonly Func<string, string?>? FileResolver;
+
+        /// <summary>
+        /// Optional host hook returning the precompiled bytecode (the bytes
+        /// written by <see cref="SaveBytecode"/>) for an <c>import</c> path,
+        /// or null when the host has none for it.
+        ///
+        /// When it answers, the import skips the lexer, parser and compiler
+        /// the way <see cref="LoadBytecode"/> does for the entry point — which
+        /// is where nearly all of a script's work usually is, since a project
+        /// typically reaches most of its code through <c>import</c>.
+        ///
+        /// Bytecode that will not load (stale, truncated, a version from a
+        /// newer WarScript) is reported through <see cref="Logger"/> and the
+        /// import falls back to <see cref="FileResolver"/>, so a host that
+        /// ships both keeps working on either.
+        /// </summary>
+        public readonly Func<string, byte[]?>? BytecodeResolver;
+
         public readonly Action<WarScriptLanguage, string>? Logger;
 
         internal readonly Dictionary<string, DefinitionScope> ImportCache = new();
@@ -158,10 +176,12 @@ namespace WarScript
             string scriptName,
             string sourceCode,
             Func<string, string?>? fileResolver,
-            Action<WarScriptLanguage, string>? logger)
+            Action<WarScriptLanguage, string>? logger,
+            Func<string, byte[]?>? bytecodeResolver = null)
         {
             ScriptName = scriptName;
             FileResolver = fileResolver;
+            BytecodeResolver = bytecodeResolver;
             Logger = logger;
 
             NullExpr = new ConstantExpression(WarValue.Null);
@@ -397,6 +417,58 @@ namespace WarScript
             // Merge loaded definitions into _definitionScope
             scope.CopyLocalDefinitionsTo(_definitionScope);
             _cachedCompiled = topLevel;
+        }
+
+        /// <summary>
+        /// Ask <see cref="BytecodeResolver"/> for the precompiled form of an
+        /// imported path and deserialize it into a scope of its own.
+        ///
+        /// Returns the imported file's top-level bytecode — which the caller
+        /// still has to run, exactly like the compiled-from-source form — or
+        /// null when there is nothing to use. Null is the ordinary answer: a
+        /// host with no resolver, one that has no bytecode for this path, and
+        /// one whose bytecode will not load all say "compile the source", and
+        /// only the last of those is worth a log line.
+        /// </summary>
+        internal CompiledFunction? LoadImportedBytecode(
+            string path, DefinitionScope parentScope, out DefinitionScope? scope)
+        {
+            scope = null;
+            if (BytecodeResolver == null) return null;
+
+            byte[]? bytes;
+            try
+            {
+                bytes = BytecodeResolver(path);
+            }
+            catch (System.Exception e)
+            {
+                // A throwing resolver is the host's bug, not the script's: the
+                // source is still worth trying, so this reports and falls back
+                // rather than failing the import outright.
+                Logger?.Invoke(this,
+                    $"[WarScript] Bytecode resolver failed for import '{path}' ({e.Message}) — " +
+                    "compiling its source instead.");
+                return null;
+            }
+
+            if (bytes == null || bytes.Length == 0) return null;
+
+            try
+            {
+                using var stream = new MemoryStream(bytes, false);
+                using var r = new System.IO.BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+                var (topLevel, loaded) = BytecodeSerializer.Load(r, this, parentScope);
+                scope = loaded;
+                return topLevel;
+            }
+            catch (System.Exception e)
+            {
+                Logger?.Invoke(this,
+                    $"[WarScript] Precompiled bytecode for import '{path}' could not be loaded " +
+                    $"({e.Message}) — compiling its source instead.");
+                return null;
+            }
         }
 
         // ────────────────────────────────────────────────────────

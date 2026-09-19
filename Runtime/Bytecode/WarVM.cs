@@ -1902,7 +1902,6 @@ namespace WarScript.Bytecode
         // ── Import ──
         private void ExecuteImport(string path)
         {
-            if (_script.FileResolver == null) { RuntimeError($"Cannot import '{path}': no file resolver"); return; }
             if (_script.ImportStack.Contains(path)) { RuntimeError($"Circular import: '{path}'"); return; }
             if (_script.ImportCache.TryGetValue(path, out var cached))
             {
@@ -1910,21 +1909,35 @@ namespace WarScript.Bytecode
                 return;
             }
 
-            string? source;
-            try { source = _script.FileResolver(path); }
-            catch (System.Exception e) { RuntimeError($"Failed to read import '{path}': {e.Message}"); return; }
-            if (source == null) { RuntimeError($"Import '{path}' not found"); return; }
+            var callerScope = _script.DefinitionContext.GetScope();
+
+            // Precompiled first: a host that ships bytecode for this path has
+            // already done the lex/parse/compile work this would otherwise
+            // repeat at every load. Null means there is none to use.
+            var precompiled = _script.LoadImportedBytecode(path, callerScope, out var importDefScope);
+
+            string? source = null;
+            if (precompiled == null)
+            {
+                if (_script.FileResolver == null) { RuntimeError($"Cannot import '{path}': no file resolver"); return; }
+                try { source = _script.FileResolver(path); }
+                catch (System.Exception e) { RuntimeError($"Failed to read import '{path}': {e.Message}"); return; }
+                if (source == null) { RuntimeError($"Import '{path}' not found"); return; }
+            }
 
             _script.ImportStack.Add(path);
-            var callerScope = _script.DefinitionContext.GetScope();
-            var importDefScope = _script.DefinitionContext.NewScope();
+            importDefScope ??= _script.DefinitionContext.NewScope();
             _script.DefinitionContext.PushScope(importDefScope);
             try
             {
-                var tokens = LexicalParser.Parse(source);
-                var importStmt = new CompositeStatement(_script, null, path);
-                StatementParser.Parse(_script, tokens, importStmt);
-                var compiled = Compiler.CompileScript(_script, importStmt, importDefScope);
+                var compiled = precompiled;
+                if (compiled == null)
+                {
+                    var tokens = LexicalParser.Parse(source!);
+                    var importStmt = new CompositeStatement(_script, null, path);
+                    StatementParser.Parse(_script, tokens, importStmt);
+                    compiled = Compiler.CompileScript(_script, importStmt, importDefScope);
+                }
                 new WarVM(_script).Run(compiled);
                 if (!_script.ExceptionContext.IsRaised())
                     _script.ImportCache[path] = importDefScope;
