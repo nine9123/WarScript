@@ -76,6 +76,7 @@ var script = new WarScriptLanguage(
     sourceCode:   sourceCode,
     fileResolver: null,                       // resolves `import "name"` — see Import
     logger:       (s, msg) => Debug.Log(msg));
+//  bytecodeResolver: optional 5th argument — precompiled bytecode for an import, see Import
 
 // 2. Register the built-in libraries (and your own bindings) BEFORE Run().
 WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
@@ -730,6 +731,32 @@ var script = new WarScriptLanguage("main", source,
 
 Imports are cached per script instance, and import cycles are detected.
 
+#### Importing precompiled bytecode
+
+An imported script is lexed, parsed and compiled at every load, which for most projects is where
+nearly all of that work is — the entry point is usually small and the code it pulls in is not. Pass
+a `bytecodeResolver` as well and an import starts from the precompiled form instead, exactly as
+`LoadBytecode` does for the entry point:
+
+```csharp
+var script = new WarScriptLanguage("main", source,
+    fileResolver: path => Source(path),               // still needed as the fallback
+    logger: (s, msg) => Debug.Log(msg),
+    bytecodeResolver: path => File.Exists($"Scripts/{path}.wsbc")
+        ? File.ReadAllBytes($"Scripts/{path}.wsbc")
+        : null);
+```
+
+Return `null` for a path you have no bytecode for and it is compiled from source as before, so the
+two resolvers can be mixed freely. Bytecode that will not load — stale, truncated, a version from a
+newer WarScript — is reported to the `logger` and also falls back to the source, which means an
+out-of-date `.wsbc` costs speed rather than the script.
+
+**It has to be the bytecode of the file the path resolves to.** WarScript asks by path and runs
+what it is handed; a host whose sources can be overridden (a patch, a live edit) is what decides
+whether the bytecode it holds is still that file. `ScriptRunner` exposes the hook as
+`ImportScriptBytecode(path)` next to `ImportScript(path)`.
+
 ## Standard Library
 
 Registered by `WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope)`. Note the
@@ -1048,6 +1075,10 @@ var tick = script.GetFunction("tick", 1);
 ```
 
 Coroutines and `yield` behave identically whether the bytecode came from `Run()` or `LoadBytecode()`.
+
+`LoadBytecode` covers the entry point. To skip the front end for what the entry point imports as
+well, give the constructor a `bytecodeResolver` — see
+[Importing precompiled bytecode](#importing-precompiled-bytecode).
 
 > The serialized format version is `1`, but numeric constants are stored as the 64-bit **F64 raw**.
 > Files produced before the fixed-point migration share the version byte yet are binary

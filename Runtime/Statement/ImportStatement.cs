@@ -1,5 +1,7 @@
 #nullable enable
 
+using WarScript.Bytecode;
+
 namespace WarScript.Statement
 {
     /// <summary>
@@ -20,6 +22,9 @@ namespace WarScript.Statement
     /// <item>Circular imports are detected and raise an exception.</item>
     /// <item>Each file path is only imported once per script; subsequent
     ///       imports of the same path reuse the cached definitions.</item>
+    /// <item>When the host supplies a <see cref="WarScriptLanguage.BytecodeResolver"/>
+    ///       that has precompiled bytecode for the path, that is loaded and run
+    ///       instead — the lexer, parser and compiler never see the file.</item>
     /// </list>
     ///
     /// <see cref="StatementParser"/>
@@ -40,15 +45,6 @@ namespace WarScript.Statement
 
         public override void Execute()
         {
-            // Ensure a file resolver has been provided
-            if (_script.FileResolver == null)
-            {
-                _script.ExceptionContext.RaiseException(
-                    $"Cannot import '{_path}': no file resolver configured");
-                _script.ExceptionContext.AddTracedStatement(this);
-                return;
-            }
-
             // Resolve to an absolute/canonical path for caching and cycle detection
             var resolvedPath = _path;
 
@@ -68,50 +64,77 @@ namespace WarScript.Statement
                 return;
             }
 
-            // Read the source code via the host-provided resolver
-            string? sourceCode;
-            try
-            {
-                sourceCode = _script.FileResolver.Invoke(resolvedPath);
-            }
-            catch (System.Exception e)
-            {
-                _script.ExceptionContext.RaiseException(
-                    $"Failed to read import '{resolvedPath}': {e.Message}");
-                _script.ExceptionContext.AddTracedStatement(this);
-                return;
-            }
+            // Capture the caller's scope before pushing the import scope
+            var callerScope = _script.DefinitionContext.GetScope();
 
-            if (sourceCode == null)
+            // Precompiled bytecode, when the host has some for this path.
+            // Null means there is none to use and the source is compiled.
+            var precompiled = _script.LoadImportedBytecode(
+                resolvedPath, callerScope, out var loadedScope);
+
+            string? sourceCode = null;
+            if (precompiled == null)
             {
-                _script.ExceptionContext.RaiseException(
-                    $"Import '{resolvedPath}' not found");
-                _script.ExceptionContext.AddTracedStatement(this);
-                return;
+                // Ensure a file resolver has been provided
+                if (_script.FileResolver == null)
+                {
+                    _script.ExceptionContext.RaiseException(
+                        $"Cannot import '{resolvedPath}': no file resolver configured");
+                    _script.ExceptionContext.AddTracedStatement(this);
+                    return;
+                }
+
+                // Read the source code via the host-provided resolver
+                try
+                {
+                    sourceCode = _script.FileResolver.Invoke(resolvedPath);
+                }
+                catch (System.Exception e)
+                {
+                    _script.ExceptionContext.RaiseException(
+                        $"Failed to read import '{resolvedPath}': {e.Message}");
+                    _script.ExceptionContext.AddTracedStatement(this);
+                    return;
+                }
+
+                if (sourceCode == null)
+                {
+                    _script.ExceptionContext.RaiseException(
+                        $"Import '{resolvedPath}' not found");
+                    _script.ExceptionContext.AddTracedStatement(this);
+                    return;
+                }
             }
 
             // Mark as in-progress for cycle detection
             _script.ImportStack.Add(resolvedPath);
 
-            // Capture the caller's scope before pushing the import scope
-            var callerScope = _script.DefinitionContext.GetScope();
-
-            // Create isolated scopes for the imported file
-            var importDefinitionScope = _script.DefinitionContext.NewScope();
+            // Create isolated scopes for the imported file — the bytecode
+            // brought its own, holding the definitions it was built with
+            var importDefinitionScope = loadedScope ?? _script.DefinitionContext.NewScope();
 
             _script.DefinitionContext.PushScope(importDefinitionScope);
 
             try
             {
-                // Lex
-                var tokens = LexicalParser.Parse(sourceCode);
+                if (precompiled != null)
+                {
+                    // Top-level code of the precompiled file (e.g. nested
+                    // imports, variable init) — only the VM can run it
+                    new WarVM(_script).Run(precompiled);
+                }
+                else
+                {
+                    // Lex
+                    var tokens = LexicalParser.Parse(sourceCode!);
 
-                // Parse (registers function/class definitions into importDefinitionScope)
-                var importStatement = new CompositeStatement(_script, null, resolvedPath);
-                StatementParser.Parse(_script, tokens, importStatement);
+                    // Parse (registers function/class definitions into importDefinitionScope)
+                    var importStatement = new CompositeStatement(_script, null, resolvedPath);
+                    StatementParser.Parse(_script, tokens, importStatement);
 
-                // Execute top-level code (e.g. nested imports, variable init)
-                importStatement.Execute();
+                    // Execute top-level code (e.g. nested imports, variable init)
+                    importStatement.Execute();
+                }
 
                 if (_script.ExceptionContext.IsRaised())
                     return;

@@ -16,7 +16,8 @@ namespace WarScript.Native
                 scriptName,
                 sourceCode,
                 ImportScript,
-                LogPrintMessage);
+                LogPrintMessage,
+                ImportScriptBytecode);
         }
 
         public static ScriptRunner Create(string scriptName, string sourceCode)
@@ -33,6 +34,24 @@ namespace WarScript.Native
         }
 
         protected virtual string? ImportScript(string scriptPath)
+        {
+            return null;
+        }
+
+        /// <summary>
+        /// Precompiled bytecode for an imported script, or null to have the
+        /// VM compile whatever <see cref="ImportScript"/> returns for the same
+        /// path — which is what a host that ships no bytecode keeps doing.
+        ///
+        /// A host that precompiles its scripts should answer here as well as
+        /// from <see cref="ImportScript"/>: an import is where most of a
+        /// project's script code usually is, and without this the VM lexes,
+        /// parses and compiles it at every load however much bytecode the host
+        /// ships. The bytes are what <see cref="WarScriptLanguage.SaveBytecode"/>
+        /// wrote, and must be of the same script the path resolves to — see
+        /// <see cref="WarScriptLanguage.BytecodeResolver"/>.
+        /// </summary>
+        protected virtual byte[]? ImportScriptBytecode(string scriptPath)
         {
             return null;
         }

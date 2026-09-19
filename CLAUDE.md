@@ -271,6 +271,7 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 - **Enums** are class instances. Members are properties. `name[]` is a method. Protected from reassignment via `ConstantNames`.
 - **`[WsEnum]`/`[WsConst]` codegen** uses `GlobalMemoryScope.Set()` because `Register()` is called before `Run()` when the scope stack is empty.
 - **BytecodeSerializer format version is 1.** Includes `MinArity` and `NativeObject(CompiledFunction)` (lambda) constants. Numeric constants serialize as the 64-bit **F64 raw** (`Numeric.Raw` / `FromRawNumeric`), replacing the old IEEE-754 `double` encoding — so bytecode produced before the fixed-point migration is **binary-incompatible despite sharing the version byte**; regenerate it from source.
+- **`import` can start from bytecode.** `WarScriptLanguage.BytecodeResolver` (optional 5th ctor argument, `ScriptRunner.ImportScriptBytecode`) is asked for an imported path before `FileResolver` is; when it answers, the import is deserialized and run instead of lexed/parsed/compiled. A null answer, an unloadable one, or a throwing resolver falls back to the source (the last two also log through `Logger`). `const`/`enum` names in a bytecode-loaded import do not enter `ConstantNames` — same as `LoadBytecode()`.
 - **Function lookup is by (name, argCount).** Default params register at all valid arities.
 - **Lexer caches globally** by source string. Call `LexicalParser.ClearCache()` for hot reload.
 
