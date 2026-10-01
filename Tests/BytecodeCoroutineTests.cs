@@ -322,6 +322,115 @@ namespace Tests
         }
 
         [Test]
+        public void CallerVariablesSurviveYieldInsideCalledFunction()
+        {
+            var (script, output) = TestHelper.Run("test", @"
+                fun helper []
+                    yield wait 1
+                    return 1
+                end
+                fun on_run [room]
+                    keep = ""x""
+                    got = helper []
+                    print keep
+                    print got
+                    print room
+                end
+            ");
+
+            script.StartCoroutine("on_run", new[] { WarValue.FromText("lobby") });
+            Assert.AreEqual(0, output.Count);
+
+            script.TickCoroutines(F64.FromInt(1));
+            Assert.AreEqual(new[] { "x", "1", "lobby" }, output);
+            Assert.AreEqual(0, script.ActiveCoroutineCount);
+        }
+
+        [Test]
+        public void CallerVariablesSurviveRepeatedYieldsInDeeperCalls()
+        {
+            var (script, output) = TestHelper.Run("test", @"
+                fun inner [n]
+                    local_n = n * 10
+                    yield
+                    yield
+                    return local_n
+                end
+                fun middle [n]
+                    before = ""m"" + n
+                    v = inner [n]
+                    return before + "":"" + v
+                end
+                fun outer []
+                    tag = ""outer""
+                    a = middle [1]
+                    b = middle [2]
+                    print tag + "" "" + a + "" "" + b
+                end
+            ");
+
+            script.StartCoroutine("outer", System.Array.Empty<WarValue>());
+            for (int i = 0; i < 4; i++)
+                script.TickCoroutines(F64.FromDouble(0.016));
+
+            Assert.AreEqual(new[] { "outer m1:10 m2:20" }, output);
+            Assert.AreEqual(0, script.ActiveCoroutineCount);
+        }
+
+        [Test]
+        public void YieldInsideMethodPreservesCallerAndInstance()
+        {
+            var (script, output) = TestHelper.Run("test", @"
+                class Unit [hp]
+                    fun hit [n]
+                        yield
+                        this :: hp = this :: hp - n
+                        return this :: hp
+                    end
+                end
+                fun fight []
+                    label = ""unit""
+                    u = new Unit [10]
+                    left = u :: hit [3]
+                    print label + "" "" + left
+                end
+            ");
+
+            script.StartCoroutine("fight", System.Array.Empty<WarValue>());
+            script.TickCoroutines(F64.FromDouble(0.016));
+
+            Assert.AreEqual(new[] { "unit 7" }, output);
+            Assert.AreEqual(0, script.ActiveCoroutineCount);
+        }
+
+        [Test]
+        public void YieldInsideCalledFunctionDoesNotLeakIntoHostCalls()
+        {
+            var (script, output) = TestHelper.Run("test", @"
+                fun helper []
+                    yield
+                    return 1
+                end
+                fun co []
+                    keep = ""co""
+                    helper []
+                    print keep
+                end
+                fun probe []
+                    print ""probe {keep}""
+                end
+            ");
+
+            script.StartCoroutine("co", System.Array.Empty<WarValue>());
+            // A host call between ticks must not see the suspended coroutine's scopes.
+            script.Call(script.GetFunction("probe", 0));
+            script.TickCoroutines(F64.FromDouble(0.016));
+            script.Call(script.GetFunction("probe", 0));
+
+            Assert.AreEqual(new[] { "probe null", "co", "probe null" }, output);
+        }
+
+        [Test]
         public void YieldUntilCondition()
         {
             var (script, output) = TestHelper.Run("test", @"

@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Collections.Generic;
 using WarScript.Bytecode;
 using WarScript.Context;
 using WarScript.Context.Definition;
@@ -30,6 +31,14 @@ namespace WarScript
         private readonly WarVM _vm;
         private readonly MemoryScope _coroutineScope;
         private bool _started;
+
+        // Scopes the VM pushed for calls still in flight when it yielded
+        // (function locals, method class context, block scopes). They are set
+        // aside between ticks and pushed back on resume, so the VM's frames
+        // find them where they left them. Stored top-of-stack first.
+        private readonly List<MemoryScope> _suspendedMemory = new();
+        private readonly List<DefinitionScope> _suspendedDefinitions = new();
+        private readonly List<ClassData> _suspendedInstances = new();
 
         // Yield timing
         private YieldType _yieldType;
@@ -79,6 +88,20 @@ namespace WarScript
             _script.MemoryContext.PushScope(_coroutineScope);
             _script.ClearYield();
 
+            int memoryBase = _script.MemoryContext.Depth;
+            int definitionBase = _script.DefinitionContext.Depth;
+            int instanceBase = _script.ClassInstanceContext.Depth;
+
+            for (int i = _suspendedMemory.Count - 1; i >= 0; i--)
+                _script.MemoryContext.PushScope(_suspendedMemory[i]);
+            for (int i = _suspendedDefinitions.Count - 1; i >= 0; i--)
+                _script.DefinitionContext.PushScope(_suspendedDefinitions[i]);
+            for (int i = _suspendedInstances.Count - 1; i >= 0; i--)
+                _script.ClassInstanceContext.PushValue(_suspendedInstances[i]);
+            _suspendedMemory.Clear();
+            _suspendedDefinitions.Clear();
+            _suspendedInstances.Clear();
+
             try
             {
                 if (!_started)
@@ -93,6 +116,25 @@ namespace WarScript
             }
             finally
             {
+                // Take off whatever the VM left above our own scopes: keep it
+                // for the next resume if suspended, otherwise discard it.
+                bool suspended = _vm.IsYielded;
+                while (_script.MemoryContext.Depth > memoryBase)
+                {
+                    if (suspended) _suspendedMemory.Add(_script.MemoryContext.DetachScope());
+                    else _script.MemoryContext.EndScope();
+                }
+                while (_script.DefinitionContext.Depth > definitionBase)
+                {
+                    var scope = _script.DefinitionContext.DetachScope();
+                    if (suspended) _suspendedDefinitions.Add(scope);
+                }
+                while (_script.ClassInstanceContext.Depth > instanceBase)
+                {
+                    var instance = _script.ClassInstanceContext.DetachValue();
+                    if (suspended) _suspendedInstances.Add(instance);
+                }
+
                 _script.MemoryContext.EndScope();  // coroutine scope
                 _script.MemoryContext.EndScope();  // user memory scope
                 _script.DefinitionContext.EndScope();

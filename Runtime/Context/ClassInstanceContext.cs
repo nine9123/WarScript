@@ -24,5 +24,14 @@ namespace WarScript.Context
         {
             _values.Pop();
         }
+
+        /// <summary>Number of instances currently on the stack.</summary>
+        public int Depth => _values.Count;
+
+        /// <summary>Remove and return the current instance.</summary>
+        public ClassData DetachValue()
+        {
+            return _values.Pop();
+        }
     }
 }
