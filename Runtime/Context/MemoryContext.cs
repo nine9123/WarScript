@@ -74,5 +74,18 @@ namespace WarScript.Context
             if (scope.Poolable && _pool.Count < MaxPoolSize)
                 _pool.Push(scope);
         }
+
+        /// <summary>Number of scopes currently on the stack.</summary>
+        public int Depth => _scopes.Count;
+
+        /// <summary>
+        /// Remove the current scope without returning it to the pool.
+        /// Used to set aside a suspended coroutine's scopes so they can be
+        /// pushed back, intact, when it resumes.
+        /// </summary>
+        public MemoryScope DetachScope()
+        {
+            return _scopes.Pop();
+        }
     }
 }

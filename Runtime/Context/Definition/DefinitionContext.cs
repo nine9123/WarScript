@@ -53,5 +53,14 @@ namespace WarScript.Context.Definition
         {
             _scopes.Pop();
         }
+
+        /// <summary>Number of scopes currently on the stack.</summary>
+        public int Depth => _scopes.Count;
+
+        /// <summary>Remove and return the current scope.</summary>
+        public DefinitionScope DetachScope()
+        {
+            return _scopes.Pop();
+        }
     }
 }
