@@ -2328,7 +2328,7 @@ DefaultImporter:
 | T0.6 | State hash | T0.2 | done | `WarScriptLanguage.ComputeStateHash()` (`Runtime/StateHash.cs`); the golden runner requires the same hash in both modes and every culture and writes `<file> [<mode>]: <hash>` lines to `Headless~/out/golden-hashes.<os>-<arch>.txt`; `Headless~/compare-hashes.sh` diffs them. Encoding notes in 9.7. Cross-machine comparison needs CI or the owner (9.8). |
 | T0.7 | Fuzzer v0 | T0.5 | todo | |
 | T0.8 | Audit mode (plus owner game sessions) | T0.1 | todo | |
-| T0.9 | Behavior baseline (owner) | T0.6 | owner step | `Documentation~/migration/BASELINE.md` written. run-1 (2026-11-06) reviewed there and not accepted: every recorded hash is the "no user globals" value, so it compares only three printed lines; no repeat run, no README. The recorder now also writes `<label>.globals.txt`. Waiting for run-2. |
+| T0.9 | Behavior baseline (owner) | T0.6 | owner step | `Documentation~/migration/BASELINE.md` written. run-1 (2026-11-06) reviewed there and not accepted: every recorded hash is the "no user globals" value, so it compares only three printed lines; no repeat run, no README. The recorder now also writes `<label>.globals.txt`. The full warman mod (2026-11-06) has no assignments at all, which explains run-1; its script behavior is baselined headlessly as native-call traces (`Headless~/ModTrace`, hashes in BASELINE.md). Waiting for the owner to accept that as the baseline. |
 | T1.1 | Constructors as frames | Phase 0 | todo | |
 | T1.2 | Cycle-safe value operations | Phase 0 | todo | |
 | T1.3 | Exception boundary and context restoration | Phase 0 | todo | |

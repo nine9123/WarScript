@@ -13,13 +13,15 @@ what to record and how.
 
 | | |
 |---|---|
-| Location | *Not recorded yet. When the baselines exist, put their location here (plan T0.9, "Done when").* |
-| Recorded with | *WarScript commit (`git rev-parse HEAD` of the package) and game build* |
-| Date | |
+| Location | Script side: the hashes in [Headless trace of the warman mod](#headless-trace-of-the-warman-mod) below; the trace files themselves are regenerated from the mod with `Headless~/ModTrace`. In-game recordings: *not accepted yet* |
+| Recorded with | WarScript `b33dd39` (v1 runtime), warman mod sources `8cb3c95bd4c4b81c` (166 `.ws` files; the built `warman.wm` reports `contentHash` `a29b1eb0`) |
+| Date | 2026-11-06 |
 
-A first recording, `run-1`, was received on 2026-11-06. It is not usable as
-the baseline yet; see [Review of run-1](#review-of-run-1) for why and what to
-record next.
+A first in-game recording, `run-1`, was received on 2026-11-06. It is not
+usable as the baseline; see [Review of run-1](#review-of-run-1). The full
+warman mod, received the same day, explains why, and its scripts are now
+baselined headlessly instead; see [Headless trace of the warman
+mod](#headless-trace-of-the-warman-mod).
 
 ## What a baseline is
 
@@ -234,3 +236,92 @@ state](#check-that-the-hash-sees-the-scripts-state), record each scenario
 twice, and add `README.txt`. When the result is accepted, fill in [Where the
 baselines are](#where-the-baselines-are) and mark T0.9 done in the plan
 tracker.
+
+## Headless trace of the warman mod
+
+The full warman mod (its `.ws` sources and the built `warman.wm`) was
+received on 2026-11-06. It settles the run-1 finding and makes a different
+kind of baseline possible.
+
+**Why run-1's hashes carry no state.** The mod's 166 scripts contain no
+assignment of any kind: no variables, no classes, no loops, and four
+functions (`bootstrap[client]`, `resources[]` and two `on_room_setup[room]`).
+Every other statement is an `import`, a `print`, or a call to one of 32
+natives (`t`, `map_room`, `doodad_define`, `sound_define`, `job_modifier`,
+`quest_define`, `npc_setup`, ...). The three `attach_script` objects in the
+room files (`island.wroom.json`, `outpost/1/lower_prison_west.wroom.json`)
+hold one native call each. Such a script never has a user global, so
+`ComputeStateHash()` can only ever be the hash of what it printed, on any
+tick. A per-tick in-game hash of these instances therefore cannot show a
+behavior difference, however it is recorded; asking for run-2 with more
+`print` lines would only rediscover what the scripts call.
+
+**What the baseline is instead.** All of this mod's script behavior is the
+sequence of native calls it makes and the arguments it passes. That can be
+recorded without the game: `Headless~/ModTrace` stubs every native the mod
+calls with a recorder that returns `true`, runs each entry script (a `.ws`
+file no other file imports) in its own instance, then calls each function
+that script defines once with null arguments, and writes one trace per entry
+script (`call: name[args]`, `log: line`, `run: step`, and the final state
+hash). Numbers are written as their exact 32.32 decimal, so no formatting
+change can hide or invent a difference.
+
+```bash
+./Headless~/fetch-fixpointcs.sh   # once
+dotnet build "Headless~/ModTrace/WarScript.ModTrace.csproj"
+dotnet Headless~/ModTrace/bin/Debug/net8.0/WarScript.ModTrace.dll <warman folder> [--out <folder>]
+```
+
+The recorded baseline (default output `Headless~/out/modtrace/summary.txt`):
+
+```
+mod: 166 scripts, sources 8cb3c95bd4c4b81c, 4 entry scripts, 32 natives stubbed
+bootstrap.ws: 0 calls, trace 3eee18c4234a6e5e
+resources.ws: 13943 calls, trace 953db366544b6bee
+rooms/island.ws: 4 calls, trace dcbb6dcef292b4ef
+rooms/outpost/1/outpost-1.ws: 2 calls, trace e597db43fbc802ac
+```
+
+Two runs, one of them under a de-DE host locale, wrote identical files. The
+final state hashes in the traces of `bootstrap.ws`, `rooms/island.ws` and
+`rooms/outpost/1/outpost-1.ws` are the values run-1 recorded for the same
+instances. `resources.ws` differs from run-1 (`d366350abf82d93d` against
+`af64724c8602eb6e`) because the tool calls `resources[]`, which prints
+`loading resources`; the game evidently never calls it.
+
+**Comparing after the migration.** Run the tool on the migrated mod with the
+v2 runtime. The mod uses none of the constructs the documented semantic
+changes touch (no globals, instances, `==` on instances, logical values in
+text, or fractional numbers outside text), so **every trace is expected to be
+identical**; any difference is a migration miss or a v2 bug. To see what
+differs, regenerate the v1 traces from this commit (or the
+`warscript-v1-final` tag) and `diff` the two output folders. The sources
+hash only changes if the mod's scripts change: if the mod is edited before
+the migration, record a new baseline from the edited sources first.
+
+**What the trace does not cover.**
+- Native return values are stubbed (`true`), so a branch on one takes the
+  `true` side: `island.ws` traces the calls inside `if object_exists[50]`.
+- The engine's call pattern is approximated: the tool calls every function
+  an entry script defines once, with null arguments. The game calls
+  `bootstrap[client]` and `on_room_setup[room]` with real values and, going by
+  run-1, never calls `resources[]`.
+- The `attach_script` one-liners in the room files are not run.
+- The stubs' parameter names come from the mod. v1 reorders named arguments
+  at parse time against the registered native, so the tool puts every named
+  argument of, say, `sound_define` in one fixed slot. The order the game's
+  real native receives is its own; the trace is only comparable with
+  another trace made by this tool.
+
+**Check for the owner (not a baseline issue).** v1 reorders named arguments
+only when a native is registered at exactly the number of named arguments
+given; otherwise they are passed in the order written, silently. The mod
+calls `sound_define` with six different sets of named arguments (3 to 7
+arguments). If the game's `sound_define` is not reachable at each of those
+arities (a `[WsFunction]` with optional `WarValue` parameters is), some of
+those calls bind their arguments by position rather than by name.
+
+**Status.** For this mod, the trace hashes above are the script-side
+baseline. Whether that completes T0.9, or whether in-game recordings are
+still wanted (for example for a host-side tick hash), is the owner's call;
+the tracker records T0.9 as waiting on that decision.
