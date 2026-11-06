@@ -185,7 +185,11 @@ All findings below were verified by running the code (section 1.4) unless marked
 | CRASH-2 | A recursive constructor crashes the process, even with `InstructionBudget` set. | `class Node [v]` whose body does `child = new Node [v + 1]`, then `new Node [0]`, aborts with a stack overflow after 571 nested `ExecuteLoop`/`Execute` levels. | `WarVM.InstantiateClassDefShared` runs each constructor with `new WarVM(_script).Run(...)`, which recurses on the C# stack. `FramesMax` only applies within one VM. | T1.1 |
 | CRASH-3 | C# exceptions escape the VM. | `x = "abc" - ""` throws `ArgumentException` (from `String.Replace` with an empty `oldValue`) out of `Run()`, and `begin/rescue` cannot catch it. `x = "ab" * 2000000000` throws `ArgumentOutOfRangeException` because the length computed in `RepeatString` overflows `int`. | `Execute()` only catches `IndexOutOfRangeException` when `_sp > StackMax`. There are no size or argument pre-checks. The native path of `CallMethod` has no try/catch, although `Call` has one. An escaping exception leaves `MemoryContext`, `DefinitionContext` and `ClassInstanceContext` half-pushed. | T1.3, T1.4 |
 | CRASH-4 | Re-entrant host calls corrupt the VM. | A native `fire []` that calls `script.Call(on_event, 42)` on the same instance: the outer script prints `after fire, a=1 b=7`, then an `IndexOutOfRangeException` escapes to the host. | Host calls reuse the instance's cached `WarVM`. `RunFunction` calls `Reset()` while the outer execution is still running on that VM. | T1.5 |
+| CRASH-5 | A class that inherits from itself crashes the process at `new`. Found by the fuzzer (T0.7). | `class A` / `end` / `class A : A` / `end` / `a = new A` aborts with a stack overflow after about 10,000 nested `InstantiateClassDefShared` calls. Defining the classes is accepted; a constructor body is not needed. | `InstantiateClassDefShared` follows `BaseTypes` by name and recurses on the C# stack with no cycle check. The redefinition replaces `A`, so its base resolves to itself. | Proposed T1.1 (Q-11) |
+| CRASH-6 | Malformed source makes the parser and compiler throw C# exceptions other than `SyntaxException`. Found by the fuzzer (T0.7). | `x = (1]` throws `System.Exception` "Operator LeftParen is not a binary operator" from `OperatorExtension.ToBinaryExpression`. `x = p as "R" :: n` throws `InvalidCastException` from `Compiler.CompileExpression`. Both escape `Run()` instead of being reported as syntax errors. | Unchecked assumptions about expression shapes in the expression reader and compiler | Proposed T1.8 (Q-11) |
+| CRASH-7 | Leaving an `ensure` block by `raise` or `return` while another error is propagating corrupts the exception state. Found by the fuzzer (T0.7). | `begin` / `begin` / `raise "first"` / `ensure` / `raise "second"` / `end` / `rescue e` / `print e` / `end`: the outer `rescue` does not run and `Run()` throws `NullReferenceException` from `ExceptionContext.PrintStackTrace`. Without the outer `begin/rescue`, v1 reports "second" as unhandled. A function whose `ensure` does `return 1` after `raise "first"` returns 1 but leaves a pending exception and a handler on the VM; called inside `begin/rescue`, "first" later escapes unhandled. | The `ensure` path re-enables the saved exception state without checking how the block was left, so the state ends up `Raised` with a null `Exception`, or a discarded error is revived. | Proposed T1.3 (Q-11) |
 | BUDGET-1 | Instruction and memory budgets can be bypassed. | With `InstructionBudget = 5000`, a loop creating 200 instances whose constructor loops 300 times completes and prints `done 200`. The same work written inline fails with "Instruction budget exceeded". | Each constructor, and each import, runs on a new `WarVM` whose `Reset()` reloads full budgets. | T1.1, T1.5 |
+| BUDGET-2 | Rescuing "Instruction budget exceeded" disarms the budget, so a script can run forever. Found by the fuzzer (T0.7). | With a budget of 1,000, `begin` / `loop true` / `end` / `rescue e` / `end` followed by a 100,000-iteration loop completes. With an infinite loop instead, `Run()` never returns. | `WarVM` raises when `--_budget` reaches 0, and a budget of 0 means unlimited. The error is rescuable like any other. | Proposed T1.5 (Q-11) |
 
 ### 4.2 Determinism
 
@@ -1546,6 +1550,16 @@ Syntax errors, compile errors and script errors are acceptable outcomes. A faili
 
 **Bytecode mode**, available after T1.7: compile a corpus file, then flip 1 to 8 random bytes or truncate the result, then load and run it. The oracle is: an `InvalidDataException` at load time, or a run with no escaped exception.
 
+Implementation notes (T0.7):
+
+- `Headless~/Fuzz/` (`WarScript.Fuzz`). Options: `--minutes` (default 10), `--seed` (default from the clock, always printed), `--corpus` (default `Tests/Golden~`), `--out` (default `Headless~/out/fuzz/`), `--jobs` (default the processor count), `--cases n` (a fixed number of cases instead of a duration), `--case <seed>` (regenerate and run one case; which case a seed produces depends on the corpus) and `--replay <case.ws>` (run a saved case as it is, to check a finding after its fix).
+- The corpus skips `# isolate` files: they are the known process killers, and every mutation of them would report the same crash.
+- Mutations work on a surface tokenization of the fuzzer's own, not on `LexicalParser` tokens: those cannot be turned back into source, and lexing in the fuzzer's process would let a lexer crash take the fuzzer down. Comments are dropped and `#` replaced, so a case carries no directives except the `# budget: 1000000` and `# memory-budget: 67108864` header the fuzzer writes. Each case runs once, from source, under the invariant culture.
+- Case `i`'s seed is derived from the run's seed (SplitMix64, not `System.Random`), so a run is reproducible from its seed and the corpus whatever `--jobs` is.
+- Findings are grouped by a signature: the kind (crash, host fault, invariant), the message with quoted names and numbers blanked, and for crashes and host faults the WarScript method they happened in (the runner and `GoldenRun` now append it as `(in <method>)`). `<out>/<signature hash>/` holds the shortest case for that signature; `summary.txt` lists every signature with its count. A table in the fuzzer (`KnownFindings`) maps signatures to the findings that cover them; the run exits with code 4 when a signature matches none. Remove an entry when its fix lands.
+- Invariant violations after an unhandled error are expected until T1.3 and are attributed to it. Two attributions are marked with `?` because a different cause would produce the same signature, so check the saved case: a timeout is attributed to BUDGET-2 (the only hang found so far), and a VMIdle violation without an unhandled error to CRASH-7 (`return` out of `ensure`).
+- Run 2026-11-06 on 3 cores (`--seed 20261107 --minutes 10`, 101 corpus files): 35,645 cases (54% compile errors, 19% ok, 27% findings), 12 signatures, all attributed: T1.3 (8,732 invariant violations after an unhandled error), CRASH-1, CRASH-3, and the new CRASH-5, CRASH-6, CRASH-7 and BUDGET-2. CRASH-2 needs a recursive constructor, which no mutation produced; A.3 covers it.
+
 ### 9.7 Canonical state hash
 
 `ComputeStateHash()` is a 64-bit FNV-1a hash over this byte stream:
@@ -1774,6 +1788,7 @@ Implementation proceeds with the default until the owner answers. The "Blocks" c
 | Q-8 | Is the newest-first coroutine resume order intended? | Keep it (PROP-24) | Nothing |
 | Q-9 | Should `Call` be allowed before `Run`? | Allowed, as in v1 (PROP-25) | Nothing |
 | Q-10 | Where are the game's `.ws` scripts, for the audit, baseline and migration? | The owner provides paths, or runs the tools on the owner's side | T0.8, T0.9, T3.9 |
+| Q-11 | The fuzzer (T0.7) found CRASH-5, CRASH-6, CRASH-7 and BUDGET-2. Which tasks fix them, and: should a class inheriting from itself be a compile error or a runtime error at `new` (CRASH-5)? After the instruction budget runs out, should it stay exhausted, so that the error ends the entry even if the script rescues it (BUDGET-2)? | CRASH-5 in T1.1 (its allocation step walks the base classes and must detect the cycle), as a rescuable error at `new`; CRASH-6 in T1.8 (compile errors); CRASH-7 in T1.3; BUDGET-2 in T1.5 (instance-level budgets), with the budget staying exhausted. Goldens A.22 to A.25 are written against these defaults. | T1.1, T1.3, T1.5, T1.8 |
 
 ---
 
@@ -2069,6 +2084,85 @@ These are C# tests. Each case must be rejected at load time with `InvalidDataExc
 
 This is a C# test. Register a class whose method is a native that throws `InvalidOperationException`. Calling it from a script inside `begin/rescue` must be rescued as NativeError, and the invariants must hold. In v1 the exception escapes the VM, because `CallMethod`'s native path has no try/catch.
 
+### A.22 A class that inherits from itself (CRASH-5, found by T0.7)
+
+`Tests/Golden~/repro/A22_cyclic_inheritance.ws` (`# isolate`):
+
+```ruby
+class A
+end
+class A : A
+end
+begin
+    a = new A
+rescue e
+    print "rescued"   # expect: rescued
+end
+```
+
+v1 aborts the process with a stack overflow in `InstantiateClassDefShared`. The v2 outcome is the Q-11 default.
+
+### A.23 C# exceptions from the parser and compiler (CRASH-6, found by T0.7)
+
+`A23a_parser_exception_operator.ws`: `x = (1]   # expect-compile-error:`. v1 throws `System.Exception` from `OperatorExtension.ToBinaryExpression`.
+
+`A23b_compiler_exception_cast.ws`: `x = p as "R" :: n   # expect-compile-error:` with `p` an instance. v1 throws `InvalidCastException` from `Compiler.CompileExpression`.
+
+### A.24 Raising inside `ensure` (CRASH-7, found by T0.7)
+
+```ruby
+begin
+    begin
+        raise "first"
+    ensure
+        raise "second"
+    end
+rescue e
+    print "rescued " + e   # expect: rescued second
+end
+```
+
+v1 does not run the rescue, and `Run()` throws `NullReferenceException` from `ExceptionContext.PrintStackTrace`.
+
+`A24b_return_in_ensure.ws` covers `return` out of `ensure`:
+
+```ruby
+fun f []
+    begin
+        raise "first"
+    ensure
+        return 1
+    end
+end
+begin
+    print f []              # expect: 1
+rescue e
+    print "rescued " + e
+end
+print "after"               # expect: after
+```
+
+v1 prints `1`, then "first" escapes unhandled and `after` is not printed. The `return` discards the error, as v1 already does when nothing rescues around the call (it then prints `1` and `after`, but leaves the VM non-idle).
+
+### A.25 Rescuing the instruction budget (BUDGET-2, found by T0.7)
+
+```ruby
+# budget: 1000
+begin
+    loop true
+    end
+rescue e
+end
+n = 0
+loop i in 0..100000
+    n += 1
+end
+print n
+# expect-error: InstructionBudgetExceeded
+```
+
+v1 prints `100000`: the budget is disarmed once it has run out. With an infinite loop in place of the counted one, v1 never returns.
+
 ---
 
 ## Appendix B. Benchmarks and measurements
@@ -2326,7 +2420,7 @@ DefaultImporter:
 | T0.4 | Bytecode round-trip and culture matrix | T0.2 | done | `6d34caa`. DET-1 shows as known failures under sv-SE in three goldens and A.8. |
 | T0.5 | Known-bug corpus and child-process runner | T0.2 | done | Runner in `Headless~/Runner/`; `# isolate` goldens run in child processes (A.1 to A.3 contained). C# repros A.6 (with its three variants), A.9, A.19 and A.21 in `Tests/ReproTests.cs`. A.20 moves to T1.7 (its cases are defined against format v2: format hash, verifier) and A.18 to T3.4 (v2 syntax: `@x`, `global`). |
 | T0.6 | State hash | T0.2 | done | `WarScriptLanguage.ComputeStateHash()` (`Runtime/StateHash.cs`); the golden runner requires the same hash in both modes and every culture and writes `<file> [<mode>]: <hash>` lines to `Headless~/out/golden-hashes.<os>-<arch>.txt`; `Headless~/compare-hashes.sh` diffs them. Encoding notes in 9.7. Cross-machine comparison needs CI or the owner (9.8). |
-| T0.7 | Fuzzer v0 | T0.5 | todo | |
+| T0.7 | Fuzzer v0 | T0.5 | done | `Headless~/Fuzz/` (notes in 9.6). A 10-minute run attributes every finding to a known ID. New findings reported to the owner: CRASH-5, CRASH-6, CRASH-7, BUDGET-2 (section 4, goldens A.22 to A.25, Q-11). The runner and `GoldenRun` now name the WarScript method a crash or escaped exception happened in. Bytecode mode waits for T1.7. |
 | T0.8 | Audit mode (plus owner game sessions) | T0.1 | todo | |
 | T0.9 | Behavior baseline (owner) | T0.6 | owner step | `Documentation~/migration/BASELINE.md` written. run-1 (2026-11-06) reviewed there and not accepted: every recorded hash is the "no user globals" value, so it compares only three printed lines; no repeat run, no README. The recorder now also writes `<label>.globals.txt`. The full warman mod (2026-11-06) has no assignments at all, which explains run-1; its script behavior is baselined headlessly as native-call traces (`Headless~/ModTrace`, hashes in BASELINE.md). Waiting for the owner to accept that as the baseline. |
 | T1.1 | Constructors as frames | Phase 0 | todo | |

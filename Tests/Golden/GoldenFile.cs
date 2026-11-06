@@ -233,7 +233,7 @@ namespace Tests.Golden
             }
             catch (System.Exception e)
             {
-                run.EscapedException = e.GetType().Name + ": " + e.Message;
+                run.EscapedException = Escaped(e);
                 return run;
             }
 
@@ -250,7 +250,7 @@ namespace Tests.Golden
             }
             catch (System.Exception e)
             {
-                run.EscapedException = e.GetType().Name + ": " + e.Message;
+                run.EscapedException = Escaped(e);
                 return run;
             }
 
@@ -268,6 +268,22 @@ namespace Tests.Golden
             run.InvariantViolation = Invariants.Violation(target, before);
             run.Hash = target.ComputeStateHash().ToString("x16", CultureInfo.InvariantCulture);
             return run;
+        }
+
+        /// <summary>"&lt;type&gt;: &lt;message&gt; (in &lt;the WarScript method that threw, or called the BCL method that did&gt;)".</summary>
+        private static string Escaped(System.Exception e)
+        {
+            var text = e.GetType().Name + ": " + e.Message;
+            var frames = new System.Diagnostics.StackTrace(e).GetFrames();
+            if (frames == null) return text;
+            foreach (var frame in frames)
+            {
+                var method = frame.GetMethod();
+                var type = method?.DeclaringType;
+                if (type?.Namespace != null && type.Namespace.StartsWith("WarScript", StringComparison.Ordinal))
+                    return text + " (in " + type.FullName + "." + method.Name + ")";
+            }
+            return text;
         }
 
         internal static string Diff(IReadOnlyList<string> expected, IReadOnlyList<string> actual)

@@ -73,7 +73,13 @@ namespace Tests.Golden
 
                 var exit = process.ExitCode;
                 if (exit != ExitCompleted && exit != ExitInvariantViolated && exit != ExitHostFault)
-                    return new GoldenRun { Crash = $"exit code {exit}: {FirstLine(stderr.Result)}" };
+                {
+                    var site = CrashSite(stderr.Result);
+                    return new GoldenRun
+                    {
+                        Crash = $"exit code {exit}: {FirstLine(stderr.Result)}" + (site == null ? "" : $" (in {site})")
+                    };
+                }
 
                 try
                 {
@@ -94,6 +100,41 @@ namespace Tests.Golden
         }
 
         private static string Quote(string argument) => "\"" + argument + "\"";
+
+        /// <summary>
+        /// The WarScript method a crashed child died in, from the stack trace
+        /// .NET writes to stderr. For a stack overflow that is the recursion,
+        /// not the frame that happened to overflow: the most frequent
+        /// WarScript frame, counted within the "Repeated N times:" block when
+        /// .NET printed one (ties go to the first).
+        /// </summary>
+        private static string CrashSite(string stderr)
+        {
+            var lines = stderr.Split('\n').Select(l => l.Trim()).ToList();
+            var from = 0;
+            var to = lines.Count;
+            var repeated = lines.FindIndex(l => l.StartsWith("Repeated ", StringComparison.Ordinal));
+            if (repeated >= 0)
+            {
+                // "Repeated N times:", a dashed line, the repeated frames, a dashed line.
+                from = repeated + 1;
+                while (from < lines.Count && lines[from].StartsWith("---", StringComparison.Ordinal)) from++;
+                to = lines.FindIndex(from, l => l.StartsWith("---", StringComparison.Ordinal));
+                if (to < 0) to = lines.Count;
+            }
+
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            var order = new List<string>();
+            for (var i = from; i < to; i++)
+            {
+                if (!lines[i].StartsWith("at WarScript.", StringComparison.Ordinal)) continue;
+                var paren = lines[i].IndexOf('(');
+                var method = paren < 0 ? lines[i].Substring(3) : lines[i].Substring(3, paren - 3);
+                if (!counts.ContainsKey(method)) order.Add(method);
+                counts[method] = (counts.TryGetValue(method, out var n) ? n : 0) + 1;
+            }
+            return order.Count == 0 ? null : order.OrderByDescending(m => counts[m]).First();
+        }
 
         private static string FirstLine(string text)
         {

@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Source-mode fuzzer over the golden corpus (plan 9.6, T0.7). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Run on whatever newer .NET runtime is installed when 8.0 itself is not. -->
+    <RollForward>Major</RollForward>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>WarScript.Fuzz</AssemblyName>
+    <RootNamespace>WarScript.Fuzz</RootNamespace>
+    <NoWarn>CS8632</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Mutator.cs" />
+    <!-- Every case runs in a child process through the runner; these files start it and read its JSON. -->
+    <Compile Include="$(WarScriptRoot)/Tests/Golden/GoldenFile.cs" />
+    <Compile Include="$(WarScriptRoot)/Tests/Golden/IsolatedRun.cs" />
+    <Compile Include="$(WarScriptRoot)/Tests/Invariants.Checks.cs" />
+    <ProjectReference Include="../Runtime/WarScript.Runtime.csproj" />
+    <!-- Built first, not referenced: every case runs in it as a child process (plan 9.5). -->
+    <ProjectReference Include="../Runner/WarScript.Runner.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <!-- Default paths, so the fuzzer works from any directory: the runner, the corpus and the output folder. -->
+  <Target Name="WarScriptFuzzPaths" BeforeTargets="GetAssemblyAttributes">
+    <MSBuild Projects="../Runner/WarScript.Runner.csproj" Targets="GetTargetPath">
+      <Output TaskParameter="TargetOutputs" PropertyName="WarScriptRunnerDll" />
+    </MSBuild>
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>WarScriptRunner</_Parameter1>
+        <_Parameter2>$(WarScriptRunnerDll)</_Parameter2>
+      </AssemblyAttribute>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>WarScriptRoot</_Parameter1>
+        <_Parameter2>$(WarScriptRoot)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
+</Project>
