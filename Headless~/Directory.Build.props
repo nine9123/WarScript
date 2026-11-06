@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <WarScriptRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</WarScriptRoot>
+    <FixPointCSDir Condition="'$(FixPointCSDir)' == ''">$(MSBuildThisFileDirectory)external/FixPointCS</FixPointCSDir>
+  </PropertyGroup>
+</Project>

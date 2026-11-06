@@ -20,3 +20,10 @@ ExportedObj/
 **/obj/*
 **/bin/*
 **/.idea/*
+# Headless build (Headless~/, see CLAUDE.md). The project files are tracked
+# despite the *.csproj rule above; build output and the FixPointCS checkout are not.
+!Headless~/**/*.csproj
+Headless~/bin/
+Headless~/obj/
+Headless~/out/
+Headless~/external/

@@ -6,6 +6,8 @@ WarScript is a custom embeddable scripting language with a bytecode VM, written 
 
 Repository: `https://github.com/nine9123/WarScript.git#upm`
 
+**v2 work in progress.** The WarScript v2 design decisions and phased implementation plan (Phases 0–3: tests, crash/determinism fixes, host API v2, language v2) live in `Documentation~/WARSCRIPT_V2_PLAN.md`. Task IDs such as `T0.1` and decision IDs such as `DEC-5` in commit messages refer to that document.
+
 ## Determinism & Fixed-Point Numerics (READ FIRST)
 
 WarScript is **deterministic**: it is the scripting layer for a lockstep-networked game, so identical inputs must produce bit-identical results on every machine and platform (x86-64, ARM; Windows, macOS, Linux/SteamDeck). Floating point cannot guarantee that, so **the language has no `double`/`float` anywhere**.
@@ -277,6 +279,12 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 
 ## Testing Conventions
 
+- **Headless run (no Unity)** — `Headless~/` holds plain .NET projects over the same sources (Unity ignores `~` folders, so no `.meta` files there):
+  ```bash
+  ./Headless~/fetch-fixpointcs.sh                       # once; clones pinned FixPointCS into Headless~/external/
+  dotnet test "Headless~/Tests/WarScript.Tests.csproj"  # whole suite (NUnit 3.14, net8.0, rolls forward)
+  ```
+  `Headless~/Runtime/WarScript.Runtime.csproj` compiles `Runtime/` + `Attributes/` + FixPointCS as `netstandard2.1` / C# 9.0 — the Unity constraint; never raise its `LangVersion`. To build against the game's own FixPointCS copy pass `-p:FixPointCSDir=<path>`. Test code must stay within the NUnit 3.5 API (no `ClassicAssert`, no `Assert.Multiple`) so it also runs in the Unity Test Runner. `Runtime/AssemblyInfo.cs` grants `InternalsVisibleTo("WarScript.Tests")` (same assembly name in both environments).
 - **Framework**: NUnit (`[TestFixture]`, `[Test]`, `Assert.AreEqual`)
 - **Helper**: `TestHelper.Run("name", source)` → `(script, List<string> output)`
 - **Helper**: `TestHelper.RunFile("filename.ws")` → loads from `Tests/resources/`

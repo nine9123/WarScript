@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Run on whatever newer .NET runtime is installed when 8.0 itself is not. -->
+    <RollForward>Major</RollForward>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>WarScript.Tests</AssemblyName>
+    <NoWarn>CS8632</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(WarScriptRoot)/Tests/**/*.cs" />
+    <ProjectReference Include="../Runtime/WarScript.Runtime.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Stay on NUnit 3.x: NUnit 4 moved Assert.AreEqual to ClassicAssert (R2). -->
+    <PackageReference Include="NUnit" Version="3.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="4.5.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+  </ItemGroup>
+</Project>
