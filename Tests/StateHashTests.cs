@@ -33,6 +33,17 @@ namespace Tests
         }
 
         [Test]
+        public void StateWithoutGlobalsHashesOnlyThePrintedLines()
+        {
+            // An instance that printed nothing and holds no user globals hashes
+            // to FNV-1a 64 over the single byte 0xFF. BASELINE.md quotes these
+            // values: a recorded hash equal to one of them carries no script
+            // state, only the printed lines.
+            Assert.AreEqual(0xaf64724c8602eb6eUL, HashOf("fun f []\n    return 1\nend"));
+            Assert.AreEqual(0xdc553fa85c69d526UL, HashOf("print \"bootstrap\""));
+        }
+
+        [Test]
         public void IdenticalRunsHashIdentically()
         {
             const string source = @"

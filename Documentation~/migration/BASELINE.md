@@ -17,6 +17,10 @@ what to record and how.
 | Recorded with | *WarScript commit (`git rev-parse HEAD` of the package) and game build* |
 | Date | |
 
+A first recording, `run-1`, was received on 2026-11-06. It is not usable as
+the baseline yet; see [Review of run-1](#review-of-run-1) for why and what to
+record next.
+
 ## What a baseline is
 
 For each **scenario** (a reproducible game session: fixed inputs, fixed seeds,
@@ -65,12 +69,25 @@ public sealed class BaselineRecorder
         _hashes.Add(tick.ToString(CultureInfo.InvariantCulture) + ": " +
                     script.ComputeStateHash().ToString("x16", CultureInfo.InvariantCulture));
 
-    /// Writes <label>.output.txt and <label>.hashes.txt into the scenario folder.
-    public void Save(string scenarioDirectory, string instanceLabel)
+    /// Writes <label>.output.txt, <label>.hashes.txt and <label>.globals.txt
+    /// into the scenario folder. Call it at the end of the scenario.
+    public void Save(string scenarioDirectory, string instanceLabel, WarScriptLanguage script)
     {
         Directory.CreateDirectory(scenarioDirectory);
         File.WriteAllLines(Path.Combine(scenarioDirectory, instanceLabel + ".output.txt"), _output);
         File.WriteAllLines(Path.Combine(scenarioDirectory, instanceLabel + ".hashes.txt"), _hashes);
+        File.WriteAllLines(Path.Combine(scenarioDirectory, instanceLabel + ".globals.txt"), new[]
+        {
+            "user: " + Names(script.UserMemoryScope),   // covered by the hash
+            "host: " + Names(script.GlobalMemoryScope), // not covered by the hash
+        });
+    }
+
+    private static string Names(WarScript.Context.MemoryScope scope)
+    {
+        var names = new List<string>(scope.GetAllLocals().Keys);
+        names.Sort(System.StringComparer.Ordinal);
+        return string.Join(", ", names);
     }
 }
 ```
@@ -83,6 +100,7 @@ Suggested layout, one folder per scenario:
   core-mod-load/
     core.output.txt
     core.hashes.txt             "<tick>: <16 hex digits>" per line
+    core.globals.txt            names of the user and host globals at the end
   match-skills-modifiers/
     core.output.txt
     core.hashes.txt
@@ -92,7 +110,42 @@ Suggested layout, one folder per scenario:
 
 The instance label must be stable between runs (for example the mod or
 script name), not an object hash or a creation counter that depends on
-timing.
+timing. A suffix such as `#2` for the second instance attached at the same
+place is fine as long as the order in which the instances are created is
+itself deterministic.
+
+### Check that the hash sees the scripts' state
+
+`ComputeStateHash()` only covers what the instance printed and its **user
+globals**: the variables a script's top level assigns. It does not cover
+function or class definitions, host globals (`GlobalMemoryScope`, including a
+host-set name that a script later assigns to: v1 updates the existing host
+variable instead of creating a user one), or state the scripts keep in host
+objects through native calls. If an instance has no user globals, its hash
+only changes when it prints.
+
+`<label>.globals.txt` shows which globals the hash covered at the end of the
+scenario. A hash that equals one of these values also means "no user globals":
+
+| Hash | State |
+|---|---|
+| `af64724c8602eb6e` | nothing printed, no user globals |
+| `dc553fa85c69d526` | printed `bootstrap`, no user globals |
+
+(both pinned by `StateHashTests.StateWithoutGlobalsHashesOnlyThePrintedLines`).
+If most instances of a scenario hash like this, the baseline compares little
+more than the printed output. Make the scenario's script behavior visible in
+one of these ways, on the v1 runtime, before recording:
+
+- add `print` lines at the points that matter (a room was set up, a skill
+  hit, a modifier was applied, with the values involved), or
+- have the host's own tick hash (the game state that the scripts drive
+  through native calls) recorded next to the WarScript hash, so that a
+  difference caused by a script shows up even when the script holds no
+  globals.
+
+Temporary `print` lines added for the baseline must stay in the scripts until
+the comparison after the migration, so that both sides print the same.
 
 ### Make the run reproducible first
 
@@ -129,3 +182,55 @@ step 7):
 When hashes differ, find the first differing tick, then compare the printed
 output up to that tick. Adding temporary `print` statements to the scenario's
 scripts on both versions narrows it further.
+
+## Review of run-1
+
+`run-1` (received 2026-11-06, recorded on macOS) holds two scenarios with the
+layout above:
+
+| Scenario | Instance | Ticks | Distinct hashes | Output |
+|---|---|---|---|---|
+| general-gameplay | `bootstrap.ws` | load | 1 (`dc553fa85c69d526`) | `bootstrap` |
+| general-gameplay | `resources.ws` | load | 1 (`af64724c8602eb6e`) | none |
+| general-gameplay | `room island r0 rooms_island.ws` | 0–1037 | 1 (`a81202f32ab1baad`) | `island.ws` |
+| general-gameplay | `room island r0 AttachScript ((60, 29, 53))` | 254–1037 | 1 (`af64724c8602eb6e`) | none |
+| more-gameplay | `bootstrap.ws` | load | 1 (`dc553fa85c69d526`) | `bootstrap` |
+| more-gameplay | `resources.ws` | load | 1 (`af64724c8602eb6e`) | none |
+| more-gameplay | `room island r0 rooms_island.ws` | 0–2183 | 1 (`a81202f32ab1baad`) | `island.ws` |
+| more-gameplay | `room lower_prison_west r2 rooms_outpost_1_outpost-1.ws` | 560–2183 | 1 (`af64724c8602eb6e`) | none |
+| more-gameplay | `room lower_prison_west r2 AttachScript ((18, 332, 350.5))` | 857–2183 | 1 (`af64724c8602eb6e`) | none |
+| more-gameplay | `room lower_prison_west r2 AttachScript ((18, 332, 350.5))#2` | 1680–2183 | 1 (`af64724c8602eb6e`) | none |
+
+The files are well-formed: one `<tick>: <hash>` line per tick, no gaps in
+the tick ranges, and the two scenarios agree on the ticks they share
+(`rooms_island.ws`, ticks 0–1037). No instance logged an error.
+
+**Finding: the hashes carry no script state.** Every hash in the recording
+equals the hash of the instance's printed lines with **no user globals**
+(`a81202f32ab1baad` is "printed `island.ws`, no user globals"; the other two
+values are in the table in [Check that the hash sees the scripts'
+state](#check-that-the-hash-sees-the-scripts-state)). No hash changes over
+any instance's lifetime. So, as recorded, the baseline compares three printed
+lines and nothing else; a migration that changed what these scripts do would
+very likely still match it. The cause is on the game side and cannot be
+determined from the recording: most likely these scripts keep no top-level
+variables and act only through native calls, or they assign to names the
+host set up (which v1 stores as host globals).
+
+**Also missing:**
+- A second run of each scenario to show it is reproducible
+  ([Make the run reproducible first](#make-the-run-reproducible-first)).
+  Both scenarios agreeing on their shared ticks is consistent with that, but
+  with constant hashes it shows nothing.
+- `README.txt` with the WarScript commit, game build and how each scenario
+  is started.
+- The scenarios suggested above that exercise skills and modifiers; run-1
+  covers loading and two rooms.
+
+**Next recording (run-2).** Use the updated `BaselineRecorder`, which also
+writes `<label>.globals.txt`, add `print` lines or a host-side hash as
+described in [Check that the hash sees the scripts'
+state](#check-that-the-hash-sees-the-scripts-state), record each scenario
+twice, and add `README.txt`. When the result is accepted, fill in [Where the
+baselines are](#where-the-baselines-are) and mark T0.9 done in the plan
+tracker.
