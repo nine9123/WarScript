@@ -98,12 +98,17 @@ WarScript/
 │       └── SyntaxException.cs
 └── Tests/
     ├── TestHelper.cs            # Run(name, source) and RunFile(resourceName)
+    ├── Invariants.cs            # Post-run invariant checks + [KnownInvariantViolation]
+    ├── Golden/GoldenRunner.cs   # Runs every Golden~/**/*.ws (source + bytecode × culture matrix)
     ├── DefaultParameterTests.cs / LambdaTests.cs / ConstEnumTests.cs
-    ├── ExecutionTests.cs / ComprehensiveLanguageTests.cs
+    ├── ExecutionTests.cs
     ├── BytecodeCoroutineTests.cs / BytecodeSerializationTests.cs
     ├── InstructionBudgetTests.cs / MemoryBudgetTests.cs / HotReloadTests.cs
     ├── ...
-    └── resources/               # .ws script files (~70+)
+    ├── Golden~/                 # Golden .ws corpus (no .meta: Unity ignores ~ folders)
+    │   ├── language/ deep/ algorithms/ gapfill/ regression/   # former assert-only resources
+    │   └── repro/               # Plan Appendix A repros, mostly # known-failing
+    └── resources/               # .ws files still driven by C# tests (RunFile, Benchmarks)
 ```
 
 ## Execution Pipeline
@@ -288,6 +293,7 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 - **Framework**: NUnit (`[TestFixture]`, `[Test]`, `Assert.AreEqual`)
 - **Helper**: `TestHelper.Run("name", source)` → `(script, List<string> output)`
 - **Helper**: `TestHelper.RunFile("filename.ws")` → loads from `Tests/resources/`
+- **Golden files** (plan §9.2) — language behaviour is tested by default with a `.ws` file under `Tests/Golden~/<topic>/`; adding a test means adding one file, no C#. `GoldenRunner` runs each file from source and from bytecode (compile → `SaveBytecode` → `LoadBytecode` into a fresh instance) under Invariant, en-US, de-DE, sv-SE, fi-FI and tr-TR, with the full stdlib registered and the import resolver rooted at the file's folder. Every run must meet the expectations, hold the invariants and print the same lines. Directives are `#` comments (read from the lexer's Comment tokens, so `#` inside text is safe): `# expect: <line>` (whole printed output must equal the ordered list), `# expect-error: <Kind>[: <substring>]`, `# expect-compile-error: <substring>`, `# budget: n`, `# memory-budget: n`, `# known-failing: <ID>` (reported Ignored while it fails, fails once it passes), `# ignore-output`, `# no-stdlib`, `# modes: source`, `# isolate` (Ignored until the child-process runner, T0.5, exists), `# expect-warning:` (always fails until T3.8). Until structured errors (T2.5) the error kind is recognised only from v1 messages that identify one (division/modulo by zero, budgets, assertion, stack overflows); other messages match any expected kind, and the error line is not checked.
 - **Pattern**: Check print output or rely on `assert` in .ws scripts
 - **Invariants** (`Tests/Invariants.cs`, plan §9.3): every `TestHelper.Run`/`RunFile` checks afterwards that `MemoryContext`/`DefinitionContext` depths are back where they were, no exception is left raised, `ClassInstanceContext` is empty and the VM is idle (`WarVM.IsIdle`, unless the script yielded). A test that currently breaks one carries `[KnownInvariantViolation("<finding/task ID>")]`: the violation is logged instead of failing, the test's own asserts still run, and the marker fails the test once nothing is violated any more. Today that is the 15 tests whose script ends in an unhandled error (fixed by T1.3).
 - **Comparing numerics**: `WarValue.Numeric` is `F64`. Compare against `F64.FromInt(n)` (the `==(F64,int)` operator also works), or project with `F64.RoundToInt(...)` — there is no `(int)F64` cast. For approximate results (sqrt/pow/trig, or non-representable values like `0.7`), assert on `.Float` with a tolerance: `Assert.AreEqual(1.3f, v.Float, 0.001f)`.

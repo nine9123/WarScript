@@ -66,18 +66,6 @@ namespace Tests
         }
 
         [Test]
-        public void InstanceOf()
-        {
-            RunAssertOnlyScript("instance_of.ws");
-        }
-
-        [Test]
-        public void CastType()
-        {
-            RunAssertOnlyScript("cast_type.ws");
-        }
-
-        [Test]
         public void Calculator()
         {
             RunAssertOnlyScript("calculator.ws");

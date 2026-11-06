@@ -46,9 +46,17 @@ namespace WarScript.Context
 
         public void PrintStackTrace()
         {
+            LastUnhandled = Exception;
             _script.Logger?.Invoke(_script, Exception.ToString());
             RescueException();
         }
+
+        /// <summary>
+        /// The last exception reported (logged and cleared) as unhandled.
+        /// Lets the golden test runner tell an unhandled error apart from
+        /// printed output until the v2 result types exist.
+        /// </summary>
+        internal Exception.Exception LastUnhandled { get; private set; }
 
         private enum State { None, Raised, Disabled }
     }
