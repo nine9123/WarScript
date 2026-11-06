@@ -278,6 +278,12 @@ namespace WarScript
             return _cachedVM ??= new WarVM(this);
         }
 
+        /// <summary>
+        /// True when the cached VM (if any) holds no execution state.
+        /// Test invariant (see <see cref="WarVM.IsIdle"/>).
+        /// </summary>
+        internal bool IsVMIdle => _cachedVM == null || _cachedVM.IsIdle;
+
         // ────────────────────────────────────────────────────────
         //  Hot reload — swap source code, preserve runtime state
         // ────────────────────────────────────────────────────────

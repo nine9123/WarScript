@@ -346,6 +346,7 @@ namespace Tests
         }
 
         [Test]
+        [KnownInvariantViolation("T1.3")] // unhandled error leaves VM frames/scopes behind
         public void BudgetExceededEnsureBlockRuns()
         {
             var (_, output) = TestHelper.Run("test", @"

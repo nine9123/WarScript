@@ -91,6 +91,14 @@ namespace WarScript.Bytecode
         /// <summary>True if the VM has finished executing (no more frames).</summary>
         public bool IsCompleted => _frameCount == 0 && !_yielded;
 
+        /// <summary>
+        /// No frames, empty value stack, no installed handlers and nothing
+        /// pending. Checked by the test invariants after every outermost
+        /// entry that did not yield.
+        /// </summary>
+        internal bool IsIdle => _frameCount == 0 && _sp == 0 && _handlerCount == 0
+                                && !_hasPendingException && !_hasPendingReturn && !_yielded;
+
         private struct TryHandler
         {
             public int RescueIP;

@@ -86,6 +86,7 @@ namespace Tests
         }
 
         [Test]
+        [KnownInvariantViolation("T1.3")] // unhandled error leaves VM frames/scopes behind
         public void Import_Circular_IsScriptError()
         {
             var files = new Dictionary<string, string>
@@ -99,6 +100,7 @@ namespace Tests
         }
 
         [Test]
+        [KnownInvariantViolation("T1.3")] // unhandled error leaves VM frames/scopes behind
         public void Import_MissingFile_IsScriptError()
         {
             var (_, output) = Run("import \"nope\"\nprint \"after\"",
@@ -107,6 +109,7 @@ namespace Tests
         }
 
         [Test]
+        [KnownInvariantViolation("T1.3")] // unhandled error leaves VM frames/scopes behind
         public void Import_WithoutResolver_IsScriptError()
         {
             var (_, output) = TestHelper.Run("no_resolver", "import \"lib\"\nprint \"after\"");
@@ -114,6 +117,7 @@ namespace Tests
         }
 
         [Test]
+        [KnownInvariantViolation("T1.3")] // unhandled error leaves VM frames/scopes behind
         public void Import_ResolverThrows_IsScriptError()
         {
             var (_, output) = TestHelper.Run("resolver_throws",

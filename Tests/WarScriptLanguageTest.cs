@@ -86,6 +86,7 @@ namespace Tests
         // Scripts with expected output
 
         [Test]
+        [KnownInvariantViolation("T1.3")] // unhandled error leaves VM frames/scopes behind
         public void RaiseException()
         {
             var (_, output) = TestHelper.RunFile("raise_exception.ws");

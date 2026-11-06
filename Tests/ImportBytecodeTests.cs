@@ -162,6 +162,7 @@ namespace Tests
         }
 
         [Test]
+        [KnownInvariantViolation("T1.3")] // unhandled error leaves VM frames/scopes behind
         public void ImportedBytecode_Circular_IsScriptError()
         {
             var bytecode = new Dictionary<string, byte[]>
@@ -207,6 +208,7 @@ namespace Tests
         }
 
         [Test]
+        [KnownInvariantViolation("T1.3")] // unhandled error leaves VM frames/scopes behind
         public void UnusableBytecode_WithoutSource_IsScriptError()
         {
             var bytecode = new Dictionary<string, byte[]>
@@ -311,6 +313,7 @@ namespace Tests
         }
 
         [Test]
+        [KnownInvariantViolation("T1.3")] // unhandled error leaves VM frames/scopes behind
         public void MissingFromBothResolvers_IsScriptError()
         {
             var (_, output) = Run("import \"nope\"\nprint \"after\"",

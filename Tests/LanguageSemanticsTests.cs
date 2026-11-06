@@ -495,6 +495,7 @@ namespace Tests
         }
 
         [Test]
+        [KnownInvariantViolation("T1.3")] // unhandled error leaves VM frames/scopes behind
         public void AssertFailure_ReportsLineAndStopsScript()
         {
             var output = Run("assert 1 == 2\nprint \"after\"");
@@ -536,6 +537,7 @@ namespace Tests
         // ────────────────────────────────────────────────
 
         [Test]
+        [KnownInvariantViolation("T1.3")] // unhandled error leaves VM frames/scopes behind
         public void ValueStackOverflow_IsScriptError_NotProcessCrash()
         {
             var sb = new System.Text.StringBuilder("arr = {");

@@ -33,7 +33,9 @@ namespace Tests
             
             setupScope?.Invoke(script, script.GlobalDefinitionScope);
             
+            var before = Invariants.Capture(script);
             script.Run();
+            Invariants.Check(script, before);
             
             return (script, output);
         }

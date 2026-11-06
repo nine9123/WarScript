@@ -289,6 +289,7 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 - **Helper**: `TestHelper.Run("name", source)` → `(script, List<string> output)`
 - **Helper**: `TestHelper.RunFile("filename.ws")` → loads from `Tests/resources/`
 - **Pattern**: Check print output or rely on `assert` in .ws scripts
+- **Invariants** (`Tests/Invariants.cs`, plan §9.3): every `TestHelper.Run`/`RunFile` checks afterwards that `MemoryContext`/`DefinitionContext` depths are back where they were, no exception is left raised, `ClassInstanceContext` is empty and the VM is idle (`WarVM.IsIdle`, unless the script yielded). A test that currently breaks one carries `[KnownInvariantViolation("<finding/task ID>")]`: the violation is logged instead of failing, the test's own asserts still run, and the marker fails the test once nothing is violated any more. Today that is the 15 tests whose script ends in an unhandled error (fixed by T1.3).
 - **Comparing numerics**: `WarValue.Numeric` is `F64`. Compare against `F64.FromInt(n)` (the `==(F64,int)` operator also works), or project with `F64.RoundToInt(...)` — there is no `(int)F64` cast. For approximate results (sqrt/pow/trig, or non-representable values like `0.7`), assert on `.Float` with a tolerance: `Assert.AreEqual(1.3f, v.Float, 0.001f)`.
 
 ## Performance-Sensitive Areas
