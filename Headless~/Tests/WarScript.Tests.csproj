@@ -13,7 +13,21 @@
   <ItemGroup>
     <Compile Include="$(WarScriptRoot)/Tests/**/*.cs" />
     <ProjectReference Include="../Runtime/WarScript.Runtime.csproj" />
+    <!-- Built first, not referenced: '# isolate' goldens start it as a child process (plan 9.5). -->
+    <ProjectReference Include="../Runner/WarScript.Runner.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
+  <!-- Tell the tests where the runner is: Tests/Golden/IsolatedRun.cs reads this metadata. -->
+  <Target Name="WarScriptRunnerPath" BeforeTargets="GetAssemblyAttributes">
+    <MSBuild Projects="../Runner/WarScript.Runner.csproj" Targets="GetTargetPath">
+      <Output TaskParameter="TargetOutputs" PropertyName="WarScriptRunnerDll" />
+    </MSBuild>
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>WarScriptRunner</_Parameter1>
+        <_Parameter2>$(WarScriptRunnerDll)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
   <ItemGroup>
     <!-- Stay on NUnit 3.x: NUnit 4 moved Assert.AreEqual to ClassicAssert (R2). -->
     <PackageReference Include="NUnit" Version="3.14.0" />

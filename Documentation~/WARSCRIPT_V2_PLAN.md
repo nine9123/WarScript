@@ -932,7 +932,8 @@ Fixes DET-4, SEC-1, SEC-2, SEM-10 and DX-5. Implements DEC-18 and PROP-18.
 - A disassembly test checks that the instruction boundaries reported by the disassembler match the verifier's, for every compiled function.
 - A unit test with a hand-built malformed function for each rejection listed in 10.3.
 - A bytecode-mutation mode in the fuzzer (9.6): every mutated file is either rejected with `InvalidDataException` or runs without any C# exception escaping.
-- Appendix A.19.
+- Appendix A.19 (already in `Tests/ReproTests.cs` as known-failing DX-5).
+- Appendix A.20. It was not added in T0.5 because its cases are defined against format v2 (format hash, verifier); add it with this task.
 
 #### T1.8 Compiler limit checks
 
@@ -1112,6 +1113,8 @@ Then compile:
 - In class bodies, bare names resolve to fields first and then to globals (5.7).
 
 Keep immutable program data (bytecode, constants, metadata) separate from per-instance mutable data (inline caches, globals), so that F-VM-3 stays possible.
+
+**Tests.** Appendix A.18. It was not added in T0.5 because it is written in v2 syntax (`@x`, `global`); add it with this task.
 
 #### T3.5 VM frame layout and scope removal
 
@@ -2313,7 +2316,7 @@ DefaultImporter:
 | T0.2 | Golden script runner | T0.1 | done | `6d34caa`. 69 assert-only resources moved to `Tests/Golden~/`; scripts still driven by C# tests (`RunFile`, benchmarks) stay in `Tests/resources/`. |
 | T0.3 | Invariant checks | T0.1 | done | `3c6d086`. 15 tests carry `[KnownInvariantViolation("T1.3")]`. |
 | T0.4 | Bytecode round-trip and culture matrix | T0.2 | done | `6d34caa`. DET-1 shows as known failures under sv-SE in three goldens and A.8. |
-| T0.5 | Known-bug corpus and child-process runner | T0.2 | partly done | `6d34caa`: Appendix A repros A.1 to A.5, A.7, A.8 and A.10 to A.17 as goldens. Runner and C# repros still to do. |
+| T0.5 | Known-bug corpus and child-process runner | T0.2 | done | Runner in `Headless~/Runner/`; `# isolate` goldens run in child processes (A.1 to A.3 contained). C# repros A.6 (with its three variants), A.9, A.19 and A.21 in `Tests/ReproTests.cs`. A.20 moves to T1.7 (its cases are defined against format v2: format hash, verifier) and A.18 to T3.4 (v2 syntax: `@x`, `global`). |
 | T0.6 | State hash | T0.2 | todo | |
 | T0.7 | Fuzzer v0 | T0.5 | todo | |
 | T0.8 | Audit mode (plus owner game sessions) | T0.1 | todo | |
