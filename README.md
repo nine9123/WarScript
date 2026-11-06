@@ -91,6 +91,11 @@ script.Call(tick, WarValue.FromNumeric(F64.Ratio(1, 60)));
 
 // 5. If your scripts use `yield`, drive coroutines once per tick.
 script.TickCoroutines(F64.Ratio(1, 60));
+
+// 6. Optional, for lockstep games: a 64-bit hash of everything the script has
+//    printed and of its globals' current values. Compare it across machines
+//    (for example once per tick) to locate a desync.
+ulong stateHash = script.ComputeStateHash();
 ```
 
 There is **no separate compile step to opt into** — `Run()` always compiles the script to bytecode,

@@ -64,6 +64,9 @@ namespace WarScript
 
         public readonly Action<WarScriptLanguage, string>? Logger;
 
+        /// <summary>FNV-1a state over every line printed so far (see <see cref="ComputeStateHash"/>).</summary>
+        private ulong _printedHash = StateHash.Offset;
+
         internal readonly Dictionary<string, DefinitionScope> ImportCache = new();
         internal readonly HashSet<string> ImportStack = new();
 
@@ -591,6 +594,26 @@ namespace WarScript
                 HaltFlags = HaltFlag.None;
             }
         }
+
+        // ────────────────────────────────────────────────────────
+        //  Output and state hash
+        // ────────────────────────────────────────────────────────
+
+        /// <summary>Output of the <c>print</c> builtin: recorded for the state hash, then logged.</summary>
+        internal void Print(string line)
+        {
+            _printedHash = StateHash.AppendLine(_printedHash, line);
+            Logger?.Invoke(this, line);
+        }
+
+        /// <summary>
+        /// A 64-bit hash of everything the instance has printed since it was
+        /// created and of the current values of its user globals (host globals
+        /// such as <c>[WsConst]</c> values are excluded). Identical inputs give
+        /// identical hashes on every machine, so comparing them per tick
+        /// locates a desync. The encoding is fixed by the v2 plan, section 9.7.
+        /// </summary>
+        public ulong ComputeStateHash() => StateHash.Compute(_printedHash, _memoryScope);
 
         // ────────────────────────────────────────────────────────
         //  Function lookup

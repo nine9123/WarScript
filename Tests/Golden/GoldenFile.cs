@@ -166,6 +166,7 @@ namespace Tests.Golden
         public string InvariantViolation;
         public string EscapedException;       // "<type>: <message>" of a C# exception that left the runtime
         public string Crash;                  // how an isolated child process died, or null
+        public string Hash;                   // ComputeStateHash() as 16 hex digits, once the script ran
 
         /// <summary>
         /// Runs the file once with <c>CurrentCulture</c> and <c>CurrentUICulture</c>
@@ -265,6 +266,7 @@ namespace Tests.Golden
             }
 
             run.InvariantViolation = Invariants.Violation(target, before);
+            run.Hash = target.ComputeStateHash().ToString("x16", CultureInfo.InvariantCulture);
             return run;
         }
 

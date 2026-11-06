@@ -1428,7 +1428,7 @@ namespace WarScript.Bytecode
                     // ══════════════════════════════════════════════
 
                     case OpCode.Print:
-                        _script.Logger?.Invoke(_script, Pop().ToString());
+                        _script.Print(Pop().ToString());
                         break;
 
                     case OpCode.Assert:

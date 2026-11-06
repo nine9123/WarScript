@@ -16,7 +16,7 @@ namespace WarScript.Statement
             var value = Expression.Evaluate();
             if (_script.HaltFlags == 0)
             {
-                _script.Logger?.Invoke(_script, value.ToString());
+                _script.Print(value.ToString());
             }
             _script.ExceptionContext.AddTracedStatement(this);
         }

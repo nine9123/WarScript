@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using NUnit.Framework;
 
 namespace Tests.Golden
@@ -52,7 +53,7 @@ namespace Tests.Golden
         public void Golden(string relativePath)
         {
             var file = GoldenFile.Load(GoldenRoot(), relativePath);
-            Report(file, Check(file, GoldenRun.Execute));
+            Report(file, Check(file, GoldenRun.Execute, (mode, hash) => RecordHash(relativePath, mode, hash)));
         }
 
         [TestCaseSource(nameof(IsolatedGoldenFiles))]
@@ -65,7 +66,8 @@ namespace Tests.Golden
                               "(Headless~/Runner, plan 9.5).");
 
             var file = GoldenFile.Load(GoldenRoot(), relativePath);
-            Report(file, Check(file, (f, mode, culture) => IsolatedRun.Execute(runner, f, mode, culture)));
+            Report(file, Check(file, (f, mode, culture) => IsolatedRun.Execute(runner, f, mode, culture),
+                               (mode, hash) => RecordHash(relativePath, mode, hash)));
         }
 
         private static void Report(GoldenFile file, string failure)
@@ -81,10 +83,16 @@ namespace Tests.Golden
                 Assert.Fail(failure);
         }
 
-        /// <summary>Runs every mode and culture; returns the first failure, or null.</summary>
-        internal static string Check(GoldenFile file, Func<GoldenFile, GoldenMode, string, GoldenRun> execute)
+        /// <summary>
+        /// Runs every mode and culture; returns the first failure, or null.
+        /// Every run must also end with the same state hash (plan 9.3);
+        /// <paramref name="recordHash"/> receives each mode's invariant-culture hash.
+        /// </summary>
+        internal static string Check(GoldenFile file, Func<GoldenFile, GoldenMode, string, GoldenRun> execute,
+                                     Action<GoldenMode, string> recordHash = null)
         {
             List<string> reference = null;
+            string referenceHash = null;
             string referenceRun = null;
 
             foreach (var mode in file.Modes)
@@ -93,6 +101,8 @@ namespace Tests.Golden
                 {
                     var runName = $"[{mode}, {(culture.Length == 0 ? "invariant" : culture)}]";
                     var run = execute(file, mode, culture);
+                    if (culture.Length == 0 && run.Hash != null)
+                        recordHash?.Invoke(mode, run.Hash);
 
                     var failure = run.CheckExpectations(file);
                     if (failure != null)
@@ -101,6 +111,7 @@ namespace Tests.Golden
                     if (reference == null)
                     {
                         reference = run.Output;
+                        referenceHash = run.Hash;
                         referenceRun = runName;
                     }
                     else if (!reference.SequenceEqual(run.Output))
@@ -108,9 +119,52 @@ namespace Tests.Golden
                         return $"{runName} printed something different from {referenceRun}:\n" +
                                GoldenRun.Diff(reference, run.Output);
                     }
+                    else if (run.Hash != referenceHash)
+                    {
+                        return $"{runName} ended with state hash {run.Hash ?? "<none>"}, " +
+                               $"{referenceRun} with {referenceHash ?? "<none>"}";
+                    }
                 }
             }
             return null;
+        }
+
+        // ── State hashes (T0.6) ──────────────────────────────────────────
+
+        private static readonly SortedDictionary<string, string> Hashes =
+            new SortedDictionary<string, string>(StringComparer.Ordinal);
+
+        private static void RecordHash(string relativePath, GoldenMode mode, string hash)
+        {
+            lock (Hashes)
+                Hashes[$"{relativePath} [{mode.ToString().ToLowerInvariant()}]"] = hash;
+        }
+
+        /// <summary>
+        /// Writes one <c>&lt;file&gt; [&lt;mode&gt;]: &lt;hash&gt;</c> line per golden run
+        /// to <c>Headless~/out/golden-hashes.&lt;os&gt;-&lt;arch&gt;.txt</c>, for
+        /// <c>Headless~/compare-hashes.sh</c> to diff against other machines
+        /// (plan 9.7, 9.8). Headless only: inside Unity the package folder is read-only.
+        /// </summary>
+        [OneTimeTearDown]
+        public void WriteHashes()
+        {
+#if WARSCRIPT_HEADLESS
+            List<string> lines;
+            lock (Hashes)
+            {
+                if (Hashes.Count == 0) return;
+                lines = Hashes.Select(h => h.Key + ": " + h.Value).ToList();
+            }
+
+            var os = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "windows"
+                   : RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "macos"
+                   : "linux";
+            var arch = RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant();
+            var outDir = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(GoldenRoot())), "Headless~", "out");
+            Directory.CreateDirectory(outDir);
+            File.WriteAllText(Path.Combine(outDir, $"golden-hashes.{os}-{arch}.txt"), string.Join("\n", lines) + "\n");
+#endif
         }
 
         /// <summary>Absolute path of <c>Tests/Golden~/</c>.</summary>

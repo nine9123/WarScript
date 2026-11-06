@@ -14,10 +14,11 @@ namespace Tests.Golden
     /// <summary>
     /// Runs one golden run in a child process through <c>WarScript.Runner</c>
     /// (plan 9.5), and the JSON both sides use for its result:
-    /// <c>{"output": [...], "status": "...", "error": {...}, "invariants": "ok"|"&lt;violation&gt;", "hash": null}</c>.
+    /// <c>{"output": [...], "status": "...", "error": {...}, "invariants": "ok"|"&lt;violation&gt;", "hash": "&lt;16 hex digits&gt;"|null}</c>.
     /// <c>status</c> is <c>ok</c>, <c>error</c> (unhandled script error),
     /// <c>compile-error</c> or <c>host-fault</c> (a C# exception escaped).
-    /// <c>hash</c> stays null until the state hash exists (T0.6).
+    /// <c>hash</c> is the instance's <c>ComputeStateHash()</c> after the run, or
+    /// null when the script did not get to run.
     /// </summary>
     internal static class IsolatedRun
     {
@@ -145,7 +146,9 @@ namespace Tests.Golden
 
             sb.Append(", \"invariants\": ");
             WriteString(sb, run.InvariantViolation ?? "ok");
-            sb.Append(", \"hash\": null}");
+            sb.Append(", \"hash\": ");
+            WriteString(sb, run.Hash);
+            sb.Append('}');
             return sb.ToString();
         }
 
@@ -173,6 +176,7 @@ namespace Tests.Golden
 
             var invariants = root.TryGetValue("invariants", out var inv) ? inv as string : null;
             run.InvariantViolation = invariants == null || invariants == "ok" ? null : invariants;
+            run.Hash = root.TryGetValue("hash", out var hash) ? hash as string : null;
             return run;
         }
 

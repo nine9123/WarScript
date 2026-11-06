@@ -9,6 +9,8 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <AssemblyName>WarScript.Tests</AssemblyName>
     <NoWarn>CS8632</NoWarn>
+    <!-- Code that only makes sense outside Unity, e.g. writing Headless~/out/. -->
+    <DefineConstants>$(DefineConstants);WARSCRIPT_HEADLESS</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(WarScriptRoot)/Tests/**/*.cs" />

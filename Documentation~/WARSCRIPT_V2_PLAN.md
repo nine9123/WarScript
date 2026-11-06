@@ -1566,6 +1566,14 @@ A value is encoded as one tag byte (`ValueTag`) followed by a payload:
 | instance | The class name, encoded as text, then the declared field values in field order. Cycles are handled as for arrays. |
 | native object | The canonical formatting from 5.10, encoded as text |
 
+Implementation notes (T0.6):
+
+- Multi-byte values (lengths, counts, raw numbers) are little-endian, like the code units. A text payload, including a class name or a native object's formatting, is preceded by the text tag byte.
+- Until T3.4 gives classes a declared field list, an instance is encoded as its class name, a 4-byte field count, the constructor parameters' values in declaration order, and then every other field of the instance sorted by name (ordinal), each as name, `0x00 0x00`, value. When T3.4 lands, switch to the declared field order above; that changes hashes of states that hold instances, so baselines (T0.9) recorded before it must be re-recorded or compared by output only.
+- Until T1.6, native objects are hashed through v1 formatting, so a state holding an `F64Vec3` hashes differently before and after T1.6.
+- `MaxValueDepth` is 256 (PROP-5), a constant in `Runtime/StateHash.cs` until T1.2 makes it an instance limit.
+- The printed lines are those of the `print` builtin since the instance was created; error traces logged for unhandled errors are not included.
+
 ### 9.8 Cross-platform runs and IL2CPP
 
 **With CI.** Run `dotnet test` on linux-x64, windows-x64 and macos-arm64, and upload the `golden-hashes.*.txt` files. A final job runs `compare-hashes.sh` over them.
@@ -2317,7 +2325,7 @@ DefaultImporter:
 | T0.3 | Invariant checks | T0.1 | done | `3c6d086`. 15 tests carry `[KnownInvariantViolation("T1.3")]`. |
 | T0.4 | Bytecode round-trip and culture matrix | T0.2 | done | `6d34caa`. DET-1 shows as known failures under sv-SE in three goldens and A.8. |
 | T0.5 | Known-bug corpus and child-process runner | T0.2 | done | Runner in `Headless~/Runner/`; `# isolate` goldens run in child processes (A.1 to A.3 contained). C# repros A.6 (with its three variants), A.9, A.19 and A.21 in `Tests/ReproTests.cs`. A.20 moves to T1.7 (its cases are defined against format v2: format hash, verifier) and A.18 to T3.4 (v2 syntax: `@x`, `global`). |
-| T0.6 | State hash | T0.2 | todo | |
+| T0.6 | State hash | T0.2 | done | `WarScriptLanguage.ComputeStateHash()` (`Runtime/StateHash.cs`); the golden runner requires the same hash in both modes and every culture and writes `<file> [<mode>]: <hash>` lines to `Headless~/out/golden-hashes.<os>-<arch>.txt`; `Headless~/compare-hashes.sh` diffs them. Encoding notes in 9.7. Cross-machine comparison needs CI or the owner (9.8). |
 | T0.7 | Fuzzer v0 | T0.5 | todo | |
 | T0.8 | Audit mode (plus owner game sessions) | T0.1 | todo | |
 | T0.9 | Behavior baseline (owner) | T0.6 | todo | |
