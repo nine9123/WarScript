@@ -1244,6 +1244,19 @@ Emit these events from the v1 runtime. To tell scopes apart, give `MemoryScope` 
 
 `AuditReport` groups events by (kind, script, line) with counts and the first value pair seen, and writes Markdown or JSON.
 
+Implementation notes (T0.8):
+
+- `MemoryScope.Kind` (`MemoryScopeKind`, internal) is set where the scope is created: `Native` and `User` in the `WarScriptLanguage` constructor, `FunctionLocal` for `Call`, `CallValue`, `TailCall`, the host's `Call` and a coroutine's scope, `MethodLocal` in `CallMethod`, `ClassInstance` in `InstantiateClassDefShared`; everything else is `Block`.
+- `MixedTypeOrdering` is emitted for every use of `CompareTo`'s text fallback: operands of different types, and also two arrays, instances, nulls or native objects. Every one of them is a TypeError in v2.
+- `MixedTypeEquality` carries v1's result in its detail, so the report shows where v1 returned true.
+- `LogicalFormatted` is emitted by `print` (also for a logical inside a printed array) and by the text path of `+`, which interpolation compiles to. Natives that format values are not covered.
+- `IndexWriteInvalid` covers out-of-bounds array writes, non-numeric indexes, targets that cannot be indexed (including text through `IndexSet`, which has no write-back), and `IndexSetProp` on a non-instance. An out-of-bounds write into text is reported as `TextIndexAssign` with "out of bounds, ignored".
+- `DynamicPropertyCreated` treats the constructor (`<Class>#ctor`, which runs the class body) as the class body; a method that creates a field is reported.
+- `FieldAccessViaBareName` is emitted for reads and writes; `GlobalWriteFromFunction` also counts writes into host globals.
+- `BlockVariableEscapes` records the names of every top-level block scope that ends, by `PopScope` or by an error unwinding it. A null read of such a name at top level is reported as `BlockVariableEscapes` instead of `UndefinedRead`; a null read of a global inside a method or class body is `GlobalShadowedInClass`.
+- Each chunk records the script it was compiled from (`Chunk.Source`, not serialized), so an event in a function defined by an import names the import. Bytecode-loaded code carries the instance's script name.
+- Only the bytecode VM is audited, not the tree-walker.
+
 ### 8.2 Migration tool (T3.2)
 
 `Tools~/WarScript.Migrate` parses with the v1 frontend plus columns and builds symbol tables for the whole module set: top-level assigned names in every file, class fields (constructor parameters, class-body assignments, base classes resolved through imports), parameters and loop variables. Its inputs are:
@@ -2421,7 +2434,7 @@ DefaultImporter:
 | T0.5 | Known-bug corpus and child-process runner | T0.2 | done | Runner in `Headless~/Runner/`; `# isolate` goldens run in child processes (A.1 to A.3 contained). C# repros A.6 (with its three variants), A.9, A.19 and A.21 in `Tests/ReproTests.cs`. A.20 moves to T1.7 (its cases are defined against format v2: format hash, verifier) and A.18 to T3.4 (v2 syntax: `@x`, `global`). |
 | T0.6 | State hash | T0.2 | done | `WarScriptLanguage.ComputeStateHash()` (`Runtime/StateHash.cs`); the golden runner requires the same hash in both modes and every culture and writes `<file> [<mode>]: <hash>` lines to `Headless~/out/golden-hashes.<os>-<arch>.txt`; `Headless~/compare-hashes.sh` diffs them. Encoding notes in 9.7. Cross-machine comparison needs CI or the owner (9.8). |
 | T0.7 | Fuzzer v0 | T0.5 | done | `Headless~/Fuzz/` (notes in 9.6). A 10-minute run attributes every finding to a known ID. New findings reported to the owner: CRASH-5, CRASH-6, CRASH-7, BUDGET-2 (section 4, goldens A.22 to A.25, Q-11). The runner and `GoldenRun` now name the WarScript method a crash or escaped exception happened in. Bytecode mode waits for T1.7. |
-| T0.8 | Audit mode (plus owner game sessions) | T0.1 | todo | |
+| T0.8 | Audit mode (plus owner game sessions) | T0.1 | owner step | `WarScriptLanguage.AuditSink`, `AuditEvent`/`AuditKind`, `AuditReport` (`Runtime/Audit/`); all 20 events of 8.1 (notes there). Test-suite report: `Documentation~/migration/audit-tests.md` (`WARSCRIPT_AUDIT_REPORT=<file> dotnet test`). Owner instructions for game sessions: `Documentation~/migration/AUDIT.md`. Waiting for the owner's game-session report (Q-7, Q-10). |
 | T0.9 | Behavior baseline (owner) | T0.6 | owner step | `Documentation~/migration/BASELINE.md` written. run-1 (2026-11-06) reviewed there and not accepted: every recorded hash is the "no user globals" value, so it compares only three printed lines; no repeat run, no README. The recorder now also writes `<label>.globals.txt`. The full warman mod (2026-11-06) has no assignments at all, which explains run-1; its script behavior is baselined headlessly as native-call traces (`Headless~/ModTrace`, hashes in BASELINE.md). Waiting for the owner to accept that as the baseline. |
 | T1.1 | Constructors as frames | Phase 0 | todo | |
 | T1.2 | Cycle-safe value operations | Phase 0 | todo | |

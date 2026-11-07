@@ -62,7 +62,7 @@ namespace WarScript
             Id = id;
 
             _vm = new WarVM(script);
-            _coroutineScope = script.MemoryContext.NewScope(memoryScope);
+            _coroutineScope = script.MemoryContext.NewScope(memoryScope, MemoryScopeKind.FunctionLocal);
             _coroutineScope.Poolable = false;
         }
 

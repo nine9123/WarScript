@@ -172,6 +172,14 @@ namespace Tests.Golden
         /// Runs the file once with <c>CurrentCulture</c> and <c>CurrentUICulture</c>
         /// set to <paramref name="culture"/> ("" for the invariant culture).
         /// </summary>
+        /// <summary>
+        /// Set when the suite runs with auditing on (T0.8, <c>AuditSuite</c>):
+        /// the source-mode, invariant-culture run of every golden reports
+        /// into it. The other runs execute the same code, so they would only
+        /// multiply the counts.
+        /// </summary>
+        internal static WarScript.Audit.AuditReport Audit { get; set; }
+
         public static GoldenRun Execute(GoldenFile file, GoldenMode mode, string culture)
         {
             var savedCulture = CultureInfo.CurrentCulture;
@@ -181,7 +189,7 @@ namespace Tests.Golden
                 var info = culture.Length == 0 ? CultureInfo.InvariantCulture : new CultureInfo(culture);
                 CultureInfo.CurrentCulture = info;
                 CultureInfo.CurrentUICulture = info;
-                return Execute(file, mode);
+                return Execute(file, mode, culture.Length == 0 && mode == GoldenMode.Source ? Audit : null);
             }
             finally
             {
@@ -190,7 +198,7 @@ namespace Tests.Golden
             }
         }
 
-        public static GoldenRun Execute(GoldenFile file, GoldenMode mode)
+        public static GoldenRun Execute(GoldenFile file, GoldenMode mode, WarScript.Audit.AuditReport audit = null)
         {
             var run = new GoldenRun();
             var directory = System.IO.Path.GetDirectoryName(file.Path);
@@ -206,6 +214,16 @@ namespace Tests.Golden
                     WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
                 script.InstructionBudget = file.Budget;
                 script.MemoryBudget = file.MemoryBudget;
+                if (audit != null)
+                {
+                    // The file's path from Golden~ on; imports are named relative to its folder.
+                    var label = file.Path.Replace('\\', '/');
+                    var at = label.LastIndexOf("/Golden~/", StringComparison.Ordinal);
+                    label = at >= 0 ? label.Substring(at + 1) : file.Name;
+                    var folder = label.Substring(0, label.Length - file.Name.Length);
+                    script.AuditSink = e => audit.Add(new WarScript.Audit.AuditEvent(
+                        e.Kind, e.Script == file.Name ? label : folder + e.Script, e.Line, e.Function, e.Detail));
+                }
                 return script;
             }
 

@@ -40,20 +40,30 @@ namespace WarScript.Context
             return NewScope(parent);
         }
 
+        /// <inheritdoc cref="NewScope()"/>
+        internal MemoryScope NewScope(MemoryScopeKind kind)
+        {
+            var parent = _scopes.Count == 0 ? null : _scopes.Peek();
+            return NewScope(parent, kind);
+        }
+
         /// <summary>
         /// Create a MemoryScope with an explicit parent.
         /// Used by standalone function calls (Bug 6 fix) to parent
         /// to the user scope rather than the caller's scope.
         /// </summary>
-        public MemoryScope NewScope(MemoryScope parent)
+        public MemoryScope NewScope(MemoryScope parent) => NewScope(parent, MemoryScopeKind.Block);
+
+        /// <inheritdoc cref="NewScope(MemoryScope)"/>
+        internal MemoryScope NewScope(MemoryScope parent, MemoryScopeKind kind)
         {
             if (_pool.Count > 0)
             {
                 var scope = _pool.Pop();
-                scope.Reset(parent);
+                scope.Reset(parent, kind);
                 return scope;
             }
-            return new MemoryScope(_script, parent);
+            return new MemoryScope(_script, parent, true, kind);
         }
 
         /// <summary>

@@ -37,6 +37,8 @@ namespace WarScript.Bytecode
 
         private readonly WarScriptLanguage _script;
         private CompiledFunction _current = null!;
+        /// <summary>The script being compiled, recorded in every chunk (<see cref="Chunk.Source"/>).</summary>
+        private string? _source;
         private Chunk Chunk => _current.Chunk;
 
         private readonly List<Local> _locals = new();
@@ -83,7 +85,9 @@ namespace WarScript.Bytecode
 
         private CompiledFunction DoCompileScript(CompositeStatement program, DefinitionScope defScope)
         {
+            _source = program.BlockName;
             _current = new CompiledFunction("<script>", 0);
+            _current.Chunk.Source = _source;
 
             // Compile all function/class definitions reachable from this scope
             CompileDefinitions(defScope);
@@ -122,7 +126,9 @@ namespace WarScript.Bytecode
             if (funcDef.Statement == null) return; // native function
 
             var child = new Compiler(_script, functionDepth: 1);
+            child._source = _source;
             child._current = new CompiledFunction(funcDef.Details.Name, funcDef.Details.Arguments.Count);
+            child._current.Chunk.Source = _source;
 
             child.BeginScope();
 
@@ -169,7 +175,9 @@ namespace WarScript.Bytecode
             // Constructor runs at "depth 0" so property accesses go through
             // GetGlobal/SetGlobal which hit the class instance's MemoryScope
             var child = new Compiler(_script, functionDepth: 0);
+            child._source = _source;
             child._current = new CompiledFunction(classDef.ClassDetails.Name + "#ctor", 0);
+            child._current.Chunk.Source = _source;
 
             foreach (var stmt in stmts)
                 child.CompileStatement(stmt);
@@ -190,9 +198,14 @@ namespace WarScript.Bytecode
         /// Used by LambdaExpression.Evaluate() for the tree-walk path.
         /// </summary>
         public static CompiledFunction CompileLambda(WarScriptLanguage script, LambdaExpression lambda)
+            => CompileLambda(script, lambda, null);
+
+        private static CompiledFunction CompileLambda(WarScriptLanguage script, LambdaExpression lambda, string? source)
         {
             var compiler = new Compiler(script, functionDepth: 1);
+            compiler._source = source;
             compiler._current = new CompiledFunction("<lambda>", lambda.Parameters.Count);
+            compiler._current.Chunk.Source = source;
             compiler.BeginScope();
 
             foreach (var param in lambda.Parameters)
@@ -210,7 +223,7 @@ namespace WarScript.Bytecode
 
         private CompiledFunction CompileLambdaBody(LambdaExpression lambda)
         {
-            return CompileLambda(_script, lambda);
+            return CompileLambda(_script, lambda, _source);
         }
 
         // ────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using WarScript.Audit;
 using WarScript.Context;
 using WarScript.Context.Definition;
 using WarScript.Expression;
@@ -354,6 +355,7 @@ namespace WarScript.Bytecode
                         _scopeDepth++;
                         break;
                     case OpCode.PopScope:
+                        if (_script.AuditSink != null) AuditBlockEnd();
                         _script.MemoryContext.EndScope();
                         _scopeDepth--;
                         break;
@@ -378,13 +380,16 @@ namespace WarScript.Bytecode
                     {
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
                         var name = constants[nameIdx].TextValue;
-                        Push(_script.MemoryContext.GetScope().Get(name));
+                        var global = _script.MemoryContext.GetScope().Get(name);
+                        if (_script.AuditSink != null) AuditGlobalRead(name, global.IsNull, fi);
+                        Push(global);
                         break;
                     }
                     case OpCode.SetGlobal:
                     {
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
                         var name = constants[nameIdx].TextValue;
+                        if (_script.AuditSink != null) AuditGlobalWrite(name, fi);
                         _script.MemoryContext.GetScope().Set(name, Peek());
                         break;
                     }
@@ -400,12 +405,15 @@ namespace WarScript.Bytecode
                             Push(WarValue.FromNumeric(a.Numeric + b.Numeric));
                         else if (a.IsArray || b.IsArray)
                         {
+                            if (a.IsArray != b.IsArray && _script.AuditSink != null)
+                                Audit(AuditKind.ArrayPlusValue, fi, Describe(a) + " + " + Describe(b));
                             var arr = AddArrays(a, b);
                             TrackAlloc(EstimateArrayBytes(arr.ArrayValue.Count));
                             Push(arr);
                         }
                         else
                         {
+                            if (_script.AuditSink != null) AuditConcatenation(a, b, fi);
                             var s = _interner.Intern(a.ToString() + b.ToString());
                             TrackAlloc(EstimateStringBytes(s));
                             Push(WarValue.FromText(s));
@@ -419,6 +427,8 @@ namespace WarScript.Bytecode
                             Push(WarValue.FromNumeric(a.Numeric - b.Numeric));
                         else
                         {
+                            if (_script.AuditSink != null)
+                                Audit(AuditKind.TextSubtraction, fi, Describe(a) + " - " + Describe(b));
                             var s = _interner.Intern(a.ToString().Replace(b.ToString(), ""));
                             TrackAlloc(EstimateStringBytes(s));
                             Push(WarValue.FromText(s));
@@ -493,8 +503,13 @@ namespace WarScript.Bytecode
                         break;
                     }
                     case OpCode.Negate:
-                        Push(WarValue.FromNumeric(-Pop().Numeric));
+                    {
+                        var v = Pop();
+                        if (!v.IsNumeric && _script.AuditSink != null)
+                            Audit(AuditKind.NegateNonNumeric, fi, "-" + Describe(v));
+                        Push(WarValue.FromNumeric(-v.Numeric));
                         break;
+                    }
 
                     // ══════════════════════════════════════════════
                     //  Comparison
@@ -506,9 +521,17 @@ namespace WarScript.Bytecode
                         if (a.IsNull || b.IsNull)
                             Push(WarValue.FromLogical(a.IsNull && b.IsNull));
                         else if (a.Tag == b.Tag)
-                            Push(WarValue.FromLogical(a.Equals(b)));
+                        {
+                            var equal = a.Equals(b);
+                            if (equal && a.IsClass && _script.AuditSink != null) AuditClassEquality(a, b, "==", fi);
+                            Push(WarValue.FromLogical(equal));
+                        }
                         else
-                            Push(WarValue.FromLogical(a.ToString() == b.ToString()));
+                        {
+                            var equal = a.ToString() == b.ToString();
+                            if (_script.AuditSink != null) AuditMixedEquality(a, b, "==", equal, fi);
+                            Push(WarValue.FromLogical(equal));
+                        }
                         break;
                     }
                     case OpCode.NotEqual:
@@ -517,33 +540,41 @@ namespace WarScript.Bytecode
                         if (a.IsNull || b.IsNull)
                             Push(WarValue.FromLogical(!(a.IsNull && b.IsNull)));
                         else if (a.Tag == b.Tag)
-                            Push(WarValue.FromLogical(!a.Equals(b)));
+                        {
+                            var equal = a.Equals(b);
+                            if (equal && a.IsClass && _script.AuditSink != null) AuditClassEquality(a, b, "!=", fi);
+                            Push(WarValue.FromLogical(!equal));
+                        }
                         else
-                            Push(WarValue.FromLogical(a.ToString() != b.ToString()));
+                        {
+                            var equal = a.ToString() == b.ToString();
+                            if (_script.AuditSink != null) AuditMixedEquality(a, b, "!=", !equal, fi);
+                            Push(WarValue.FromLogical(!equal));
+                        }
                         break;
                     }
                     case OpCode.Less:
                     {
                         var b = Pop(); var a = Pop();
-                        Push(WarValue.FromLogical(a.CompareTo(b) < 0));
+                        Push(WarValue.FromLogical(Compare(a, b, fi) < 0));
                         break;
                     }
                     case OpCode.LessEqual:
                     {
                         var b = Pop(); var a = Pop();
-                        Push(WarValue.FromLogical(a.CompareTo(b) <= 0));
+                        Push(WarValue.FromLogical(Compare(a, b, fi) <= 0));
                         break;
                     }
                     case OpCode.Greater:
                     {
                         var b = Pop(); var a = Pop();
-                        Push(WarValue.FromLogical(a.CompareTo(b) > 0));
+                        Push(WarValue.FromLogical(Compare(a, b, fi) > 0));
                         break;
                     }
                     case OpCode.GreaterEqual:
                     {
                         var b = Pop(); var a = Pop();
-                        Push(WarValue.FromLogical(a.CompareTo(b) >= 0));
+                        Push(WarValue.FromLogical(Compare(a, b, fi) >= 0));
                         break;
                     }
 
@@ -556,7 +587,7 @@ namespace WarScript.Bytecode
                     {
                         var offset = ReadU16(code, ref _frames[fi].IP);
                         var b = Pop(); var a = Pop();
-                        if (!(a.CompareTo(b) < 0))
+                        if (!(Compare(a, b, fi) < 0))
                             _frames[fi].IP += offset;
                         break;
                     }
@@ -564,7 +595,7 @@ namespace WarScript.Bytecode
                     {
                         var offset = ReadU16(code, ref _frames[fi].IP);
                         var b = Pop(); var a = Pop();
-                        if (!(a.CompareTo(b) <= 0))
+                        if (!(Compare(a, b, fi) <= 0))
                             _frames[fi].IP += offset;
                         break;
                     }
@@ -572,7 +603,7 @@ namespace WarScript.Bytecode
                     {
                         var offset = ReadU16(code, ref _frames[fi].IP);
                         var b = Pop(); var a = Pop();
-                        if (!(a.CompareTo(b) > 0))
+                        if (!(Compare(a, b, fi) > 0))
                             _frames[fi].IP += offset;
                         break;
                     }
@@ -580,7 +611,7 @@ namespace WarScript.Bytecode
                     {
                         var offset = ReadU16(code, ref _frames[fi].IP);
                         var b = Pop(); var a = Pop();
-                        if (!(a.CompareTo(b) >= 0))
+                        if (!(Compare(a, b, fi) >= 0))
                             _frames[fi].IP += offset;
                         break;
                     }
@@ -677,7 +708,7 @@ namespace WarScript.Bytecode
                                 argCount++;
                             }
                             _script.MemoryContext.PushScope(
-                                _script.MemoryContext.NewScope(_script.UserMemoryScope));
+                                _script.MemoryContext.NewScope(_script.UserMemoryScope, MemoryScopeKind.FunctionLocal));
                             var newBase = _sp - argCount;
                             if (_frameCount >= FramesMax)
                             {
@@ -726,7 +757,7 @@ namespace WarScript.Bytecode
                             // Push a MemoryScope for function-local variables
                             // (parented to UserMemoryScope, matching tree-walker semantics)
                             _script.MemoryContext.PushScope(
-                                _script.MemoryContext.NewScope(_script.UserMemoryScope));
+                                _script.MemoryContext.NewScope(_script.UserMemoryScope, MemoryScopeKind.FunctionLocal));
 
                             // Arguments are already on the stack at sp-argCount .. sp-1
                             var newBase = _sp - argCount;
@@ -788,7 +819,7 @@ namespace WarScript.Bytecode
                         }
 
                         _script.MemoryContext.PushScope(
-                            _script.MemoryContext.NewScope(_script.UserMemoryScope));
+                            _script.MemoryContext.NewScope(_script.UserMemoryScope, MemoryScopeKind.FunctionLocal));
 
                         var cvNewBase = _sp - argCount;
                         if (_frameCount >= FramesMax)
@@ -855,6 +886,7 @@ namespace WarScript.Bytecode
                             // Pop excess scopes
                             while (_scopeDepth > _frames[fi].SavedScopeDepth)
                             {
+                                if (_script.AuditSink != null) AuditBlockEnd();
                                 _script.MemoryContext.EndScope();
                                 _scopeDepth--;
                             }
@@ -881,7 +913,7 @@ namespace WarScript.Bytecode
 
                             // Push fresh scope for the new function
                             _script.MemoryContext.PushScope(
-                                _script.MemoryContext.NewScope(_script.UserMemoryScope));
+                                _script.MemoryContext.NewScope(_script.UserMemoryScope, MemoryScopeKind.FunctionLocal));
 
                             // Move arguments down to the frame's stack base
                             var stackBase = _frames[fi].StackBase;
@@ -916,6 +948,7 @@ namespace WarScript.Bytecode
                             var handler = _handlers[--_handlerCount];
                             while (_scopeDepth > handler.SavedScopeDepth)
                             {
+                                if (_script.AuditSink != null) AuditBlockEnd();
                                 _script.MemoryContext.EndScope();
                                 _scopeDepth--;
                             }
@@ -934,6 +967,7 @@ namespace WarScript.Bytecode
                         // where the handler was already consumed during exception handling)
                         while (_scopeDepth > _frames[fi].SavedScopeDepth)
                         {
+                            if (_script.AuditSink != null) AuditBlockEnd();
                             _script.MemoryContext.EndScope();
                             _scopeDepth--;
                         }
@@ -1007,7 +1041,7 @@ namespace WarScript.Bytecode
                                 }
 
                                 // Push an inner scope for method-local variables
-                                _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
+                                _script.MemoryContext.PushScope(_script.MemoryContext.NewScope(MemoryScopeKind.MethodLocal));
 
                                 var newBase = _sp - argCount;
                                 if (_frameCount >= FramesMax)
@@ -1067,17 +1101,21 @@ namespace WarScript.Bytecode
                     case OpCode.IndexGet:
                     {
                         var index = Pop(); var target = Pop();
+                        WarValue element;
                         if (target.IsArray && index.IsNumeric)
-                            Push(target.GetArrayElement(WarValue.ToInt(index.Numeric)));
+                            element = target.GetArrayElement(WarValue.ToInt(index.Numeric));
                         else if (target.IsText && index.IsNumeric)
-                            Push(target.GetTextChar(WarValue.ToInt(index.Numeric)));
+                            element = target.GetTextChar(WarValue.ToInt(index.Numeric));
                         else
-                            Push(WarValue.Null);
+                            element = WarValue.Null;
+                        if (element.IsNull && _script.AuditSink != null) AuditIndexRead(target, index, fi);
+                        Push(element);
                         break;
                     }
                     case OpCode.IndexSet:
                     {
                         var value = Pop(); var index = Pop(); var target = Pop();
+                        if (_script.AuditSink != null) AuditIndexWrite(target, index, textWriteBack: false, fi);
                         if (target.IsArray && index.IsNumeric)
                             target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                         Push(value);
@@ -1089,6 +1127,7 @@ namespace WarScript.Bytecode
                         var slot = ReadU16(code, ref _frames[fi].IP);
                         var value = Pop(); var index = Pop();
                         var target = _stack[_frames[fi].StackBase + slot];
+                        if (_script.AuditSink != null) AuditIndexWrite(target, index, textWriteBack: true, fi);
                         if (target.IsArray && index.IsNumeric)
                             target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                         else if (target.IsText && index.IsNumeric)
@@ -1106,6 +1145,7 @@ namespace WarScript.Bytecode
                         var name = constants[nameIdx].TextValue;
                         var value = Pop(); var index = Pop();
                         var target = _script.MemoryContext.GetScope().Get(name);
+                        if (_script.AuditSink != null) AuditIndexWrite(target, index, textWriteBack: true, fi);
                         if (target.IsArray && index.IsNumeric)
                             target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                         else if (target.IsText && index.IsNumeric)
@@ -1143,6 +1183,7 @@ namespace WarScript.Bytecode
                                 }
                             }
 
+                            if (_script.AuditSink != null) AuditIndexWrite(propVal, index, textWriteBack: true, fi);
                             if (propVal.IsArray && index.IsNumeric)
                                 propVal.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                             else if (propVal.IsText && index.IsNumeric)
@@ -1154,6 +1195,9 @@ namespace WarScript.Bytecode
                                     cd.SetProperty(constants[nameIdx].TextValue, newText);
                             }
                         }
+                        else if (_script.AuditSink != null)
+                            Audit(AuditKind.IndexWriteInvalid, fi,
+                                  Describe(inst) + " :: " + constants[nameIdx].TextValue + "{" + Describe(index) + "} = ...: not an instance");
                         Push(value);
                         break;
                     }
@@ -1165,6 +1209,8 @@ namespace WarScript.Bytecode
                             TrackAlloc(16); // one WarValue slot
                             arr.ArrayAppend(value);
                         }
+                        else if (_script.AuditSink != null)
+                            Audit(AuditKind.AppendToNonArray, fi, Describe(arr) + " << " + Describe(value));
                         break;
                     }
 
@@ -1313,6 +1359,7 @@ namespace WarScript.Bytecode
                             else
                             {
                                 var propName = constants[nameIdx].TextValue;
+                                if (_script.AuditSink != null) AuditPropertyWrite(cd, propName, fi);
                                 cd.SetProperty(propName, value);
                                 if (details.PropertyIndex.TryGetValue(propName, out var idx))
                                 {
@@ -1321,6 +1368,9 @@ namespace WarScript.Bytecode
                                 }
                             }
                         }
+                        else if (_script.AuditSink != null)
+                            Audit(AuditKind.PropertyWriteOnNonInstance, fi,
+                                  Describe(inst) + " :: " + constants[nameIdx].TextValue + " = " + Describe(value));
                         Push(value);
                         break;
                     }
@@ -1385,6 +1435,7 @@ namespace WarScript.Bytecode
                         else
                         {
                             var propName = constants[nameIdx].TextValue;
+                            if (_script.AuditSink != null) AuditPropertyWrite(cd, propName, fi);
                             cd.SetProperty(propName, value);
                             if (details.PropertyIndex.TryGetValue(propName, out var idx))
                             {
@@ -1428,8 +1479,13 @@ namespace WarScript.Bytecode
                     // ══════════════════════════════════════════════
 
                     case OpCode.Print:
-                        _script.Print(Pop().ToString());
+                    {
+                        var printed = Pop();
+                        if (_script.AuditSink != null && ContainsLogical(printed, 0))
+                            Audit(AuditKind.LogicalFormatted, fi, "print " + Describe(printed));
+                        _script.Print(printed.ToString());
                         break;
+                    }
 
                     case OpCode.Assert:
                     {
@@ -1547,6 +1603,7 @@ namespace WarScript.Bytecode
                         var h = _handlers[--_handlerCount];
                         while (_scopeDepth > h.SavedScopeDepth)
                         {
+                            if (_script.AuditSink != null) AuditBlockEnd();
                             _script.MemoryContext.EndScope();
                             _scopeDepth--;
                         }
@@ -1564,6 +1621,7 @@ namespace WarScript.Bytecode
                     // Pop excess scopes before returning
                     while (_scopeDepth > _frames[fi].SavedScopeDepth)
                     {
+                        if (_script.AuditSink != null) AuditBlockEnd();
                         _script.MemoryContext.EndScope();
                         _scopeDepth--;
                     }
@@ -1717,6 +1775,7 @@ namespace WarScript.Bytecode
                     // Unwind this frame — pop excess scopes first
                     while (_scopeDepth > _frames[fi].SavedScopeDepth)
                     {
+                        if (_script.AuditSink != null) AuditBlockEnd();
                         _script.MemoryContext.EndScope();
                         _scopeDepth--;
                     }
@@ -1746,6 +1805,7 @@ namespace WarScript.Bytecode
                 // Pop any MemoryContext scopes pushed since the handler was installed
                 while (_scopeDepth > handler.SavedScopeDepth)
                 {
+                    if (_script.AuditSink != null) AuditBlockEnd();
                     _script.MemoryContext.EndScope();
                     _scopeDepth--;
                 }
@@ -1836,7 +1896,7 @@ namespace WarScript.Bytecode
                     valueRefs[i] = ValueReference.InstanceOf(i < args.Count ? args[i] : WarValue.Null);
             }
 
-            var classScope = new MemoryScope(_script, null, poolable: false);
+            var classScope = new MemoryScope(_script, null, false, MemoryScopeKind.ClassInstance);
             var classData = new ClassData(definition, classScope, relations);
             classData.PropertyValues = valueRefs;
             relations[definition.ClassDetails.Name] = classData;
@@ -1905,6 +1965,213 @@ namespace WarScript.Bytecode
                 if (result != null) return result;
             }
             return null;
+        }
+
+        // ── Ordering ──
+
+        /// <summary>
+        /// <see cref="WarValue.CompareTo"/>, with the number case first and
+        /// the audit events for the cases v2 rejects (plan 8.1).
+        /// </summary>
+        private int Compare(in WarValue a, in WarValue b, int fi)
+        {
+            if (a.IsNumeric && b.IsNumeric) return a.Numeric.CompareTo(b.Numeric);
+            if (_script.AuditSink != null && !(a.IsText && b.IsText))
+            {
+                if (a.IsLogical && b.IsLogical)
+                    Audit(AuditKind.LogicalOrdering, fi, Describe(a) + " <=> " + Describe(b));
+                else
+                    Audit(AuditKind.MixedTypeOrdering, fi, Describe(a) + " <=> " + Describe(b) + " (compared as text)");
+            }
+            return a.CompareTo(b);
+        }
+
+        // ── Audit mode (plan 8.1, T0.8; temporary) ──
+        // Every caller checks _script.AuditSink != null first, so with no
+        // sink attached the cost is that one check.
+
+        private void Audit(AuditKind kind, int fi, string detail)
+        {
+            var sink = _script.AuditSink;
+            if (sink == null) return;
+            var function = _frames[fi].Function;
+            var line = AuditLine(function.Chunk.Lines, _frames[fi].IP - 1);
+            sink(new AuditEvent(kind, function.Chunk.Source ?? _script.ScriptName, line, function.Name, detail));
+        }
+
+        /// <summary>
+        /// The line of the instruction at <paramref name="ip"/>. v1 records
+        /// line 0 for many expression instructions (T1.10), so fall back to
+        /// the next instruction that has a line, normally the statement the
+        /// expression belongs to (its opcode comes after its operands), and
+        /// then to the previous one.
+        /// </summary>
+        private static int AuditLine(List<int> lines, int ip)
+        {
+            if (ip < 0 || ip >= lines.Count) return 0;
+            for (var i = ip; i < lines.Count; i++)
+                if (lines[i] > 0) return lines[i];
+            for (var i = ip - 1; i >= 0; i--)
+                if (lines[i] > 0) return lines[i];
+            return 0;
+        }
+
+        /// <summary>
+        /// A value for an audit detail: its type and a short form. Never calls
+        /// ToString on an array, instance or native object (a cyclic array
+        /// would recurse, CRASH-1; host objects are not formatted, R1).
+        /// </summary>
+        private static string Describe(in WarValue v)
+        {
+            switch (v.Tag)
+            {
+                case ValueTag.Null: return "null";
+                case ValueTag.Numeric:
+                    // Integers culture-invariantly (R1); v1's fractional formatting is integer-only already.
+                    return "number " + (F64.Fract(v.Numeric) == F64.Zero
+                        ? WarValue.ToInt(v.Numeric).ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        : v.ToString());
+                case ValueTag.Logical: return "logical " + (v.LogicalValue ? "true" : "false");
+                case ValueTag.Text:
+                    var t = v.TextValue;
+                    return "text \"" + (t.Length <= 40 ? t : t.Substring(0, 37) + "...") + "\"";
+                case ValueTag.Array: return "array of " + v.ArrayValue.Count;
+                case ValueTag.Class: return v.ClassValue.Definition.ClassDetails.Name + " instance";
+                case ValueTag.NativeObject: return "native " + (v.Ref?.GetType().Name ?? "null");
+                default: return v.Tag.ToString();
+            }
+        }
+
+        /// <summary>True if formatting <paramref name="v"/> writes a logical value (inside arrays too, to a fixed depth).</summary>
+        private static bool ContainsLogical(in WarValue v, int depth)
+        {
+            if (v.IsLogical) return true;
+            if (!v.IsArray || depth >= 8) return false;
+            foreach (var element in v.ArrayValue)
+                if (ContainsLogical(element, depth + 1)) return true;
+            return false;
+        }
+
+        private void AuditMixedEquality(in WarValue a, in WarValue b, string op, bool result, int fi) =>
+            Audit(AuditKind.MixedTypeEquality, fi,
+                  Describe(a) + " " + op + " " + Describe(b) + " (v1: " + (result ? "true" : "false") + ")");
+
+        private void AuditClassEquality(in WarValue a, in WarValue b, string op, int fi)
+        {
+            if (ReferenceEquals(a.Ref, b.Ref)) return;
+            Audit(AuditKind.ClassStructuralEquality, fi,
+                  Describe(a) + " " + op + " " + Describe(b) + ": two instances, structurally equal");
+        }
+
+        private void AuditConcatenation(in WarValue a, in WarValue b, int fi)
+        {
+            if (!a.IsText && !b.IsText)
+                Audit(AuditKind.NonTextConcatenation, fi, Describe(a) + " + " + Describe(b));
+            if (a.IsLogical || b.IsLogical)
+                Audit(AuditKind.LogicalFormatted, fi, Describe(a) + " + " + Describe(b));
+        }
+
+        private void AuditIndexRead(in WarValue target, in WarValue index, int fi)
+        {
+            string why;
+            if (!target.IsArray && !target.IsText) why = "not indexable";
+            else if (!index.IsNumeric) why = "index is not a number";
+            else
+            {
+                var i = WarValue.ToInt(index.Numeric);
+                var count = target.IsArray ? target.ArrayValue.Count : target.TextValue.Length;
+                if (i >= 0 && i < count) return; // an element that is null
+                why = "out of bounds";
+            }
+            Audit(AuditKind.IndexReadInvalid, fi, Describe(target) + "{" + Describe(index) + "}: " + why);
+        }
+
+        /// <param name="textWriteBack">The opcode writes a changed text back to its variable or property.</param>
+        private void AuditIndexWrite(in WarValue target, in WarValue index, bool textWriteBack, int fi)
+        {
+            var site = Describe(target) + "{" + Describe(index) + "} = ...";
+            if (target.IsArray && index.IsNumeric)
+            {
+                var i = WarValue.ToInt(index.Numeric);
+                if (i < 0 || i >= target.ArrayValue.Count)
+                    Audit(AuditKind.IndexWriteInvalid, fi, site + ": out of bounds, ignored");
+            }
+            else if (textWriteBack && target.IsText && index.IsNumeric)
+            {
+                var i = WarValue.ToInt(index.Numeric);
+                var ignored = i < 0 || i >= target.TextValue.Length;
+                Audit(AuditKind.TextIndexAssign, fi, site + (ignored ? ": out of bounds, ignored" : ": text rewritten"));
+            }
+            else
+            {
+                var why = !index.IsNumeric && (target.IsArray || target.IsText) ? "index is not a number" : "not indexable";
+                Audit(AuditKind.IndexWriteInvalid, fi, site + ": " + why + ", ignored");
+            }
+        }
+
+        /// <summary>A property write on an instance that misses the inline cache: does it create an undeclared field?</summary>
+        private void AuditPropertyWrite(ClassData cd, string name, int fi)
+        {
+            if (cd.Definition.ClassDetails.PropertyIndex.ContainsKey(name) || cd.MemoryScope.HasLocal(name)) return;
+            // Assignments in the class body (the constructor) declare fields.
+            if (_frames[fi].Function.Name.EndsWith("#ctor", StringComparison.Ordinal)) return;
+            Audit(AuditKind.DynamicPropertyCreated, fi,
+                  cd.Definition.ClassDetails.Name + " :: " + name + ": not a field of the class");
+        }
+
+        /// <summary>
+        /// A global read: a method reading a field by its bare name, or a null
+        /// that is undefined, a global hidden from a class, or a variable of
+        /// an ended block.
+        /// </summary>
+        private void AuditGlobalRead(string name, bool readNull, int fi)
+        {
+            var start = _script.MemoryContext.GetScope();
+            if (!readNull && start.Kind != MemoryScopeKind.MethodLocal) return;
+            var holder = start.Resolve(name);
+            if (holder != null)
+            {
+                if (start.Kind == MemoryScopeKind.MethodLocal && holder.Kind == MemoryScopeKind.ClassInstance)
+                    Audit(AuditKind.FieldAccessViaBareName, fi, "read " + name);
+                return; // a variable that holds null
+            }
+
+            if ((start.Kind == MemoryScopeKind.MethodLocal || start.Kind == MemoryScopeKind.ClassInstance)
+                && _script.UserMemoryScope.Resolve(name) != null)
+                Audit(AuditKind.GlobalShadowedInClass, fi,
+                      name + ": null here, global value " + Describe(_script.UserMemoryScope.Get(name)));
+            else if ((start.Kind == MemoryScopeKind.User || start.Kind == MemoryScopeKind.Block)
+                     && _script.AuditBlockNames != null && _script.AuditBlockNames.Contains(name))
+                Audit(AuditKind.BlockVariableEscapes, fi, name + ": assigned in an ended top-level block, read as null");
+            else
+                Audit(AuditKind.UndefinedRead, fi, name);
+        }
+
+        /// <summary>A global write, before it happens: from a function into a global, or from a method into a field?</summary>
+        private void AuditGlobalWrite(string name, int fi)
+        {
+            var start = _script.MemoryContext.GetScope();
+            if (start.HasLocal(name)) return;
+            var holder = start.Resolve(name);
+            if (holder == null) return; // creates a local of the current scope
+            if (start.Kind == MemoryScopeKind.FunctionLocal
+                && (holder.Kind == MemoryScopeKind.User || holder.Kind == MemoryScopeKind.Native))
+                Audit(AuditKind.GlobalWriteFromFunction, fi, name);
+            else if (start.Kind == MemoryScopeKind.MethodLocal && holder.Kind == MemoryScopeKind.ClassInstance)
+                Audit(AuditKind.FieldAccessViaBareName, fi, "write " + name);
+        }
+
+        /// <summary>A top-level block ends: remember the names it created, for BlockVariableEscapes.</summary>
+        private void AuditBlockEnd()
+        {
+            var scope = _script.MemoryContext.GetScope();
+            if (scope.Kind != MemoryScopeKind.Block || scope.LocalNames.Count == 0) return;
+            // Only blocks of the script body: a class body's blocks sit on the instance's scope.
+            var outer = scope.Parent;
+            while (outer != null && outer.Kind == MemoryScopeKind.Block) outer = outer.Parent;
+            if (outer == null || outer.Kind != MemoryScopeKind.User) return;
+            var names = _script.AuditBlockNames ??= new HashSet<string>(StringComparer.Ordinal);
+            foreach (var name in scope.LocalNames) names.Add(name);
         }
 
         // ── Import ──

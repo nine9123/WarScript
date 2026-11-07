@@ -17,6 +17,13 @@ namespace WarScript.Bytecode
         public readonly List<int> Lines = new();
 
         /// <summary>
+        /// The script the code was compiled from (the instance's script name or
+        /// an import path), for audit events (plan 8.1). Not serialized: null
+        /// for bytecode loaded with LoadBytecode or a BytecodeResolver.
+        /// </summary>
+        internal string? Source;
+
+        /// <summary>
         /// Inline caches for property access. Each GetProperty/SetProperty/IndexSetProp
         /// bytecode site gets a cache slot ID (emitted as a U16 operand). At runtime,
         /// the VM checks if the instance's ClassDetails matches the cached type. On hit:

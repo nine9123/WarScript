@@ -124,6 +124,26 @@ namespace WarScript
 
         private readonly HashSet<int> _breakpoints = new();
 
+        // ── Audit mode (v2 plan 8.1, T0.8; temporary) ──
+
+        /// <summary>
+        /// Receives an <see cref="Audit.AuditEvent"/> each time the VM takes a
+        /// v1 code path whose behavior changes in WarScript v2 (mixed-type
+        /// equality, text subtraction, ignored index writes, a function
+        /// writing a global, ...). Null (the default) disables auditing; the
+        /// cost is then one null check on those paths. Collect events with an
+        /// <see cref="Audit.AuditReport"/>: <c>script.AuditSink = report.Add</c>.
+        /// Only bytecode execution is audited, not the legacy tree-walker.
+        /// </summary>
+        public Action<Audit.AuditEvent>? AuditSink { get; set; }
+
+        /// <summary>
+        /// Audit mode: names created in top-level blocks that have ended, for
+        /// <see cref="Audit.AuditKind.BlockVariableEscapes"/>. Null until the
+        /// first such block ends with a sink attached.
+        /// </summary>
+        internal HashSet<string>? AuditBlockNames;
+
         /// <summary>Add a breakpoint at a source line number.</summary>
         public void AddBreakpoint(int line) => _breakpoints.Add(line);
 
@@ -204,7 +224,7 @@ namespace WarScript
             _tokens = LexicalParser.Parse(sourceCode);
 
             var nativeDefinitionScope = DefinitionContext.NewScope();
-            var nativeMemoryScope = MemoryContext.NewScope();
+            var nativeMemoryScope = MemoryContext.NewScope(MemoryScopeKind.Native);
             nativeMemoryScope.Poolable = false;
 
             DefinitionContext.PushScope(nativeDefinitionScope);
@@ -214,7 +234,7 @@ namespace WarScript
             GlobalMemoryScope = nativeMemoryScope;
 
             _definitionScope = DefinitionContext.NewScope();
-            _memoryScope = MemoryContext.NewScope();
+            _memoryScope = MemoryContext.NewScope(MemoryScopeKind.User);
             _memoryScope.Poolable = false;
 
             DefinitionContext.EndScope();
@@ -540,7 +560,7 @@ namespace WarScript
             MemoryContext.PushScope(_memoryScope);
             // Push a scope for function-local variables accessed via SetGlobal.
             // Parented to _memoryScope, matching the VM's OP_CALL behavior.
-            MemoryContext.PushScope(MemoryContext.NewScope(UserMemoryScope));
+            MemoryContext.PushScope(MemoryContext.NewScope(UserMemoryScope, MemoryScopeKind.FunctionLocal));
 
             try
             {
