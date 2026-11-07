@@ -150,9 +150,10 @@ namespace WarScript.Fuzz
             }) { IsBackground = true }).ToList();
             workers.ForEach(t => t.Start());
 
-            while (workers.Any(t => t.IsAlive))
+            // FirstOrDefault: a worker can finish between the check and the pick.
+            for (var alive = workers.FirstOrDefault(t => t.IsAlive); alive != null; alive = workers.FirstOrDefault(t => t.IsAlive))
             {
-                workers.First(t => t.IsAlive).Join(TimeSpan.FromSeconds(30));
+                alive.Join(TimeSpan.FromSeconds(30));
                 Console.Out.WriteLine($"  {deadline.Elapsed:mm\\:ss}  {fuzz.Progress()}");
             }
 
@@ -203,16 +204,28 @@ namespace WarScript.Fuzz
             return null;
         }
 
-        /// <summary>Blanks out what varies between occurrences of one failure: quoted names and numbers.</summary>
-        private static string Normalize(string s)
+        /// <summary>
+        /// Blanks out what varies between occurrences of one failure: quoted
+        /// names and numbers. Only the message is cut to its first line and 200
+        /// characters; the trailing "(in &lt;method&gt;)" site is kept whole, because
+        /// <see cref="KnownFindings"/> matches on it.
+        /// </summary>
+        internal static string Normalize(string s)
         {
+            var site = SiteSuffix.Match(s);
+            var suffix = site.Success ? site.Value : "";
+            if (site.Success) s = s.Substring(0, site.Index);
             var end = s.IndexOf('\n');
             if (end >= 0) s = s.Substring(0, end);
             s = Regex.Replace(s, "'[^']*'", "'_'");
             s = Regex.Replace(s, "\"[^\"]*\"", "\"_\"");
             s = Regex.Replace(s, @"\d+", "N");
-            return s.Length <= 200 ? s.TrimEnd() : s.Substring(0, 200);
+            s = s.Length <= 200 ? s.TrimEnd() : s.Substring(0, 200);
+            return s + suffix;
         }
+
+        /// <summary>The " (in &lt;method&gt;)" that the runner and GoldenRun append to a crash or escaped exception.</summary>
+        private static readonly Regex SiteSuffix = new Regex(@" \(in [\w.+<>`]+\)$");
 
         private static string Metadata(string key) =>
             typeof(Program).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
@@ -227,7 +240,7 @@ namespace WarScript.Fuzz
 
     internal sealed class Case
     {
-        public ulong Seed;
+        public ulong? Seed;   // null: a replayed case file
         public string BaseFile;
         public readonly List<string> Mutations = new List<string>();
         public string Content;
@@ -243,16 +256,17 @@ namespace WarScript.Fuzz
         public string Describe()
         {
             var sb = new StringBuilder();
-            sb.Append("seed: ").Append(Seed).Append('\n');
-            sb.Append("base: ").Append(BaseFile).Append('\n');
+            if (Seed.HasValue) sb.Append("seed: ").Append(Seed.Value).Append('\n');
+            sb.Append(Seed.HasValue ? "base: " : "file: ").Append(BaseFile).Append('\n');
             foreach (var m in Mutations) sb.Append("mutation: ").Append(m).Append('\n');
             sb.Append("outcome: ").Append(Outcome).Append('\n');
             if (Signature != null) sb.Append("signature: ").Append(Signature).Append('\n');
             if (Signature != null) sb.Append("known: ").Append(Known ?? "no (new)").Append('\n');
             if (Run.Crash != null) sb.Append("crash: ").Append(Run.Crash).Append('\n');
             else sb.Append("result: ").Append(IsolatedRun.ToJson(Run)).Append('\n');
-            sb.Append("reproduce: WarScript.Fuzz --replay case.ws   (or --case ").Append(Seed)
-              .Append(" with the same corpus)\n");
+            sb.Append("reproduce: WarScript.Fuzz --replay case.ws");
+            if (Seed.HasValue) sb.Append("   (or --case ").Append(Seed.Value).Append(" with the same corpus)");
+            sb.Append('\n');
             return sb.ToString();
         }
     }
