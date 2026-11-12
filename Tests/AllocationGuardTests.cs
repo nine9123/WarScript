@@ -208,5 +208,29 @@ end
 print Array_length [a]", memoryBudget: 64 + 10 * 16);
             CollectionAssert.AreEqual(new[] { "Memory budget exceeded", "10" }, output);
         }
+
+        [Test]
+        public void MemoryBudget_FailedBaseClassAllocationRunsNoConstructor()
+        {
+            // '{}' costs 64 estimated bytes and an instance with one property
+            // 16 + 96: the derived part fits the budget, its base part does
+            // not. No constructor body may run once the budget error is raised.
+            var output = RunWithLimits(@"
+log = {}
+class B [x]
+    log << ""B ctor""
+end
+class D [x] : B [x]
+    log << ""D ctor""
+end
+begin
+    d = new D [1]
+    print ""created""
+rescue e
+    print e
+end
+print Array_length [log]", memoryBudget: 2 * 112 - 1 + 64);
+            CollectionAssert.AreEqual(new[] { "Memory budget exceeded", "0" }, output);
+        }
     }
 }
