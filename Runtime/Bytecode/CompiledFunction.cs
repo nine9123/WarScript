@@ -34,6 +34,23 @@ namespace WarScript.Bytecode
     }
 
     /// <summary>
+    /// The kind of a <see cref="CallFrame"/>: what it pushed on the context
+    /// stacks (MemoryContext, DefinitionContext, ClassInstanceContext) when
+    /// it was entered.
+    /// </summary>
+    public enum FrameKind : byte
+    {
+        /// <summary>An entry frame (script body, host call, coroutine): pushes nothing.</summary>
+        Script,
+        /// <summary>A function or lambda call: pushes a function-local MemoryScope.</summary>
+        Function,
+        /// <summary>A method call: pushes the class DefinitionScope, the instance's MemoryScope and ClassInstanceContext entry, and a method-local MemoryScope.</summary>
+        Method,
+        /// <summary>A constructor body (T1.1): pushes the class DefinitionScope and the instance's MemoryScope and ClassInstanceContext entry. Its return value is discarded.</summary>
+        Constructor
+    }
+
+    /// <summary>
     /// A single activation record on the VM call stack.
     /// </summary>
     public struct CallFrame
@@ -43,16 +60,16 @@ namespace WarScript.Bytecode
         public int StackBase;
 
         /// <summary>
-        /// True if this frame is a class method call.
-        /// On return, the VM pops the class context (DefinitionScope, MemoryScope, ClassInstanceContext).
+        /// What the frame pushed on the context stacks when it was entered,
+        /// and so what returning from it or unwinding it pops.
         /// </summary>
-        public bool IsMethodCall;
+        public FrameKind Kind;
 
         /// <summary>
-        /// True if the VM pushed a MemoryScope for this frame.
-        /// On return, the VM pops it.
+        /// For a <see cref="FrameKind.Constructor"/> frame: the instance (or
+        /// base-class part of one) whose constructor body it runs.
         /// </summary>
-        public bool HasScope;
+        public WarScript.Expression.Value.ClassData Instance;
 
         /// <summary>
         /// VM scope depth at the time this frame was pushed.

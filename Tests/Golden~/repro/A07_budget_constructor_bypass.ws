@@ -1,7 +1,7 @@
-# known-failing: BUDGET-1
 # budget: 5000
 # expect-error: InstructionBudgetExceeded
-# Plan A.7 (T1.1, T1.5): v1 bypasses the budget inside constructors and prints "done".
+# Plan A.7 (T1.1, T1.5): v1 bypassed the budget inside constructors and printed
+# "done"; since T1.1 constructor bodies run on the same VM and charge its budget.
 class Burn [n]
     i = 0
     loop i < 300

@@ -374,8 +374,6 @@ namespace WarScript.Fuzz
         private static readonly (Regex pattern, string id)[] Table =
         {
             (new Regex(@"^crash: .*Stack overflow.*\(in WarScript\.Expression\.Value\.(WarValue|ClassData)\."), "CRASH-1"),
-            (new Regex(@"^crash: .*Stack overflow.*\(in WarScript\.Bytecode\.WarVM\.(ExecuteLoop|Execute|Run)\)"), "CRASH-2"),
-            (new Regex(@"^crash: .*Stack overflow.*\(in WarScript\.Bytecode\.WarVM\.InstantiateClassDefShared\)"), "CRASH-5"),
             // Thrown while parsing or compiling (the site is a frontend method), not while running.
             (new Regex(@"^host-fault: \w*Exception: .*\(in WarScript\.(Parser\.|Expression\.ExpressionReader\.|Expression\.Operator\.Extensions\.|Bytecode\.Compiler\.)[\w.]+\)$"), "CRASH-6"),
             // The only hang found so far; any other cause looks the same, so check a timeout's case.

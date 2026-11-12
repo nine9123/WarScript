@@ -1,7 +1,8 @@
 # isolate
-# known-failing: CRASH-2
 # budget: 100000
-# Plan A.3 (T1.1): v1 aborts the process even with the budget set.
+# Plan A.3 (T1.1): v1 aborted the process even with the budget set; since
+# T1.1 constructors are frames on the current VM and hit FramesMax.
+# Still isolated, so that a regression cannot take the test host down.
 class Node [v]
     child = new Node [v + 1]
 end

@@ -217,7 +217,7 @@ p = new Point [3, 4]
 
 Stack-based VM with fixed-size arrays (no heap allocation in hot path):
 - **Value stack**: 1024 WarValue slots
-- **Call frames**: 128 CallFrame slots (Function, IP, StackBase)
+- **Call frames**: 128 CallFrame slots (Function, IP, StackBase, `FrameKind`: Script / Function / Method / Constructor — what the frame pushed on the context stacks, popped by `PopFrameContexts`)
 - **Exception handlers**: 32 TryHandler slots
 
 Function call dispatch (3 paths):
@@ -226,6 +226,7 @@ Function call dispatch (3 paths):
 | Named function | `Call name arity` | DefinitionScope → MemoryScope fallback for globals |
 | Local lambda variable | `GetLocal` + `CallValue arity` | Stack value → direct call |
 | Class method | `CallMethod name arity` | Class DefinitionScope lookup |
+| Constructor | `NewInstance` / `NewNestedInstance` | Allocation step (whole instance graph, no code run), then one `Constructor` frame per body on the same VM (T1.1) |
 
 Other key features: superinstructions (fused compare+jump, this+property), inline caching, tail call optimization (disabled for local lambda targets), instruction/memory budgets, source-map debugger, coroutine suspend/resume.
 
@@ -286,6 +287,7 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 - **`import` can start from bytecode.** `WarScriptLanguage.BytecodeResolver` (optional 5th ctor argument, `ScriptRunner.ImportScriptBytecode`) is asked for an imported path before `FileResolver` is; when it answers, the import is deserialized and run instead of lexed/parsed/compiled. A null answer, an unloadable one, or a throwing resolver falls back to the source (the last two also log through `Logger`). `const`/`enum` names in a bytecode-loaded import do not enter `ConstantNames` — same as `LoadBytecode()`.
 - **Function lookup is by (name, argCount).** Default params register at all valid arities.
 - **Exception boundary (T1.3)** is `WarVM.Execute`. A native that throws `ScriptErrorException(kind, message)` (`Runtime/Exception/ScriptErrorException.cs`) raises a script error with that message; any other exception from a native function *or* native method becomes the rescuable `"Native function/method '<name>' failed: <message>"`. An error no handler catches unwinds every VM frame (scopes and class contexts popped) before the host entry logs it. Any other C# exception inside the VM is a **host fault**: the VM restores the context depths recorded when it was entered, resets, and rethrows through every enclosing VM to the host entry (`Run`, `Call`, a coroutine resume), which logs `[WarScript] Host fault in '<script>': <exception with stack trace>`, records `LastHostFault` (internal) and returns — `Run()` no longer throws for it (a faulted coroutine ends). Exception: a `SyntaxException` from compiling an import still propagates out of `Run()`. Tests trigger a host fault with a throwing `DebugHook`.
+- **Constructors are frames (T1.1).** `new` first allocates the whole instance (`AllocateInstance`: derived and base-class `ClassData`, shared `ValueReference`s, properties from the arguments; a class on its own base path raises the rescuable `"Class 'X' inherits from itself"`), then `EnterConstructors` pushes the instance as the expression value and one `FrameKind.Constructor` frame per constructor body in reverse execution order (bases depth-first in `BaseTypes` order, then the derived class). Constructor bodies therefore share the VM's budgets and `FramesMax` (deep recursion → rescuable `"Stack overflow"`, raised before any frame is pushed when they don't all fit), an error in one unwinds to the code that executed `new`, and a constructor's return value is discarded. Never create a `WarVM` to run script code from inside the VM — imports still do until T1.5.
 - **Allocation guards (T1.4).** `WarScriptLanguage.MaxTextLength` / `MaxArrayLength` (default 1,048,576 each, PROP-5). Text `+`, `*` and index writes raise the rescuable `"Text too long"`; array `+`, `<<`, literals and `Array_insert` raise `"Array too long"`. Sizes are computed in `long` and checked *before* allocating; `TrackAlloc` (memory budget) is likewise called before the allocation and its `false` must be handled at once (`if (!TrackAlloc(..)) { if (DoHandleException(..)) break; return; }`). `text - ""` returns the text unchanged.
 - **Pending `ensure` work** is a stack in `WarVM` (`PendingEnsure`): an ensure block entered with an error to re-raise or a value to return. A `return` from the frame, an error caught by a handler outside the block, or unwinding the frame discards the record (so `raise`/`return` inside `ensure` replaces what was pending, CRASH-7).
 - **Lexer caches globally** by source string. Call `LexicalParser.ClearCache()` for hot reload.

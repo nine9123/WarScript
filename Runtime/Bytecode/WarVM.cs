@@ -839,7 +839,7 @@ namespace WarScript.Bytecode
                                 Function = lambdaFunc,
                                 IP = 0,
                                 StackBase = newBase,
-                                HasScope = true,
+                                Kind = FrameKind.Function,
                                 SavedScopeDepth = _scopeDepth
                             };
                             _frameCount++;
@@ -890,7 +890,7 @@ namespace WarScript.Bytecode
                                 Function = def.Compiled,
                                 IP = 0,
                                 StackBase = newBase,
-                                HasScope = true,
+                                Kind = FrameKind.Function,
                                 SavedScopeDepth = _scopeDepth
                             };
                             _frameCount++;
@@ -951,7 +951,7 @@ namespace WarScript.Bytecode
                             Function = lambdaCF,
                             IP = 0,
                             StackBase = cvNewBase,
-                            HasScope = true,
+                            Kind = FrameKind.Function,
                             SavedScopeDepth = _scopeDepth
                         };
                         _frameCount++;
@@ -1012,6 +1012,14 @@ namespace WarScript.Bytecode
                             code = _frames[fi].Function.Chunk.Code;
                             constants = _frames[fi].Function.Chunk.Constants;
                         }
+                        else if (tailTarget != null && _frames[fi].Kind == FrameKind.Constructor)
+                        {
+                            // The compiler emits TailCall only inside functions;
+                            // a constructor frame has no function scope to reuse.
+                            RuntimeError("Tail call in a constructor");
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         else if (tailTarget != null)
                         {
                             // ── True tail call: reuse the current frame ──
@@ -1024,8 +1032,9 @@ namespace WarScript.Bytecode
                                 argCount++;
                             }
 
-                            // Pop old function's memory scope
-                            if (_frames[fi].HasScope)
+                            // Pop old function's memory scope (a method frame
+                            // keeps its class context and gets a new local scope)
+                            if (_frames[fi].Kind != FrameKind.Script)
                                 _script.MemoryContext.EndScope();
 
                             // Push fresh scope for the new function
@@ -1042,7 +1051,8 @@ namespace WarScript.Bytecode
                             // Reuse the frame — no _frameCount change
                             _frames[fi].Function = tailTarget;
                             _frames[fi].IP = 0;
-                            _frames[fi].HasScope = true;
+                            if (_frames[fi].Kind == FrameKind.Script)
+                                _frames[fi].Kind = FrameKind.Function;
                             code = tailTarget.Chunk.Code;
                             constants = tailTarget.Chunk.Constants;
                         }
@@ -1187,8 +1197,7 @@ namespace WarScript.Bytecode
                                     Function = methodDef.Compiled,
                                     IP = 0,
                                     StackBase = newBase,
-                                    IsMethodCall = true,
-                                    HasScope = true,
+                                    Kind = FrameKind.Method,
                                     SavedScopeDepth = _scopeDepth
                                 };
                                 _frameCount++;
@@ -1420,12 +1429,11 @@ namespace WarScript.Bytecode
                         var argCount = code[_frames[fi].IP++];
                         var className = constants[nameIdx].TextValue;
                         var result = InstantiateClass(className, argCount);
-                        if (_script.ExceptionContext.IsRaised())
+                        if (_script.ExceptionContext.IsRaised() || !EnterConstructors(result, ref fi, ref code, ref constants))
                         {
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
-                        Push(result);
                         break;
                     }
                     case OpCode.NewNestedInstance:
@@ -1444,23 +1452,27 @@ namespace WarScript.Bytecode
                             return;
                         }
 
-                        // Push parent's definition scope so the nested class can be found
+                        // Push parent's definition scope so the nested class (and
+                        // its base classes) can be found while allocating.
+                        WarValue result;
                         _script.DefinitionContext.PushScope(parent.ClassValue.Definition.GetDefinitionScope());
                         try
                         {
                             // Re-push args for InstantiateClass
                             foreach (var arg in args) Push(arg);
-                            var result = InstantiateClass(className, argCount);
-                            if (_script.ExceptionContext.IsRaised())
-                            {
-                                if (DoHandleException(ref fi, ref code, ref constants)) break;
-                                return;
-                            }
-                            Push(result);
+                            result = InstantiateClass(className, argCount);
                         }
                         finally
                         {
                             _script.DefinitionContext.EndScope();
+                        }
+                        // The constructor bodies look names up from their own
+                        // class's definition scope (the top of DefinitionContext
+                        // while they run), so they do not need the parent's.
+                        if (_script.ExceptionContext.IsRaised() || !EnterConstructors(result, ref fi, ref code, ref constants))
+                        {
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
                         }
                         break;
                     }
@@ -1804,26 +1816,22 @@ namespace WarScript.Bytecode
         private void DoReturn(in WarValue result, int fi,
             ref List<byte> code, ref List<WarValue> constants, out int newFi)
         {
-            var wasMethod = _frames[fi].IsMethodCall;
-            var hasScope = _frames[fi].HasScope;
+            var kind = _frames[fi].Kind;
 
             _sp = _frames[fi].StackBase;
             _frameCount--;
             DropPendingOfFrame(fi);
+            PopFrameContexts(fi, kind);
 
-            if (wasMethod)
+            // A constructor's value is discarded: the instance it initialized
+            // is already on the stack, below the frame (T1.1).
+            if (kind != FrameKind.Constructor)
             {
-                _script.DefinitionContext.EndScope();
-                _script.MemoryContext.EndScope();
-                _script.ClassInstanceContext.PopValue();
+                if (_frameCount > 0)
+                    Push(result);
+                else
+                    _topLevelResult = result;
             }
-            if (hasScope)
-                _script.MemoryContext.EndScope();
-
-            if (_frameCount > 0)
-                Push(result);
-            else
-                _topLevelResult = result;
 
             newFi = _frameCount - 1;
         }
@@ -2040,19 +2048,37 @@ namespace WarScript.Bytecode
                 _script.MemoryContext.EndScope();
                 _scopeDepth--;
             }
-            var wasMethod = _frames[fi].IsMethodCall;
-            var hasScope = _frames[fi].HasScope;
+            var kind = _frames[fi].Kind;
             _sp = _frames[fi].StackBase;
             _frameCount--;
             DropPendingOfFrame(fi);
-            if (wasMethod)
+            PopFrameContexts(fi, kind);
+        }
+
+        /// <summary>
+        /// Pops what a frame of <paramref name="kind"/> pushed on the context
+        /// stacks when it was entered (see <see cref="FrameKind"/>).
+        /// </summary>
+        private void PopFrameContexts(int fi, FrameKind kind)
+        {
+            switch (kind)
             {
-                _script.DefinitionContext.EndScope();
-                _script.MemoryContext.EndScope();
-                _script.ClassInstanceContext.PopValue();
+                case FrameKind.Function:
+                    _script.MemoryContext.EndScope();
+                    break;
+                case FrameKind.Method:
+                    _script.MemoryContext.EndScope(); // method-local
+                    _script.DefinitionContext.EndScope();
+                    _script.MemoryContext.EndScope(); // instance
+                    _script.ClassInstanceContext.PopValue();
+                    break;
+                case FrameKind.Constructor:
+                    _script.DefinitionContext.EndScope();
+                    _script.MemoryContext.EndScope(); // instance
+                    _script.ClassInstanceContext.PopValue();
+                    _frames[fi].Instance = null;
+                    break;
             }
-            if (hasScope)
-                _script.MemoryContext.EndScope();
         }
 
         // ── Pending ensure records ──
@@ -2118,7 +2144,31 @@ namespace WarScript.Bytecode
             return WarValue.FromArray(list2);
         }
 
-        // ── Class instantiation ──
+        // ── Class instantiation (T1.1) ──
+        //
+        // 'new' happens in two steps. The allocation step builds the whole
+        // instance graph (the derived ClassData, one ClassData per base class
+        // in Relations, the ValueReferences shared with base classes, the
+        // property values from the arguments) without running any code, and
+        // lists the constructor bodies to run in execution order: base
+        // classes depth-first in BaseTypes order, then the derived class.
+        // EnterConstructors then pushes the instance as the expression's value
+        // and one Constructor frame per body on this VM, so constructors are
+        // ordinary frames: they count against FramesMax and the budgets, and
+        // their errors unwind to the code that executed 'new'.
+
+        // Constructors to run for the instance being allocated, in execution
+        // order. Filled by the allocation step, emptied by EnterConstructors.
+        private readonly List<ClassData> _constructors = new List<ClassData>();
+
+        // Classes on the current base-class path of the allocation step, to
+        // detect a class that inherits from itself (CRASH-5).
+        private readonly List<ClassDefinition> _allocationPath = new List<ClassDefinition>();
+
+        /// <summary>
+        /// Allocation step for <c>new className [args]</c>. Returns the
+        /// instance, or default with an error raised (and nothing queued).
+        /// </summary>
         private WarValue InstantiateClass(string className, int argCount)
         {
             var args = CollectArgs(argCount);
@@ -2128,24 +2178,29 @@ namespace WarScript.Bytecode
                 RuntimeError($"Class '{className}' is not defined");
                 return default;
             }
-            return InstantiateClassDef(definition, args, new Dictionary<string, ClassData>());
-        }
-
-        private WarValue InstantiateClassDef(ClassDefinition definition, List<WarValue> args,
-            Dictionary<string, ClassData> relations)
-        {
-            return InstantiateClassDefShared(definition, args, relations, null);
+            _constructors.Clear();
+            _allocationPath.Clear();
+            var classData = AllocateInstance(definition, args, new Dictionary<string, ClassData>(), null);
+            _allocationPath.Clear();
+            if (classData == null)
+            {
+                _constructors.Clear();
+                return default;
+            }
+            return WarValue.FromClass(classData);
         }
 
         /// <summary>
-        /// Instantiate a class, optionally sharing ValueReferences from a derived class.
-        /// When sharedRefs is non-null, property slots map to the derived class's refs.
+        /// Allocates one class part of an instance and, recursively, its base
+        /// classes, queuing their constructor bodies in execution order. When
+        /// sharedRefs is non-null, property slots map to the derived class's
+        /// refs. Returns null with an error raised on failure.
         /// </summary>
-        private WarValue InstantiateClassDefShared(ClassDefinition definition, List<WarValue> args,
+        private ClassData? AllocateInstance(ClassDefinition definition, List<WarValue> args,
             Dictionary<string, ClassData> relations, ValueReference[]? sharedRefs)
         {
             var propCount = definition.ClassDetails.Properties.Count;
-            if (!TrackAlloc(EstimateClassBytes(propCount))) return default;
+            if (!TrackAlloc(EstimateClassBytes(propCount))) return null;
 
             var valueRefs = new ValueReference[propCount];
             for (int i = 0; i < propCount; i++)
@@ -2160,12 +2215,21 @@ namespace WarScript.Bytecode
             var classData = new ClassData(definition, classScope, relations);
             classData.PropertyValues = valueRefs;
             relations[definition.ClassDetails.Name] = classData;
+            for (int i = 0; i < propCount; i++)
+                classScope.SetLocal(definition.ClassDetails.Properties[i], valueRefs[i]);
 
             // Base classes: pass shared ValueReferences
+            _allocationPath.Add(definition);
             foreach (var baseType in definition.BaseTypes)
             {
                 var baseDef = _script.DefinitionContext.GetScope().GetClass(baseType.Name);
                 if (baseDef == null) continue;
+                if (_allocationPath.Contains(baseDef))
+                {
+                    // Q-11: a rescuable error at 'new', not a compile error.
+                    RuntimeError($"Class '{baseDef.ClassDetails.Name}' inherits from itself");
+                    return null;
+                }
 
                 // baseType.Properties lists derived-class property names passed to the
                 // base constructor. The mapping is positional:
@@ -2184,33 +2248,63 @@ namespace WarScript.Bytecode
                 for (int i = 0; i < basePropCount; i++)
                     baseArgs.Add(baseShared[i] != null ? baseShared[i].Value : WarValue.Null);
 
-                InstantiateClassDefShared(baseDef, baseArgs, relations, baseShared);
+                if (AllocateInstance(baseDef, baseArgs, relations, baseShared) == null) return null;
+            }
+            _allocationPath.RemoveAt(_allocationPath.Count - 1);
+
+            // No tree-walk fallback: the AST is discarded after compilation.
+            // Classes loaded via LoadBytecode have CompiledConstructor or nothing.
+            if (definition.CompiledConstructor != null)
+                _constructors.Add(classData);
+            return classData;
+        }
+
+        /// <summary>
+        /// Second step of <c>new</c>: pushes <paramref name="instance"/> as
+        /// the expression's value, then one Constructor frame per queued
+        /// constructor body, in reverse execution order so that the first to
+        /// run is on top. Each frame pushes its class context now; frames and
+        /// contexts are both last-in first-out, so each body runs with its own
+        /// context on top. Returns false, with "Stack overflow" raised and
+        /// the stack unchanged, when the frames do not all fit.
+        /// </summary>
+        private bool EnterConstructors(in WarValue instance,
+            ref int fi, ref List<byte> code, ref List<WarValue> constants)
+        {
+            var count = _constructors.Count;
+            if (_frameCount + count > FramesMax)
+            {
+                _constructors.Clear();
+                RuntimeError("Stack overflow");
+                return false;
             }
 
-            _script.MemoryContext.PushScope(classScope);
-            _script.ClassInstanceContext.PushValue(classData);
-            try
-            {
-                for (int i = 0; i < propCount; i++)
-                    classScope.SetLocal(definition.ClassDetails.Properties[i], valueRefs[i]);
+            Push(instance);
+            if (count == 0) return true;
 
-                // Execute constructor
-                if (definition.CompiledConstructor != null)
+            for (int i = count - 1; i >= 0; i--)
+            {
+                var part = _constructors[i];
+                var definition = part.Definition;
+                _script.DefinitionContext.PushScope(definition.GetDefinitionScope());
+                _script.MemoryContext.PushScope(part.MemoryScope);
+                _script.ClassInstanceContext.PushValue(part);
+                _frames[_frameCount++] = new CallFrame
                 {
-                    _script.DefinitionContext.PushScope(definition.GetDefinitionScope());
-                    try { new WarVM(_script).Run(definition.CompiledConstructor); }
-                    finally { _script.DefinitionContext.EndScope(); }
-                }
-                // No tree-walk fallback — AST is discarded after compilation.
-                // Classes loaded via LoadBytecode have CompiledConstructor or nothing.
+                    Function = definition.CompiledConstructor,
+                    IP = 0,
+                    StackBase = _sp,
+                    Kind = FrameKind.Constructor,
+                    Instance = part,
+                    SavedScopeDepth = _scopeDepth
+                };
             }
-            finally
-            {
-                _script.MemoryContext.EndScope();
-                _script.ClassInstanceContext.PopValue();
-            }
+            _constructors.Clear();
 
-            return WarValue.FromClass(classData);
+            fi = _frameCount - 1;
+            code = _frames[fi].Function.Chunk.Code;
+            constants = _frames[fi].Function.Chunk.Constants;
+            return true;
         }
 
         private static ClassDefinition? FindClassWithMethod(ClassDefinition classDef, string name, int arity)
