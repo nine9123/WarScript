@@ -178,6 +178,23 @@ namespace WarScript
         public long MemoryBudget { get; set; }
 
         /// <summary>
+        /// Longest text, in characters, that an operator may create
+        /// (concatenation, repetition, index write). Creating a longer one
+        /// raises "Text too long", which begin/rescue can catch; the check
+        /// happens before anything is allocated (v2 plan 5.12, PROP-5, T1.4).
+        /// </summary>
+        public int MaxTextLength { get; set; } = 1_048_576;
+
+        /// <summary>
+        /// Most elements an array may grow to through an operator
+        /// (<c>+</c>, <c>&lt;&lt;</c>, a literal) or <c>Array_insert</c>.
+        /// Exceeding it raises "Array too long", which begin/rescue can
+        /// catch; the check happens before anything is allocated (v2 plan
+        /// 5.12, PROP-5, T1.4).
+        /// </summary>
+        public int MaxArrayLength { get; set; } = 1_048_576;
+
+        /// <summary>
         /// String interner for reducing GC pressure. Short strings created by
         /// the VM (concatenation results, ToString() conversions) are deduplicated
         /// through this cache. Pre-allocated integer strings (0–999) are returned

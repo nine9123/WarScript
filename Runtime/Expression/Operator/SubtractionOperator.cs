@@ -19,7 +19,9 @@ namespace WarScript.Expression.Operator
             if (left.IsNumeric && right.IsNumeric)
                 return WarValue.FromNumeric(left.Numeric - right.Numeric);
 
-            return WarValue.FromText(left.ToString().Replace(right.ToString(), ""));
+            // 'text - ""' leaves the text as it is (String.Replace rejects an empty pattern; T1.4).
+            var pattern = right.ToString();
+            return WarValue.FromText(pattern.Length == 0 ? left.ToString() : left.ToString().Replace(pattern, ""));
         }
     }
 }

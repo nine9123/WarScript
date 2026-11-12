@@ -375,8 +375,6 @@ namespace WarScript.Fuzz
         {
             (new Regex(@"^crash: .*Stack overflow.*\(in WarScript\.Expression\.Value\.(WarValue|ClassData)\."), "CRASH-1"),
             (new Regex(@"^crash: .*Stack overflow.*\(in WarScript\.Bytecode\.WarVM\.(ExecuteLoop|Execute|Run)\)"), "CRASH-2"),
-            (new Regex(@"^host-fault: ArgumentException: The value cannot be an empty string\."), "CRASH-3"),
-            (new Regex(@"^host-fault: (ArgumentOutOfRangeException|OverflowException|OutOfMemoryException): .*\(in WarScript\.Expression\.Value\.WarValue\.RepeatString\)"), "CRASH-3"),
             (new Regex(@"^crash: .*Stack overflow.*\(in WarScript\.Bytecode\.WarVM\.InstantiateClassDefShared\)"), "CRASH-5"),
             // Thrown while parsing or compiling (the site is a frontend method), not while running.
             (new Regex(@"^host-fault: \w*Exception: .*\(in WarScript\.(Parser\.|Expression\.ExpressionReader\.|Expression\.Operator\.Extensions\.|Bytecode\.Compiler\.)[\w.]+\)$"), "CRASH-6"),

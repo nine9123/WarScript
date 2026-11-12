@@ -414,7 +414,8 @@ namespace Tests.Golden
             if (message.StartsWith("Assertion error"))
                 return "AssertionFailed";
             if (message == "Stack overflow" || message == "Value stack overflow" ||
-                message.StartsWith("Exception handler stack overflow"))
+                message.StartsWith("Exception handler stack overflow") ||
+                message == "Text too long" || message == "Array too long")
                 return "LimitExceeded";
             return null;
         }

@@ -507,16 +507,25 @@ namespace WarScript.Bytecode
                         {
                             if (a.IsArray != b.IsArray && _script.AuditSink != null)
                                 Audit(AuditKind.ArrayPlusValue, fi, Describe(a) + " + " + Describe(b));
-                            var arr = AddArrays(a, b);
-                            TrackAlloc(EstimateArrayBytes(arr.ArrayValue.Count));
-                            Push(arr);
+                            long length = (a.IsArray ? a.ArrayValue.Count : 1L) + (b.IsArray ? b.ArrayValue.Count : 1L);
+                            if (!CheckArrayLength(length) || !TrackAlloc(EstimateArrayBytes(length)))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
+                            Push(AddArrays(a, b));
                         }
                         else
                         {
                             if (_script.AuditSink != null) AuditConcatenation(a, b, fi);
-                            var s = _interner.Intern(a.ToString() + b.ToString());
-                            TrackAlloc(EstimateStringBytes(s));
-                            Push(WarValue.FromText(s));
+                            var left = a.ToString(); var right = b.ToString();
+                            long length = (long)left.Length + right.Length;
+                            if (!CheckTextLength(length) || !TrackAlloc(EstimateTextBytes(length)))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
+                            Push(WarValue.FromText(_interner.Intern(left + right)));
                         }
                         break;
                     }
@@ -529,8 +538,16 @@ namespace WarScript.Bytecode
                         {
                             if (_script.AuditSink != null)
                                 Audit(AuditKind.TextSubtraction, fi, Describe(a) + " - " + Describe(b));
-                            var s = _interner.Intern(a.ToString().Replace(b.ToString(), ""));
-                            TrackAlloc(EstimateStringBytes(s));
+                            // The result is never longer than the left operand, so
+                            // there is no length check. 'text - ""' leaves the text
+                            // as it is (String.Replace rejects an empty pattern; T1.4).
+                            var left = a.ToString(); var right = b.ToString();
+                            var s = _interner.Intern(right.Length == 0 ? left : left.Replace(right, ""));
+                            if (!TrackAlloc(EstimateTextBytes(s.Length)))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
                             Push(WarValue.FromText(s));
                         }
                         break;
@@ -540,17 +557,17 @@ namespace WarScript.Bytecode
                         var b = Pop(); var a = Pop();
                         if (a.IsNumeric && b.IsNumeric)
                             Push(WarValue.FromNumeric(a.Numeric * b.Numeric));
-                        else if (a.IsText && b.IsNumeric)
+                        else if (a.IsText && b.IsNumeric || b.IsText && a.IsNumeric)
                         {
-                            var s = _interner.Intern(WarValue.RepeatString(a.TextValue, WarValue.ToInt(b.Numeric)));
-                            TrackAlloc(EstimateStringBytes(s));
-                            Push(WarValue.FromText(s));
-                        }
-                        else if (b.IsText && a.IsNumeric)
-                        {
-                            var s = _interner.Intern(WarValue.RepeatString(b.TextValue, WarValue.ToInt(a.Numeric)));
-                            TrackAlloc(EstimateStringBytes(s));
-                            Push(WarValue.FromText(s));
+                            var text = a.IsText ? a.TextValue : b.TextValue;
+                            var count = WarValue.ToInt(a.IsText ? b.Numeric : a.Numeric);
+                            long length = count <= 0 ? 0 : (long)text.Length * count;
+                            if (!CheckTextLength(length) || !TrackAlloc(EstimateTextBytes(length)))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
+                            Push(WarValue.FromText(_interner.Intern(WarValue.RepeatString(text, count))));
                         }
                         else
                         {
@@ -1200,12 +1217,16 @@ namespace WarScript.Bytecode
                     case OpCode.NewArray:
                     {
                         var count = ReadU16(code, ref _frames[fi].IP);
+                        if (!CheckArrayLength(count) || !TrackAlloc(EstimateArrayBytes(count)))
+                        {
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         var list = new List<WarValue>(count);
                         var arrBase = _sp - count;
                         for (int i = 0; i < count; i++)
                             list.Add(_stack[arrBase + i]);
                         _sp = arrBase;
-                        TrackAlloc(EstimateArrayBytes(count));
                         Push(WarValue.FromArray(list));
                         break;
                     }
@@ -1243,7 +1264,13 @@ namespace WarScript.Bytecode
                             target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                         else if (target.IsText && index.IsNumeric)
                         {
-                            var newText = target.SetTextChar(WarValue.ToInt(index.Numeric), value.ToString());
+                            var replacement = value.ToString();
+                            if (!TextWriteFits(target, index, replacement))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
+                            var newText = target.SetTextChar(WarValue.ToInt(index.Numeric), replacement);
                             _stack[_frames[fi].StackBase + slot] = newText;
                         }
                         Push(value);
@@ -1261,7 +1288,13 @@ namespace WarScript.Bytecode
                             target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                         else if (target.IsText && index.IsNumeric)
                         {
-                            var newText = target.SetTextChar(WarValue.ToInt(index.Numeric), value.ToString());
+                            var replacement = value.ToString();
+                            if (!TextWriteFits(target, index, replacement))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
+                            var newText = target.SetTextChar(WarValue.ToInt(index.Numeric), replacement);
                             _script.MemoryContext.GetScope().Set(name, newText);
                         }
                         Push(value);
@@ -1299,7 +1332,13 @@ namespace WarScript.Bytecode
                                 propVal.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                             else if (propVal.IsText && index.IsNumeric)
                             {
-                                var newText = propVal.SetTextChar(WarValue.ToInt(index.Numeric), value.ToString());
+                                var replacement = value.ToString();
+                                if (!TextWriteFits(propVal, index, replacement))
+                                {
+                                    if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                    return;
+                                }
+                                var newText = propVal.SetTextChar(WarValue.ToInt(index.Numeric), replacement);
                                 if (ReferenceEquals(cache.CachedType, details))
                                     cd.SetPropertyByIndex(cache.CachedIndex, newText);
                                 else
@@ -1317,7 +1356,11 @@ namespace WarScript.Bytecode
                         var value = Pop(); var arr = Peek();
                         if (arr.IsArray)
                         {
-                            TrackAlloc(16); // one WarValue slot
+                            if (!CheckArrayLength(arr.ArrayValue.Count + 1L) || !TrackAlloc(16)) // one WarValue slot
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
                             arr.ArrayAppend(value);
                         }
                         else if (_script.AuditSink != null)
@@ -1348,10 +1391,14 @@ namespace WarScript.Bytecode
                         {
                             var cd = target.ClassValue;
                             var props = cd.Definition.ClassDetails.Properties;
+                            if (!TrackAlloc(EstimateArrayBytes(props.Count)))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
                             var list = new List<WarValue>(props.Count);
                             for (int i = 0; i < props.Count; i++)
                                 list.Add(cd.GetProperty(props[i]));
-                            TrackAlloc(EstimateArrayBytes(props.Count));
                             Push(WarValue.FromArray(list));
                         }
                         else
@@ -1868,7 +1915,8 @@ namespace WarScript.Bytecode
         /// <summary>
         /// Track a heap allocation. Returns true if within budget.
         /// If over budget, raises "Memory budget exceeded" and returns false.
-        /// Caller must check the return value and handle the exception.
+        /// Call it before allocating; on false, allocate nothing and handle
+        /// the exception (T1.4).
         /// </summary>
         private bool TrackAlloc(long bytes)
         {
@@ -1879,11 +1927,47 @@ namespace WarScript.Bytecode
             return false;
         }
 
+        /// <summary>
+        /// Allocation guard (T1.4): raises "Text too long" and returns false
+        /// when a text of <paramref name="length"/> characters would exceed
+        /// <see cref="WarScriptLanguage.MaxTextLength"/>. Call before allocating.
+        /// </summary>
+        private bool CheckTextLength(long length)
+        {
+            if (length <= _script.MaxTextLength) return true;
+            RuntimeError("Text too long");
+            return false;
+        }
+
+        /// <summary>
+        /// Allocation guard (T1.4): raises "Array too long" and returns false
+        /// when an array of <paramref name="length"/> elements would exceed
+        /// <see cref="WarScriptLanguage.MaxArrayLength"/>. Call before allocating.
+        /// </summary>
+        private bool CheckArrayLength(long length)
+        {
+            if (length <= _script.MaxArrayLength) return true;
+            RuntimeError("Array too long");
+            return false;
+        }
+
+        /// <summary>
+        /// Whether <c>text{index} = replacement</c> stays within the text
+        /// limit. An index out of range changes nothing, so it always fits.
+        /// </summary>
+        private bool TextWriteFits(in WarValue text, in WarValue index, string replacement)
+        {
+            var i = WarValue.ToInt(index.Numeric);
+            var length = text.TextValue.Length;
+            if (i < 0 || i >= length) return true;
+            return CheckTextLength(length - 1L + replacement.Length);
+        }
+
         /// <summary>Estimate heap cost of a string (UTF-16 + object overhead).</summary>
-        private static long EstimateStringBytes(string s) => s.Length * 2L + 40;
+        private static long EstimateTextBytes(long length) => length * 2L + 40;
 
         /// <summary>Estimate heap cost of a new array.</summary>
-        private static long EstimateArrayBytes(int count) => count * 16L + 64;
+        private static long EstimateArrayBytes(long count) => count * 16L + 64;
 
         /// <summary>Estimate heap cost of a class instance.</summary>
         private static long EstimateClassBytes(int propertyCount) => propertyCount * 16L + 96;
@@ -2061,7 +2145,7 @@ namespace WarScript.Bytecode
             Dictionary<string, ClassData> relations, ValueReference[]? sharedRefs)
         {
             var propCount = definition.ClassDetails.Properties.Count;
-            TrackAlloc(EstimateClassBytes(propCount));
+            if (!TrackAlloc(EstimateClassBytes(propCount))) return default;
 
             var valueRefs = new ValueReference[propCount];
             for (int i = 0; i < propCount; i++)
