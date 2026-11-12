@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Document version | 1.0, 2026-11-05; task tracker (Appendix E) kept current by the implementer |
+| Document version | 1.1, 2026-11-12 (round 4: DEC-20, DEC-21); task tracker (Appendix E) kept current by the implementer |
 | Owner | Oleg Dammer |
 | Package | `com.nine9.warscript` 0.5.0, Unity 6000.3 |
 | Implementer | Claude Code, working in the WarScript repository |
@@ -38,7 +38,7 @@ The existing `CLAUDE.md` uses D1 to D7 for the fixed-point design decisions (tru
 | R2. Unity compatibility | Runtime code must compile as `netstandard2.1` with C# 9.0, which is what Unity 6 supports. The headless runtime project (T0.1) enforces this, so never raise its `LangVersion`. Test code must stay within the NUnit 3.5 API surface, because the Unity Test Framework bundles an NUnit 3.5 derivative. The headless suite runs the same tests on NUnit 3.14. Do not use NUnit 4, which moved `Assert.AreEqual` and the other classic asserts to `ClassicAssert`, and do not use NUnit features newer than 3.5 such as `Assert.Multiple`. |
 | R3. Unity `.meta` files | The package is installed from git, which makes it an immutable UPM package. Every new file or folder outside a `~` folder therefore needs a committed `.meta` file with a fresh random GUID, and deleting a file means deleting its `.meta` as well. Templates are in Appendix C. Prefer `~` folders (`Headless~/`, `Tools~/`, `Documentation~/`, `Tests/Golden~/`) for anything Unity does not need to import. |
 | R4. No backward compatibility | There are no third-party mods; the owner is the only WarScript user. Syntax, semantics, the host API, the native-function ABI and the bytecode format may all change. Every `.ws` script is migrated: test resources, inline test sources and the owner's game scripts (section 8). The bytecode loader accepts only the exact current format. |
-| R5. Tests first | Every bug fix lands together with a regression test, preferably a golden `.ws` file (section 9.2). Phase 0 must be complete before any Phase 3 semantic change, because Phase 3 is verified against the Phase 0 baseline. |
+| R5. Tests first | Every bug fix lands together with a regression test, preferably a golden `.ws` file (section 9.2). Phase 0 must be complete before any Phase 3 semantic change, because Phase 3 is verified against the Phase 0 test suite (goldens, invariants, state hashes), not against the game (DEC-20). |
 | R6. Stay in scope | Do not implement Phase 4 or multi-VM work (section 11) unless it falls out of an in-scope task at no extra complexity. Do not change the VM architecture (DEC-1). |
 | R7. Keep documentation current | Update `CLAUDE.md` (and `README.md` where it documents behavior) in the same change that alters behavior. Record any new decision in section 3 of this document. |
 | R8. Ask rather than invent | When this plan does not cover a semantic question, ask the owner rather than inventing behavior. Commit per task, with the task ID in the commit message. |
@@ -108,7 +108,9 @@ On stack versus register, a register VM would cut the number of dispatches in ti
 
 The owner also described the workload as mostly event glue, with some gameplay logic moving into WarScript.
 
-**Round 3: plan.** A phased plan was proposed: tests, then crash and security fixes, then the host API, then language changes, then performance. It came with defaults for six language decisions, which the owner accepted. The owner then clarified the host topology (section 1.3) and asked to focus on the language itself before going deep into VM pools or shared cores. This document compiles all three rounds.
+**Round 3: plan.** A phased plan was proposed: tests, then crash and security fixes, then the host API, then language changes, then performance. It came with defaults for six language decisions, which the owner accepted. The owner then clarified the host topology (section 1.3) and asked to focus on the language itself before going deep into VM pools or shared cores. This document compiled all three rounds as version 1.0.
+
+**Round 4: no game-side verification, compile-time first (2026-11-12).** After Phase 0 the owner judged the game-side work (audit reports from game sessions, recorded game baselines, reviews of them) to be more than the language needs: WarScript has to stand on its own, which is what the Phase 0 test infrastructure is for. The owner also asked to check as much as possible at compile time. DEC-20 and DEC-21 record this; the T0.8 owner step and T0.9 are dropped, Phase 3 is verified against the test suite and the compiler, and T3.8 is widened (PROP-27 to PROP-31).
 
 ---
 
@@ -137,6 +139,8 @@ The owner also described the workload as mostly event glue, with some gameplay l
 | DEC-17 | Test investment | — | A headless test project, golden scripts, invariant checks, bytecode round-trips, a culture matrix, fuzzing and cross-platform determinism hashes (Phase 0, section 9) | The owner wants much better tests to catch more errors. |
 | DEC-18 | Bytecode format hygiene | — | Explicit opcode numbers, a single opcode-info table, a version bump on every format change with exact-match loading, and a load-time verifier (T1.7) | Accepted along with the other review findings. |
 | DEC-19 | Lexer token cache | Remove it; make it bounded and thread-safe | Bounded and synchronized (T1.9). Later superseded by shared compiled programs (F-VM-3). | Production loads bytecode from the archive, so the cache mainly helps the editor and hot reload. |
+| DEC-20 | Verifying v2 against the game | (A) game-session audit reports and recorded game baselines, compared after the migration (v1.0 of this plan); (B) the language stands on its own: the headless test suite plus compile-time checks, no game-side gate | B (round 4) | The owner considers the game-side audits more than the language needs; the Phase 0 tests exist so the language can be verified without the game. The T0.8 owner step and T0.9 are dropped: nothing waits for game sessions, game baselines or reviews of them. What stays: the audit hooks and the test-suite audit report (they cost nothing and guide the migration of the test corpus), `Headless~/ModTrace` and `BASELINE.md` as optional tools. The game's scripts are still migrated (R4), by the static tool (8.2) and checked by the v2 compiler with the native manifest (PROP-30); anything that only fails at run time fails loudly, as a v2 error. |
+| DEC-21 | Where checks happen | Runtime errors as specified in 5.3 to 5.9; as much as possible at compile time | Compile time wherever the information exists statically (round 4). A rule that is a runtime error in section 5 is also a compile error whenever the compiler can prove the failure. | The owner: "the more we can check at compile time, the better". Concretely: PROP-12 (native shadowing becomes an error), PROP-27 to PROP-31, and the widened T3.8. Runtime checks stay as the backstop for everything that depends on dynamic values. |
 
 ### 3.2 Proposed defaults
 
@@ -155,7 +159,7 @@ These details were not explicitly discussed but are needed for implementation. T
 | PROP-9 | Local-variable rules | A name assigned anywhere in a function, without `global`, is local to the whole function. Reading it textually before its first assignment is a compile error. At runtime, unassigned locals are null. Loop and rescue variables are scoped to their block, and may not shadow a parameter or local of the same function (compile error). | Simple and checkable at compile time, and avoids Python's UnboundLocalError surprise. |
 | PROP-10 | `global` syntax | `global a, b` is a statement inside a function, method, lambda or class body, placed before any use of those names in that body. At top level it is a compile error. Assigning to a declared global creates it if it does not exist. In a class body, a name declared `global` is not a field. | Mirrors Python. Class bodies need it because a bare assignment there declares a field. |
 | PROP-11 | Rescue variable | `rescue e` binds `e` for the rescue block only | Consistent with loop variables. |
-| PROP-12 | Duplicate definitions | Two user definitions with the same function name and arity, or the same class name, anywhere in the module set are a compile error. A user function that shadows a native produces a warning, as v1 logs today. | Static imports make this checkable. |
+| PROP-12 | Duplicate definitions | Two user definitions with the same function name and arity, or the same class name, anywhere in the module set are a compile error. A user function that shadows a native is also a compile error (DEC-21; v1.0 of this plan had a warning, as v1 logs today). | Static imports make this checkable. |
 | PROP-13 | Exception classification | Exceptions thrown by native function bodies, including `NativeHelper` argument errors, become NativeError (rescuable) unless the native throws `ScriptErrorException` with a specific kind. Any other C# exception inside the VM becomes HostFault, which cannot be rescued, halts the instance, and is not assumed to be deterministic. | Natives are expected to be deterministic. VM-internal exceptions are bugs. |
 | PROP-14 | Formatting native objects | Never call arbitrary host `ToString()`. `F64Vec3` formats as `(x, y, z)` using WarScript's integer formatter. Function values format as `<fun name>`. Other native objects format as `<TypeName>` unless the host registers a formatter. | DET-3 |
 | PROP-15 | Writing an undeclared property | `obj :: newprop = v`, where `newprop` is not a declared field, raises NameError | Fields are declared by constructor parameters and class-body assignments (DEC-6). |
@@ -170,6 +174,11 @@ These details were not explicitly discussed but are needed for implementation. T
 | PROP-24 | Coroutine resume order | Unchanged: `TickCoroutines` resumes coroutines newest first (reverse start order). `StartCoroutine` runs the new coroutine immediately until its first yield. | Deterministic, now documented. Q-8 asks the owner to confirm the order is intended. |
 | PROP-25 | `Call` before `Run` | Allowed. The script compiles automatically, but top-level code does not run, so its globals are not initialized. Same as v1, minus the tree-walk path. | Preserves existing usage. Q-9 asks the owner to confirm. |
 | PROP-26 | Unused locals | Compile warning: "local 'x' is assigned but never read" | Under DEC-5, a typo on the left side of an assignment silently creates a new local. This warning catches it. |
+| PROP-27 | Undefined globals | Reading a name that is not a local, not assigned anywhere in the module set (at top level or through `global`) and not a known host global is a compile **error**, `undefined variable 'x'`, not a warning. Known host globals are those in the host scope when `Compile()` runs plus those listed in the native manifest (PROP-30). | DEC-21. Under DEC-5 such a read can only raise NameError at runtime, so reporting it early loses nothing. |
+| PROP-28 | Statically typed operands | The compiler knows an operand's type when it is a literal, an interpolated text, an array literal, `null`, `true`/`false`, a `const` or enum member with such a value, or an operator result whose type follows from 5.3 (`text + x` is text, `n * n` is number, and so on). Any operator, index or property rule of 5.3 to 5.5 that would raise TypeError for those types is a compile error with the same message, for example `"Sir " + t - "Sir "`, `-"x"`, `true < 1`, `{1} + 2`, `5 :: name`. No inference through variables or calls. | DEC-21. Cheap and never wrong. It turns the common form of text subtraction (a literal or interpolated operand) into a compile error, so the migration does not depend on finding it at runtime. |
+| PROP-29 | Statically checkable names | Compile errors for: `new C [...]` with an arity that matches no constructor of `C`; a named argument naming no parameter of the called function, or given twice; duplicate parameter names; duplicate enum members; `E :: X` where `E` is a known enum and `X` is not a member (or `values`, `names`, `count`, `name`); `obj :: x` where `x` is neither a field nor a method of any class in the module set or the host-registered classes; `this`/`@x` outside a class; `break`/`next` outside a loop. Warning: code after `return`, `break`, `next` or `raise` in the same block is unreachable. | DEC-21. Each uses only information the compiler already holds after static imports (T3.7). |
+| PROP-30 | Native manifest | The binding generator always emits a native signature manifest (each native's name and arities, plus `[WsConst]`/`[WsEnum]` names and host classes), and the compiler accepts one in place of registered natives. Headless tools (the runner, the migration tool, a later `wsc`) compile game scripts against it. | DEC-20 and DEC-21: the game's scripts can then be checked without running the game, which answers Q-2 regardless of how the archive build is set up. |
+| PROP-31 | Warnings as errors | `Compile()` takes an option that turns warnings into errors. Off by default; the mod archive build should turn it on. | Lets the shipped scripts be held to the strictest checks without making editing in the editor noisy. |
 
 ---
 
@@ -353,15 +362,18 @@ Native objects compare with `Equals`. Function values are equal when they refer 
 
 **Name resolution for calls.** In `f [args]`, if `f` is a local or parameter holding a function value, the call goes through that value. Otherwise, if a function named `f` with a matching arity exists among the module's definitions or the natives, that function is called. Otherwise, if a global holding a function value exists at runtime, it is called.
 
-**Compile-time checks** (T3.8):
+**Compile-time checks** (T3.8, DEC-21). Whatever the compiler can prove is reported before the script runs; the runtime errors in this section and in 5.3 to 5.9 remain as the backstop for dynamic values.
 
 - A call to a name that is not a known function, not a native and not assigned anywhere as a variable is an error.
 - A call with an arity that matches none of a known function's arities is an error.
+- A read of a name that is not a local, is never assigned anywhere in the module set and is not a known host global is an error, `undefined variable 'x'` (PROP-27).
+- Operator, index and property type errors on operands whose type is known statically are errors (PROP-28).
+- The name checks of PROP-29 (constructor arity, named arguments, duplicate parameters and enum members, unknown enum members, property names unknown to every class, `this` outside a class, `break`/`next` outside a loop) are errors.
 
-**Compile-time warnings:**
+**Compile-time warnings** (errors when the host compiles with warnings as errors, PROP-31):
 
 - A local that is assigned but never read (PROP-26).
-- A read of a global that is never assigned anywhere in the module set and is not a known host global.
+- Unreachable code after `return`, `break`, `next` or `raise` (PROP-29).
 
 Example:
 
@@ -397,7 +409,7 @@ The declaration syntax is unchanged: `class Name [params] : Base [args] ... end`
 
 - Bare names follow the function rules in 5.6.
 - `@x` reads or writes field `x` of `this`. It is equivalent to `this :: x` and is checked at compile time against the fields of the class and its bases, so an unknown field is a compile error.
-- `obj :: x` on other instances is checked at runtime and raises NameError for unknown properties.
+- `obj :: x` on other instances is checked at runtime and raises NameError for unknown properties. If `x` is not a field or method of any class in the module set or the host-registered classes, it is already a compile error (PROP-29).
 
 **Lambdas** cannot use `this` or `@x` (PROP-16).
 
@@ -675,15 +687,15 @@ Natives may call back into their own instance (6.5) or into other instances. The
 
 | Phase | Goal | Tasks | Gate (done when) |
 |---|---|---|---|
-| 0 | Test infrastructure and behavior baseline | T0.1 to T0.9 | The headless suite and goldens are green, except documented known failures. Invariant checks, bytecode round-trips and the culture matrix run on every test. The fuzzer runs. A test-suite audit report exists. The owner has recorded game baselines (required before T3.9). |
+| 0 | Test infrastructure | T0.1 to T0.9 | The headless suite and goldens are green, except documented known failures. Invariant checks, bytecode round-trips and the culture matrix run on every test. The fuzzer runs. A test-suite audit report exists. No game-side step (DEC-20). |
 | 1 | Crash, security and determinism fixes, with no syntax changes | T1.1 to T1.10 | Every CRASH, BUDGET, DET and SEC repro passes. The fuzzer runs clean for 60 minutes. A test proves the budgets cannot be escaped through constructors, imports or re-entrant calls. Bytecode format v2 is in place. |
 | 2 | Host API v2 and removal of the tree-walker | T2.1 to T2.9 | No tree-walk code remains. Every entry point returns `ScriptResult`. Per-instance halting works. Error kinds and call stacks are covered by tests. |
-| 3 | Language v2 and migration | T3.1 to T3.11 | All scripts are migrated. The suite is green under v2 semantics. The owner has confirmed that game scenarios match the baseline, apart from documented semantic changes. The language spec is published. |
+| 3 | Language v2 and migration | T3.1 to T3.11 | All scripts are migrated. The suite is green under v2 semantics. Every migrated script, the game's included, compiles with no errors against the native manifest (PROP-30). The language spec is published. |
 | 4 (deferred) | Performance | Section 11.1 | Not scheduled |
 
 **Ordering.**
 
-- Phase 0 comes first because Phase 3 is verified against its baseline, and Phase 1 fixes need regression tests.
+- Phase 0 comes first because Phase 3 is verified against its test suite, and Phase 1 fixes need regression tests.
 - Phase 1 comes before Phase 3 because its fixes are small and independent, and running constructors as frames (T1.1) is the basis for the frame-based design in T3.5.
 - Phase 2 comes before Phase 3 because removing the tree-walker halves the number of places semantics live, so each Phase 3 change lands once.
 - Within Phase 1, do T1.3 (exception boundary) early, because later tasks rely on it.
@@ -763,11 +775,13 @@ The project files are in section 9.1. The runtime compiled unmodified against up
 - Add an `AuditReport` that de-duplicates events by (kind, script, line), counts them, and writes Markdown or JSON.
 - Run the full test suite with auditing on and commit the report as `Documentation~/migration/audit-tests.md`.
 
-**Owner step.** Run representative game sessions (the core mod, room setup, skills and modifiers) with the sink attached, and return the report (Q-7, Q-10).
+**Owner step.** Dropped (DEC-20). v1.0 of this plan asked the owner to run game sessions with the sink attached and return the report; nothing waits for that report any more. `Documentation~/migration/AUDIT.md` still explains how to record one if the owner wants it.
 
-**Done when.** The test-suite report is committed and the owner has instructions for the game sessions.
+**Done when.** The test-suite report is committed.
 
-#### T0.9 Behavior baseline
+#### T0.9 Behavior baseline (dropped, DEC-20)
+
+Dropped in round 4: Phase 3 is verified against the test suite and the compiler, not against recorded game scenarios. What was built stays, unrequired: `Documentation~/migration/BASELINE.md` (the recording instructions, the review of run-1 and the hashes of the headless warman trace) and `Headless~/ModTrace`. The original task, for the record:
 
 **Change.** Write `Documentation~/migration/BASELINE.md`, explaining how to record a baseline with the current runtime: for each scenario, the printed output plus a per-tick `ComputeStateHash()` for each instance. Claude Code cannot run the game.
 
@@ -1165,25 +1179,33 @@ Implements DEC-7 and PROP-12.
 #### T3.8 Compile-time diagnostics
 
 **Change.**
+Widened in round 4 (DEC-21): anything the compiler can prove is an error is reported here, before the script runs.
+
 - Report errors for:
   - unknown functions;
   - wrong arity, listing the valid arities;
   - an unknown class in `new`, `is` or `as`;
   - an unknown `@field`;
   - assignment to a constant (move the `ConstantNames` check from the parser to the resolver so it covers imports);
-  - a misplaced `global`.
+  - a misplaced `global`;
+  - a user function shadowing a native (PROP-12);
+  - reads of names that are never assigned anywhere and are not known host globals (PROP-27);
+  - type errors on statically typed operands (PROP-28);
+  - the name checks of PROP-29.
 - Report warnings for:
   - unused locals (PROP-26);
-  - reads of globals that are never assigned anywhere and are not known host globals;
-  - a user function shadowing a native.
+  - unreachable code (PROP-29).
+- Add the warnings-as-errors option to `Compile()` (PROP-31).
 - Collect several diagnostics per compile, recovering at statement boundaries.
-- Natives must be known at compile time. If the archive build compiles scripts without natives registered, generate a native signature manifest (Q-2).
+- Natives must be known at compile time. Extend `Editor/WsBindingGenerator.cs` to always emit the native signature manifest, and let the compiler take one instead of registered natives (PROP-30). The Runner gets a `--manifest <file>` option, so a mod's scripts can be checked headlessly.
+
+**Tests.** One golden with `# expect-compile-error:` (or `# expect-warning:`) per rule, and one that sits next to the rule and must compile: a dynamic case of each PROP-28 rule (the operand comes from a variable or a call) still compiles and raises the runtime error. The corpus must compile without diagnostics, apart from those goldens.
 
 #### T3.9 Run the migration
 
 **Change.** Follow 8.3.
 
-**Owner step.** Migrate the game's scripts, or give Claude Code their paths (Q-10). Then compare scenario results with the Phase 0 baseline.
+**Owner step.** Migrate the game's scripts, or give Claude Code their paths (Q-10), and compile them against the native manifest (PROP-30) until there are no errors. No comparison with a recorded game baseline (DEC-20); the owner plays the game as usual, and a runtime error it raises is a v2 error with a kind, a line and a stack (T2.5).
 
 #### T3.10 Specification and documentation
 
@@ -1206,9 +1228,11 @@ Implements DEC-7 and PROP-12.
 
 Every `.ws` script moves from v1 to v2 semantics: `Tests/resources`, the golden corpus, test sources embedded in C#, and the owner's game scripts.
 
-The migration has two halves. The **static half** is a one-time rewriting tool built on the v1 frontend (T3.2). The **runtime half** is the audit mode (T0.8), which records behaviors that cannot be found by reading source.
+The migration rests on two static checks: a one-time rewriting tool built on the v1 frontend (T3.2), and the v2 compiler's diagnostics (T3.8), which turn as many v2 runtime errors as possible into compile errors (DEC-21). The audit mode (T0.8) records behaviors that cannot be found by reading source; since round 4 (DEC-20) only its test-suite report is used, and no step waits for reports from game sessions. What neither the tool nor the compiler can see fails loudly at runtime under v2 and is fixed like any other script error.
 
 ### 8.1 Audit events (T0.8)
+
+Since DEC-20 the only audit report the plan uses is the test suite's (`Documentation~/migration/audit-tests.md`). The events stay as specified, in case the owner wants to record a game session anyway.
 
 Emit these events from the v1 runtime. To tell scopes apart, give `MemoryScope` a `Kind` set at creation: `Native`, `User`, `Block`, `FunctionLocal`, `ClassInstance` or `MethodLocal`. In v1, the scope is created:
 
@@ -1280,22 +1304,22 @@ The tool preserves v1 behavior. It does not fix latent bugs; it makes them visib
 | A method or class body reads a name that is neither a field nor a local but is a global | In v1 the read returned null (SEM-4) | Report it: v2 will return the global's value. |
 | An import comes after other statements | Position in the file | Move it to the top if everything before it is comments, imports or definitions. Otherwise report it, because moving it changes initialization order. |
 | A variable is named `global` | Identifier scan | Rename it to `global_` and report it. |
-| Text subtraction with a literal | An operand of `-` is a text literal or an interpolated string | Rewrite `a - b` as `Text_remove [a, b]` and report it. Cases found only at runtime come from the audit (`TextSubtraction`). |
+| Text subtraction with a literal | An operand of `-` is a text literal or an interpolated string | Rewrite `a - b` as `Text_remove [a, b]` and report it. In v2 the same case is a compile error (PROP-28); cases the tool cannot see raise TypeError at runtime. |
 | A top-level block variable escapes its block | A name first assigned inside a top-level `if` or loop body and read after the block at top level | Report it: v1 read null, v2 reads the value. |
 | A dynamic property is created | `obj :: name = ...` or `this :: name = ...` where `name` is not a field of any class in the module set | Report it; the owner must declare the field. |
-| A text index is assigned | `x{i} = ...` where `x` is statically text (a literal or a known text variable) | Report it. Runtime cases come from the audit (`TextIndexAssign`). |
+| A text index is assigned | `x{i} = ...` where `x` is statically text (a literal or a known text variable) | Report it. In v2 the same case is a compile error (PROP-28); other cases raise TypeError at runtime. |
 
 Each report entry has `file:line:col`, the source line, the rule, and the action taken or required.
 
 ### 8.3 Procedure
 
-1. **Phase 0 complete.** The goldens, invariants and test-suite audit report are done, and the owner has recorded game baselines and an audit report from game sessions (T0.8, T0.9).
+1. **Phase 0 complete.** The goldens, invariants and test-suite audit report are done. No game baselines or game-session audit reports are needed (DEC-20).
 2. **Columns and tag.** Do T3.1 on the v1 frontend, then tag the repository `warscript-v1-final`.
 3. **Build and report.** Build the tool (T3.2) and run it in `--report` mode over `Tests/Golden~`, `Tests/resources` and the owner's game scripts (Q-10). Most test sources embedded in C# should have moved to golden files in T0.2; migrate the rest by hand, using the report as a guide.
-4. **Review.** Review the tool report together with both audit reports. For each manual item, decide the intended v2 behavior; where the right behavior is unclear, ask the owner. For each inserted `global`, the owner decides whether it is intended or should become a local.
+4. **Review.** Review the tool report together with the test-suite audit report. For each manual item, decide the intended v2 behavior; where the right behavior is unclear, ask the owner. For each inserted `global`, the owner decides whether it is intended or should become a local.
 5. **Implement and rewrite.** Implement v2 (T3.3 to T3.8) on a branch. Run the tool in `--rewrite` mode over all scripts, apply the manual decisions, and commit the migrated scripts on that branch.
 6. **Test.** Run the full suite. Every failure is either a migration miss (fix the script, or the tool and re-run) or a v2 bug (fix the implementation).
-7. **Compare with the baseline.** The owner runs the baseline scenarios on v2 and compares outputs and state hashes. Some differences are expected, for example `true`/`false` in formatted text. Every difference must be traced to a documented semantic change or fixed.
+7. **Compile the game's scripts.** Compile every migrated game script with the v2 compiler against the native manifest (PROP-30), with warnings as errors (PROP-31), until it is clean. There is no comparison with a recorded game baseline (DEC-20). A runtime error that shows up later in the game is fixed in the script; if it reveals a check the compiler could have made, add that check to T3.8.
 8. **Merge and clean up.** Merge, then regenerate all bytecode and mod archives (format v3). Once the owner confirms, remove `Tools~/WarScript.Migrate` and the audit hooks.
 
 ### 8.4 Before and after examples
@@ -1596,7 +1620,7 @@ A value is encoded as one tag byte (`ValueTag`) followed by a payload:
 Implementation notes (T0.6):
 
 - Multi-byte values (lengths, counts, raw numbers) are little-endian, like the code units. A text payload, including a class name or a native object's formatting, is preceded by the text tag byte.
-- Until T3.4 gives classes a declared field list, an instance is encoded as its class name, a 4-byte field count, the constructor parameters' values in declaration order, and then every other field of the instance sorted by name (ordinal), each as name, `0x00 0x00`, value. When T3.4 lands, switch to the declared field order above; that changes hashes of states that hold instances, so baselines (T0.9) recorded before it must be re-recorded or compared by output only.
+- Until T3.4 gives classes a declared field list, an instance is encoded as its class name, a 4-byte field count, the constructor parameters' values in declaration order, and then every other field of the instance sorted by name (ordinal), each as name, `0x00 0x00`, value. When T3.4 lands, switch to the declared field order above; that changes hashes of states that hold instances, so hashes recorded before it (the golden hash files, and the optional T0.9 recordings) must be re-recorded or compared by output only.
 - Until T1.6, native objects are hashed through v1 formatting, so a state holding an `F64Vec3` hashes differently before and after T1.6.
 - `MaxValueDepth` is 256 (PROP-5), a constant in `Runtime/StateHash.cs` until T1.2 makes it an instance limit.
 - The printed lines are those of the `print` builtin since the instance was created; error traces logged for unhandled errors are not included.
@@ -1792,15 +1816,15 @@ Implementation proceeds with the default until the owner answers. The "Blocks" c
 | ID | Question | Default until answered | Blocks |
 |---|---|---|---|
 | Q-1 | Do natives pass class instances, arrays or function values between instances (rooms, bootstrap instances)? | Plain data may cross instances, including reading and writing fields of a foreign instance. Calling a method or function value owned by another instance raises TypeError (6.7). | T3.5 (the ownership check) |
-| Q-2 | When scripts are compiled for the mod archive, are the game's natives registered? | Assume yes. If not, the binding generator also emits a native signature manifest (names and arities) for compile-time checks. | T3.8 |
+| Q-2 | When scripts are compiled for the mod archive, are the game's natives registered? | No longer blocks anything: the binding generator always emits the native manifest (PROP-30), so scripts can be checked either way. | Nothing |
 | Q-3 | Are all instances driven from a single simulation thread? | Yes. An instance is not thread-safe, and the runtime has no unsafe shared static state (T1.9). | Nothing |
 | Q-4 | When an instance halts, what should its room or map do? | Host policy, outside this plan. The API provides `Faulted`, `Fault` and `InstanceLabel`. | Nothing in this plan |
 | Q-5 | How are script state and halted flags handled on save, load and rejoin? | The halted flag must be restored along with whatever other state is restored. If scripts are re-run on load, replay must reproduce the halt deterministically. | Nothing now |
 | Q-6 | Are the default limits in PROP-5 acceptable? | Use the values as listed | T1.4 |
-| Q-7 | Do any game scripts rely on dynamic properties, text index assignment, structural class equality, or methods reading null where a global exists? | Answered by the game-session audit report (T0.8) | T3.9 |
+| Q-7 | Do any game scripts rely on dynamic properties, text index assignment, structural class equality, or methods reading null where a global exists? | Not asked any more (DEC-20). The migration tool report and the v2 compiler (PROP-28, PROP-29) find the static cases; the rest raise v2 errors at runtime. | Nothing |
 | Q-8 | Is the newest-first coroutine resume order intended? | Keep it (PROP-24) | Nothing |
 | Q-9 | Should `Call` be allowed before `Run`? | Allowed, as in v1 (PROP-25) | Nothing |
-| Q-10 | Where are the game's `.ws` scripts, for the audit, baseline and migration? | The owner provides paths, or runs the tools on the owner's side | T0.8, T0.9, T3.9 |
+| Q-10 | Where are the game's `.ws` scripts, for the migration? | The owner provides paths, or runs the migration tool and the compiler on the owner's side | T3.9 |
 | Q-11 | The fuzzer (T0.7) found CRASH-5, CRASH-6, CRASH-7 and BUDGET-2. Which tasks fix them, and: should a class inheriting from itself be a compile error or a runtime error at `new` (CRASH-5)? After the instruction budget runs out, should it stay exhausted, so that the error ends the entry even if the script rescues it (BUDGET-2)? | CRASH-5 in T1.1 (its allocation step walks the base classes and must detect the cycle), as a rescuable error at `new`; CRASH-6 in T1.8 (compile errors); CRASH-7 in T1.3; BUDGET-2 in T1.5 (instance-level budgets), with the budget staying exhausted. Goldens A.22 to A.25 are written against these defaults. | T1.1, T1.3, T1.5, T1.8 |
 
 ---
@@ -2413,7 +2437,7 @@ DefaultImporter:
 | `Runtime/Native/NativeHelper.cs` | 2 | Throws `ScriptErrorException` |
 | `Runtime/Native/Libraries/*` | 1, 3 | Size guards; new `Text_remove` |
 | `Runtime/AssemblyInfo.cs` (new) | 0 | `InternalsVisibleTo("WarScript.Tests")` |
-| `Editor/WsBindingGenerator.cs` | Deferred | Native ABI (F-PERF-2); optional native manifest (Q-2) |
+| `Editor/WsBindingGenerator.cs` | 3, deferred | Native manifest (PROP-30, T3.8); native ABI (F-PERF-2, deferred) |
 | `Tests/*` | 0 to 3 | Invariant checks; golden runner; host-API tests; migration of embedded scripts |
 | `Tests/Golden~/` (new) | 0 to 3 | Golden corpus |
 | `Headless~/` (new) | 0 | Projects, runner, fuzzer, hash comparison |
@@ -2434,8 +2458,8 @@ DefaultImporter:
 | T0.5 | Known-bug corpus and child-process runner | T0.2 | done | Runner in `Headless~/Runner/`; `# isolate` goldens run in child processes (A.1 to A.3 contained). C# repros A.6 (with its three variants), A.9, A.19 and A.21 in `Tests/ReproTests.cs`. A.20 moves to T1.7 (its cases are defined against format v2: format hash, verifier) and A.18 to T3.4 (v2 syntax: `@x`, `global`). |
 | T0.6 | State hash | T0.2 | done | `WarScriptLanguage.ComputeStateHash()` (`Runtime/StateHash.cs`); the golden runner requires the same hash in both modes and every culture and writes `<file> [<mode>]: <hash>` lines to `Headless~/out/golden-hashes.<os>-<arch>.txt`; `Headless~/compare-hashes.sh` diffs them. Encoding notes in 9.7. Cross-machine comparison needs CI or the owner (9.8). |
 | T0.7 | Fuzzer v0 | T0.5 | done | `Headless~/Fuzz/` (notes in 9.6). A 10-minute run attributes every finding to a known ID. New findings reported to the owner: CRASH-5, CRASH-6, CRASH-7, BUDGET-2 (section 4, goldens A.22 to A.25, Q-11). The runner and `GoldenRun` now name the WarScript method a crash or escaped exception happened in. Bytecode mode waits for T1.7. |
-| T0.8 | Audit mode (plus owner game sessions) | T0.1 | owner step | `WarScriptLanguage.AuditSink`, `AuditEvent`/`AuditKind`, `AuditReport` (`Runtime/Audit/`); all 20 events of 8.1 (notes there). Test-suite report: `Documentation~/migration/audit-tests.md` (`WARSCRIPT_AUDIT_REPORT=<file> dotnet test`). Owner instructions for game sessions: `Documentation~/migration/AUDIT.md`. Waiting for the owner's game-session report (Q-7, Q-10). |
-| T0.9 | Behavior baseline (owner) | T0.6 | owner step | `Documentation~/migration/BASELINE.md` written. run-1 (2026-11-06) reviewed there and not accepted: every recorded hash is the "no user globals" value, so it compares only three printed lines; no repeat run, no README. The recorder now also writes `<label>.globals.txt`. The full warman mod (2026-11-06) has no assignments at all, which explains run-1; its script behavior is baselined headlessly as native-call traces (`Headless~/ModTrace`, hashes in BASELINE.md). Waiting for the owner to accept that as the baseline. |
+| T0.8 | Audit mode | T0.1 | done | `WarScriptLanguage.AuditSink`, `AuditEvent`/`AuditKind`, `AuditReport` (`Runtime/Audit/`); all 20 events of 8.1 (notes there). Test-suite report: `Documentation~/migration/audit-tests.md` (`WARSCRIPT_AUDIT_REPORT=<file> dotnet test`). Owner instructions for game sessions: `Documentation~/migration/AUDIT.md`. The game-session owner step was dropped on 2026-11-12 (DEC-20). |
+| T0.9 | Behavior baseline (owner) | T0.6 | dropped | `Documentation~/migration/BASELINE.md` written. run-1 (2026-11-06) reviewed there and not accepted: every recorded hash is the "no user globals" value, so it compares only three printed lines; no repeat run, no README. The recorder now also writes `<label>.globals.txt`. The full warman mod (2026-11-06) has no assignments at all, which explains run-1; its script behavior is baselined headlessly as native-call traces (`Headless~/ModTrace`, hashes in BASELINE.md). Dropped on 2026-11-12 (DEC-20): no game baseline gates Phase 3; BASELINE.md and ModTrace stay as optional tools. |
 | T1.1 | Constructors as frames | Phase 0 | todo | |
 | T1.2 | Cycle-safe value operations | Phase 0 | todo | |
 | T1.3 | Exception boundary and context restoration | Phase 0 | todo | |
@@ -2462,7 +2486,7 @@ DefaultImporter:
 | T3.5 | VM frame layout and scope removal | T3.4 | todo | |
 | T3.6 | Operator, equality, indexing and formatting semantics | T3.4 | todo | |
 | T3.7 | Static imports and module initialization | T3.4 | todo | |
-| T3.8 | Compile-time diagnostics | T3.4, T3.7 | todo | |
-| T3.9 | Run the migration (plus owner comparison with the baseline) | T3.3 to T3.8, T0.9 | todo | |
+| T3.8 | Compile-time diagnostics (widened: PROP-27 to PROP-31) | T3.4, T3.7 | todo | |
+| T3.9 | Run the migration (game scripts compiled clean against the native manifest) | T3.3 to T3.8 | todo | |
 | T3.10 | Language spec and documentation | T3.9 | todo | |
 | T3.11 | Bytecode format v3 | T3.5, T3.7 | todo | |

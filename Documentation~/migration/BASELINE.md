@@ -1,5 +1,10 @@
 # Recording a behavior baseline (T0.9)
 
+> **Dropped on 2026-11-12 (plan DEC-20).** Phase 3 is verified against the
+> headless test suite and the v2 compiler's diagnostics, not against recorded
+> game scenarios, so no baseline is required. This file and `Headless~/ModTrace`
+> stay as optional tools; the text below is unchanged.
+
 Phase 3 changes the language's semantics (v2 plan, section 5), and the game's
 scripts are migrated to it (section 8). To show that migrated scenarios still
 behave as before, apart from documented semantic changes, the owner records a

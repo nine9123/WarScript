@@ -1,5 +1,9 @@
 # Audit mode: recording v1 behaviors that change in v2 (T0.8)
 
+> **Game sessions are optional since 2026-11-12 (plan DEC-20).** The migration
+> uses only the test-suite report; nothing waits for a game-session report. This
+> file stays for anyone who wants to record one anyway.
+
 Phase 3 changes what some v1 code does (v2 plan, section 5): mixed-type
 equality, text subtraction, silently ignored index writes, functions writing
 globals, and so on. Some of those uses can be found by reading the source
