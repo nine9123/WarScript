@@ -260,7 +260,6 @@ namespace Tests
         }
 
         [Test]
-        [KnownInvariantViolation("T1.3")] // unhandled error leaves VM frames/scopes behind
         public void StartCoroutine_MissingFunction_IsScriptError()
         {
             var (script, output) = RunWithLibs(

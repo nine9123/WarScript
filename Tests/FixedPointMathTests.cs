@@ -115,7 +115,6 @@ namespace Tests
         }
 
         [Test]
-        [KnownInvariantViolation("T1.3")] // unhandled error leaves VM frames/scopes behind
         public void RangeBound_FractionalTruncates()
         {
             // loop upper bound 3.9 → iterates 0,1,2 (exclusive, truncated).
@@ -189,7 +188,6 @@ namespace Tests
         }
 
         [Test]
-        [KnownInvariantViolation("T1.3")] // unhandled error leaves VM frames/scopes behind
         public void DivideByZero_Uncaught_LogsAndDoesNotCrash()
         {
             // At top level (no rescue) a divide-by-zero surfaces as a logged message

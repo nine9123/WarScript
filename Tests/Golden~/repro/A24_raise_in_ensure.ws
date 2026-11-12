@@ -1,9 +1,8 @@
-# known-failing: CRASH-7
-# Plan A.24 (found by the fuzzer, T0.7): an error raised inside 'ensure'
-# while another error is propagating leaves v1's exception state raised with
-# no exception; the rescue does not run and Run() throws a
-# NullReferenceException to the host. The error raised in 'ensure' replaces
-# the original one, as it does in v1 when nothing rescues it.
+# Plan A.24 (CRASH-7, found by the fuzzer, T0.7; fixed by T1.3): an error
+# raised inside 'ensure' while another error is propagating. v1 left its
+# exception state raised with no exception: the rescue did not run and Run()
+# threw a NullReferenceException to the host. The error raised in 'ensure'
+# replaces the original one.
 begin
     begin
         raise "first"

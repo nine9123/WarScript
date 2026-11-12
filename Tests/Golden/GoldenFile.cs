@@ -272,6 +272,19 @@ namespace Tests.Golden
                 return run;
             }
 
+            // A host fault (a C# exception the VM caught at its boundary, T1.3)
+            // is logged and the run stops; report it as before, when it
+            // escaped Run(), and take the log line out of the printed output.
+            // The invariants are still checked: the VM restores the context
+            // stacks after a fault.
+            var fault = target.LastHostFault;
+            if (fault != null)
+            {
+                run.EscapedException = Escaped(fault);
+                var line = run.Output.FindLastIndex(l => l.StartsWith("[WarScript] Host fault in ", StringComparison.Ordinal));
+                if (line >= 0) run.Output.RemoveAt(line);
+            }
+
             // v1 logs an unhandled error through the same logger as print and
             // clears it; take its trace back out of the printed output.
             var unhandled = target.ExceptionContext.LastUnhandled;

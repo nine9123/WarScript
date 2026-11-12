@@ -267,7 +267,7 @@ end", null, (w, m) => { });
             KnownFailing("DX-5", failure);
         }
 
-        // ── A.21 A native method that throws (CRASH-3, T1.3) ─────────────
+        // ── A.21 A native method that throws (CRASH-3, fixed by T1.3) ────
 
         [Test]
         public void A21_NativeMethodExceptionIsRescued()
@@ -306,7 +306,7 @@ print ""done""", null, (w, m) => output.Add(m));
             if (failure == null && (output.Count != 2 || !output[0].StartsWith("rescued ") ||
                                     !output[0].Contains("boom failed") || output[1] != "done"))
                 failure = $"printed [{string.Join(" | ", output)}], expected [rescued <NativeError: boom failed> | done]";
-            KnownFailing("CRASH-3", failure);
+            Assert.IsNull(failure, failure);
         }
 
         // ── Helpers ──────────────────────────────────────────────────────

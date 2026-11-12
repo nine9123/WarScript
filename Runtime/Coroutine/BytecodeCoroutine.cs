@@ -31,6 +31,7 @@ namespace WarScript
         private readonly WarVM _vm;
         private readonly MemoryScope _coroutineScope;
         private bool _started;
+        private bool _faulted;
 
         // Scopes the VM pushed for calls still in flight when it yielded
         // (function locals, method class context, block scopes). They are set
@@ -114,6 +115,13 @@ namespace WarScript
                     _vm.ResumeCoroutine();
                 }
             }
+            catch (System.Exception e) when (!(e is Exception.SyntaxException))
+            {
+                // Host fault: the VM has reset itself, so the coroutine is
+                // finished (a looping one too) and the fault is reported.
+                _faulted = true;
+                _script.ReportHostFault(e);
+            }
             finally
             {
                 // Take off whatever the VM left above our own scopes: keep it
@@ -146,7 +154,11 @@ namespace WarScript
             }
 
             // Determine next state
-            if (_vm.IsYielded)
+            if (_faulted)
+            {
+                IsComplete = true;
+            }
+            else if (_vm.IsYielded)
             {
                 _yieldType = _vm.SuspendedYieldType;
                 _waitRemaining = _vm.SuspendedWaitDuration;

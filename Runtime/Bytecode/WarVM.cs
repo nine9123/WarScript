@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using WarScript.Audit;
 using WarScript.Context;
 using WarScript.Context.Definition;
+using WarScript.Exception;
 using WarScript.Expression;
 using WarScript.Expression.Value;
 using WarScript.Statement;
@@ -39,17 +40,16 @@ namespace WarScript.Bytecode
         /// </summary>
         private WarValue _topLevelResult;
 
-        // Pending exception: when an ensure-only handler runs during unwinding,
-        // the exception is stashed here and re-raised after ensure completes.
-        private WarValue _pendingException;
-        private bool _hasPendingException;
-        private int _pendingEndIP;
-
-        // Pending return: when Return fires inside a begin/ensure block,
-        // the return value is stashed and the ensure block runs first.
-        private WarValue _pendingReturnValue;
-        private bool _hasPendingReturn;
-        private int _pendingReturnEndIP;
+        // Ensure blocks entered with something still to do when they finish:
+        // an exception to re-raise (an ensure-only handler caught it) or a
+        // value to return (a return left the begin body). Innermost last.
+        // Ensure blocks can nest (one inside another, or in a function called
+        // from one), so this is a stack. A record ends when its ensure block
+        // completes, or is discarded when control leaves the block another
+        // way: a return from its frame, an error caught outside it, or its
+        // frame being unwound (CRASH-7).
+        private PendingEnsure[] _pending = new PendingEnsure[8];
+        private int _pendingCount;
 
         // Scope depth tracking: PushScope increments, PopScope decrements.
         // TryHandler saves it so DoHandleException can restore on unwind.
@@ -98,7 +98,7 @@ namespace WarScript.Bytecode
         /// entry that did not yield.
         /// </summary>
         internal bool IsIdle => _frameCount == 0 && _sp == 0 && _handlerCount == 0
-                                && !_hasPendingException && !_hasPendingReturn && !_yielded;
+                                && _pendingCount == 0 && !_yielded;
 
         private struct TryHandler
         {
@@ -110,6 +110,27 @@ namespace WarScript.Bytecode
             public bool HasRescue;
             public int SavedScopeDepth;
         }
+
+        private struct PendingEnsure
+        {
+            /// <summary>True: return <see cref="Value"/>; false: re-raise it.</summary>
+            public bool IsReturn;
+            public WarValue Value;
+            public int FrameIndex;
+            /// <summary>End of the ensure block (exclusive).</summary>
+            public int EndIP;
+            /// <summary>
+            /// Handler count when the ensure block was entered. Handlers below
+            /// it enclose the block; an error caught by one of them leaves it.
+            /// </summary>
+            public int HandlerDepth;
+        }
+
+        // Context depths when the current entry (Run, RunFunction,
+        // InitCoroutine, ResumeCoroutine) started. A host fault restores them.
+        private int _entryMemoryDepth;
+        private int _entryDefinitionDepth;
+        private int _entryInstanceDepth;
 
         public WarVM(WarScriptLanguage script)
         {
@@ -129,8 +150,7 @@ namespace WarScript.Bytecode
             _frameCount = 0;
             _handlerCount = 0;
             _topLevelResult = default;
-            _hasPendingException = false;
-            _hasPendingReturn = false;
+            ClearPending(0);
             _scopeDepth = 0;
             _budget = _script.InstructionBudget;
             _yielded = false;
@@ -146,6 +166,7 @@ namespace WarScript.Bytecode
         public void Run(CompiledFunction main)
         {
             Reset();
+            RecordEntryDepths();
 
             _frames[0] = new CallFrame
             {
@@ -166,6 +187,7 @@ namespace WarScript.Bytecode
         public WarValue RunFunction(CompiledFunction func, WarValue[] arguments)
         {
             Reset();
+            RecordEntryDepths();
 
             for (int i = 0; i < func.Arity; i++)
                 _stack[_sp++] = i < arguments.Length ? arguments[i] : WarValue.Null;
@@ -192,6 +214,7 @@ namespace WarScript.Bytecode
         public void InitCoroutine(CompiledFunction func, WarValue[] arguments)
         {
             Reset();
+            RecordEntryDepths();
 
             for (int i = 0; i < func.Arity; i++)
                 _stack[_sp++] = i < arguments.Length ? arguments[i] : WarValue.Null;
@@ -214,6 +237,7 @@ namespace WarScript.Bytecode
         /// </summary>
         public void ResumeCoroutine()
         {
+            RecordEntryDepths();
             _yielded = false;
             _yieldType = YieldType.NextTick;
             _yieldWaitDuration = F64.Zero;
@@ -227,12 +251,31 @@ namespace WarScript.Bytecode
         //  Main dispatch loop
         // ────────────────────────────────────────────────────────
 
+        private void RecordEntryDepths()
+        {
+            _entryMemoryDepth = _script.MemoryContext.Depth;
+            _entryDefinitionDepth = _script.DefinitionContext.Depth;
+            _entryInstanceDepth = _script.ClassInstanceContext.Depth;
+        }
+
         /// <summary>
-        /// Runs the dispatch loop, converting a value-stack overflow into a
-        /// catchable script exception. The push helper itself is branch-free
-        /// (hot path); the array's own bounds check is what detects overflow,
-        /// and the filter re-throws anything that is not an actual push past
-        /// the top of the stack so genuine VM bugs still surface.
+        /// Runs the dispatch loop: the VM's exception boundary (plan T1.3).
+        /// <list type="bullet">
+        /// <item>A <see cref="ScriptErrorException"/> (thrown by runtime code
+        /// on the VM's behalf) and a value-stack overflow become script
+        /// errors that <c>begin/rescue</c> can catch. The push helper itself
+        /// is branch-free (hot path); the array's own bounds check detects
+        /// the overflow, and the filter lets anything else through.</item>
+        /// <item>An error no handler catches unwinds every frame, popping the
+        /// scopes and class contexts they pushed, and stays raised for the
+        /// caller (an enclosing VM or the host entry point).</item>
+        /// <item>Any other exception is a host fault: a VM bug or a failure of
+        /// the host. The context stacks go back to their depths at the start
+        /// of this entry, the VM is reset, and the exception propagates — out
+        /// of every enclosing VM — to the host entry point, which reports it
+        /// and stops. A <see cref="SyntaxException"/> from an imported file
+        /// is cleaned up the same way and reaches the host unchanged.</item>
+        /// </list>
         /// </summary>
         private void Execute()
         {
@@ -241,19 +284,76 @@ namespace WarScript.Bytecode
                 try
                 {
                     ExecuteLoop();
-                    return;
+                    break;
                 }
                 catch (System.IndexOutOfRangeException) when (_sp > StackMax)
                 {
                     RuntimeError("Value stack overflow");
-                    int fi = _frameCount - 1;
-                    var code = _frames[fi].Function.Chunk.Code;
-                    var constants = _frames[fi].Function.Chunk.Constants;
-                    if (!DoHandleException(ref fi, ref code, ref constants))
-                        return;
+                    if (!HandleCaughtError()) break;
                     // Handled: loop and re-enter the dispatch loop.
                 }
+                catch (ScriptErrorException e)
+                {
+                    RuntimeError(e.Message);
+                    if (!HandleCaughtError()) break;
+                }
+                catch
+                {
+                    // Also a SyntaxException from compiling an import: it
+                    // propagates to the host as in v1 (imports become
+                    // compile-time in Phase 3), after the same cleanup.
+                    AbortAfterHostFault();
+                    throw;
+                }
             }
+
+            // Frames left behind without a yield mean an unhandled error.
+            if (_frameCount > 0 && !_yielded)
+                UnwindAll();
+        }
+
+        private bool HandleCaughtError()
+        {
+            if (_frameCount == 0) return false;
+            int fi = _frameCount - 1;
+            var code = _frames[fi].Function.Chunk.Code;
+            var constants = _frames[fi].Function.Chunk.Constants;
+            return DoHandleException(ref fi, ref code, ref constants);
+        }
+
+        /// <summary>
+        /// Pops every frame together with what it pushed on the context
+        /// stacks, after an error that no handler caught. The error itself
+        /// stays raised.
+        /// </summary>
+        private void UnwindAll()
+        {
+            while (_frameCount > 0)
+                PopFrame(_frameCount - 1);
+            _sp = 0;
+            _handlerCount = 0;
+            ClearPending(0);
+            _scopeDepth = 0;
+        }
+
+        /// <summary>
+        /// Puts the context stacks back where they were when this entry
+        /// started and resets the VM, after a C# exception escaped the
+        /// dispatch loop. The VM's own bookkeeping cannot be trusted at that
+        /// point (the exception may have hit half way through an instruction),
+        /// so this goes by the recorded depths, not by the frames.
+        /// </summary>
+        private void AbortAfterHostFault()
+        {
+            while (_script.MemoryContext.Depth > _entryMemoryDepth)
+                _script.MemoryContext.EndScope();
+            while (_script.DefinitionContext.Depth > _entryDefinitionDepth)
+                _script.DefinitionContext.EndScope();
+            while (_script.ClassInstanceContext.Depth > _entryInstanceDepth)
+                _script.ClassInstanceContext.PopValue();
+            if (_script.ExceptionContext.IsRaised())
+                _script.ExceptionContext.RescueException();
+            Reset();
         }
 
         private void ExecuteLoop()
@@ -737,7 +837,7 @@ namespace WarScript.Bytecode
                             try { result = nativeFn.NativeBody(args); }
                             catch (System.Exception e)
                             {
-                                RuntimeError($"Native function '{funcName}' failed: {e.Message}");
+                                RaiseNativeFailure("Native function", funcName, e);
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -878,7 +978,7 @@ namespace WarScript.Bytecode
                             try { nResult = nativeTail.NativeBody(args); }
                             catch (System.Exception e)
                             {
-                                RuntimeError($"Native function '{funcName}' failed: {e.Message}");
+                                RaiseNativeFailure("Native function", funcName, e);
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -942,6 +1042,11 @@ namespace WarScript.Bytecode
                     {
                         var result = Pop();
 
+                        // A return leaves every ensure block of this frame it
+                        // is inside: whatever they were going to re-raise or
+                        // return is discarded (CRASH-7).
+                        DropPendingOfFrame(fi);
+
                         // Check if there are any handlers on this frame with ensure blocks.
                         while (_handlerCount > 0 && _handlers[_handlerCount - 1].FrameIndex == fi)
                         {
@@ -955,9 +1060,7 @@ namespace WarScript.Bytecode
                             if (handler.EnsureIP != handler.EndIP)
                             {
                                 _sp = handler.SavedSP;
-                                _hasPendingReturn = true;
-                                _pendingReturnValue = result;
-                                _pendingReturnEndIP = handler.EndIP;
+                                PushPending(true, result, fi, handler.EndIP);
                                 _frames[fi].IP = handler.EnsureIP;
                                 goto nextInstruction;
                             }
@@ -1021,7 +1124,15 @@ namespace WarScript.Bytecode
                         if (methodDef is NativeFunctionDefinition nativeMethod)
                         {
                             var args = CollectArgs(argCount);
-                            Push(nativeMethod.NativeBody(args));
+                            WarValue mResult;
+                            try { mResult = nativeMethod.NativeBody(args); }
+                            catch (System.Exception e)
+                            {
+                                RaiseNativeFailure("Native method", methodName, e);
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
+                            Push(mResult);
                         }
                         else
                         {
@@ -1580,22 +1691,23 @@ namespace WarScript.Bytecode
                     }
                 }
 
-                // Check for pending exception (after ensure-only block completes)
-                if (_hasPendingException && _frames[fi].IP >= _pendingEndIP)
+                // An ensure block entered with a re-raise or return to finish
+                // has completed: finish it.
+                if (_pendingCount > 0 && _pending[_pendingCount - 1].FrameIndex == fi
+                    && _frames[fi].IP >= _pending[_pendingCount - 1].EndIP)
                 {
-                    _hasPendingException = false;
-                    _script.ExceptionContext.Enable();
-                    if (DoHandleException(ref fi, ref code, ref constants))
-                        continue;
-                    return;
-                }
+                    var pending = _pending[--_pendingCount];
+                    _pending[_pendingCount] = default;
 
-                // Check for pending return (after ensure block runs before return)
-                if (_hasPendingReturn && _frames[fi].IP >= _pendingReturnEndIP)
-                {
-                    _hasPendingReturn = false;
-                    var result = _pendingReturnValue;
-                    _pendingReturnValue = default;
+                    if (!pending.IsReturn)
+                    {
+                        _script.ExceptionContext.RaiseException(pending.Value);
+                        if (DoHandleException(ref fi, ref code, ref constants))
+                            continue;
+                        return;
+                    }
+
+                    var result = pending.Value;
 
                     // Check for more handlers on this frame
                     while (_handlerCount > 0 && _handlers[_handlerCount - 1].FrameIndex == fi)
@@ -1610,9 +1722,7 @@ namespace WarScript.Bytecode
                         if (h.EnsureIP != h.EndIP)
                         {
                             _sp = h.SavedSP;
-                            _hasPendingReturn = true;
-                            _pendingReturnValue = result;
-                            _pendingReturnEndIP = h.EndIP;
+                            PushPending(true, result, fi, h.EndIP);
                             _frames[fi].IP = h.EnsureIP;
                             goto continueLoop;
                         }
@@ -1652,6 +1762,7 @@ namespace WarScript.Bytecode
 
             _sp = _frames[fi].StackBase;
             _frameCount--;
+            DropPendingOfFrame(fi);
 
             if (wasMethod)
             {
@@ -1742,6 +1853,19 @@ namespace WarScript.Bytecode
         }
 
         /// <summary>
+        /// Raises the script error for an exception thrown by a native body
+        /// (plan 6.9, PROP-13): a <see cref="ScriptErrorException"/> keeps its
+        /// own message; anything else is a NativeError naming the native.
+        /// </summary>
+        private void RaiseNativeFailure(string what, string name, System.Exception e)
+        {
+            if (e is ScriptErrorException)
+                RuntimeError(e.Message);
+            else
+                RuntimeError($"{what} '{name}' failed: {e.Message}");
+        }
+
+        /// <summary>
         /// Track a heap allocation. Returns true if within budget.
         /// If over budget, raises "Memory budget exceeded" and returns false.
         /// Caller must check the return value and handle the exception.
@@ -1772,25 +1896,8 @@ namespace WarScript.Bytecode
 
                 if (handler.FrameIndex != fi)
                 {
-                    // Unwind this frame — pop excess scopes first
-                    while (_scopeDepth > _frames[fi].SavedScopeDepth)
-                    {
-                        if (_script.AuditSink != null) AuditBlockEnd();
-                        _script.MemoryContext.EndScope();
-                        _scopeDepth--;
-                    }
-                    var wasMethod = _frames[fi].IsMethodCall;
-                    var hasScope = _frames[fi].HasScope;
-                    _sp = _frames[fi].StackBase;
-                    _frameCount--;
-                    if (wasMethod)
-                    {
-                        _script.DefinitionContext.EndScope();
-                        _script.MemoryContext.EndScope();
-                        _script.ClassInstanceContext.PopValue();
-                    }
-                    if (hasScope)
-                        _script.MemoryContext.EndScope();
+                    // Unwind this frame
+                    PopFrame(fi);
                     if (_frameCount == 0) return false;
                     fi = _frameCount - 1;
                     code = _frames[fi].Function.Chunk.Code;
@@ -1799,6 +1906,10 @@ namespace WarScript.Bytecode
                 }
 
                 _handlerCount--;
+                // The error leaves every ensure block entered inside this
+                // handler's begin body: what they were going to re-raise or
+                // return is superseded by this error (CRASH-7).
+                DropPendingAbove(_handlerCount);
                 var errorVal = _script.ExceptionContext.Exception?.Value ?? WarValue.Null;
                 _sp = handler.SavedSP;
 
@@ -1821,18 +1932,83 @@ namespace WarScript.Bytecode
                 }
                 else
                 {
-                    // No rescue, but ensure must run.
-                    // Temporarily disable the exception, stash it, run ensure.
-                    // When ensure finishes (IP reaches endIP), re-raise.
-                    _script.ExceptionContext.Disable();
-                    _hasPendingException = true;
-                    _pendingException = errorVal;
-                    _pendingEndIP = handler.EndIP;
+                    // No rescue, but ensure must run: clear the exception,
+                    // keep its value, run ensure, re-raise when ensure ends.
+                    _script.ExceptionContext.RescueException();
+                    PushPending(false, errorVal, fi, handler.EndIP);
                     _frames[fi].IP = handler.EnsureIP;
                     return true;
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// Pops frame <paramref name="fi"/> (the top one) during unwinding,
+        /// with the block scopes, function scope and class context it pushed
+        /// and any ensure records it owns. Its stack values are dropped.
+        /// </summary>
+        private void PopFrame(int fi)
+        {
+            while (_scopeDepth > _frames[fi].SavedScopeDepth)
+            {
+                if (_script.AuditSink != null) AuditBlockEnd();
+                _script.MemoryContext.EndScope();
+                _scopeDepth--;
+            }
+            var wasMethod = _frames[fi].IsMethodCall;
+            var hasScope = _frames[fi].HasScope;
+            _sp = _frames[fi].StackBase;
+            _frameCount--;
+            DropPendingOfFrame(fi);
+            if (wasMethod)
+            {
+                _script.DefinitionContext.EndScope();
+                _script.MemoryContext.EndScope();
+                _script.ClassInstanceContext.PopValue();
+            }
+            if (hasScope)
+                _script.MemoryContext.EndScope();
+        }
+
+        // ── Pending ensure records ──
+
+        /// <summary>Records an ensure block being entered with a return or re-raise to finish.</summary>
+        private void PushPending(bool isReturn, in WarValue value, int fi, int endIP)
+        {
+            if (_pendingCount == _pending.Length)
+                System.Array.Resize(ref _pending, _pending.Length * 2);
+            _pending[_pendingCount++] = new PendingEnsure
+            {
+                IsReturn = isReturn,
+                Value = value,
+                FrameIndex = fi,
+                EndIP = endIP,
+                HandlerDepth = _handlerCount
+            };
+        }
+
+        /// <summary>Discards the records of frame <paramref name="fi"/> and of any frame above it.</summary>
+        private void DropPendingOfFrame(int fi)
+        {
+            var count = _pendingCount;
+            while (count > 0 && _pending[count - 1].FrameIndex >= fi) count--;
+            ClearPending(count);
+        }
+
+        /// <summary>Discards the records of ensure blocks entered while more than <paramref name="handlerCount"/> handlers were installed.</summary>
+        private void DropPendingAbove(int handlerCount)
+        {
+            var count = _pendingCount;
+            while (count > 0 && _pending[count - 1].HandlerDepth > handlerCount) count--;
+            ClearPending(count);
+        }
+
+        private void ClearPending(int newCount)
+        {
+            for (int i = newCount; i < _pendingCount; i++)
+                _pending[i] = default;
+            _pendingCount = newCount;
         }
 
         // ── Array concatenation ──

@@ -166,7 +166,6 @@ print f []
         }
 
         [Test]
-        [KnownInvariantViolation("T1.3")] // unhandled error leaves VM frames/scopes behind
         public void EnumInsideFunctionBody_IsNotSupported_RuntimeError()
         {
             // The enum desugars to a class definition + singleton instantiation;

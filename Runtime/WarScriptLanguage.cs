@@ -518,7 +518,8 @@ namespace WarScript
             {
                 EnsureCompiled();
                 var vm = EnsureVM();
-                vm.Run(_cachedCompiled!);
+                try { vm.Run(_cachedCompiled!); }
+                catch (System.Exception e) when (!(e is Exception.SyntaxException)) { ReportHostFault(e); }
             }
             finally
             {
@@ -565,7 +566,8 @@ namespace WarScript
             try
             {
                 var vm = EnsureVM();
-                vm.RunFunction(function.Compiled!, arguments);
+                try { vm.RunFunction(function.Compiled!, arguments); }
+                catch (System.Exception e) when (!(e is Exception.SyntaxException)) { ReportHostFault(e); }
             }
             finally
             {
@@ -613,6 +615,27 @@ namespace WarScript
 
                 HaltFlags = HaltFlag.None;
             }
+        }
+
+        /// <summary>
+        /// The last host fault: a C# exception that escaped the VM, other
+        /// than a script error (plan T1.3, 6.3). Set by the entry point that
+        /// stopped because of it; the golden runner reports it as such.
+        /// </summary>
+        internal System.Exception? LastHostFault { get; private set; }
+
+        /// <summary>
+        /// Reports a host fault caught at an entry point. By the time it gets
+        /// here the VM has restored the context stacks and reset itself, so
+        /// the instance can be called again. Until the v2 result types
+        /// (T2.3, T2.4) the fault is only logged, with its C# stack trace.
+        /// </summary>
+        internal void ReportHostFault(System.Exception e)
+        {
+            LastHostFault = e;
+            if (ExceptionContext.IsRaised())
+                ExceptionContext.RescueException();
+            Logger?.Invoke(this, $"[WarScript] Host fault in '{ScriptName}': {e}");
         }
 
         // ────────────────────────────────────────────────────────
