@@ -32,8 +32,6 @@ namespace Tests
             ["WarScript.Expression.Operator.Extensions.OperatorExtension.OperatorMap"] = "initialized once, read-only afterwards",
             // Filled by the static constructor ("0".."999"), only read afterwards.
             ["WarScript.StringInterner.IntegerStrings"] = "initialized once, read-only afterwards",
-            // The table of standard libraries; the runtime only reads it.
-            ["WarScriptLibraryRegistry.Libraries"] = "initialized once, read-only afterwards",
             // Private lookup tables (arrays for speed) filled by their
             // initializer and only read afterwards; none is handed out.
             ["WarScript.StatementParser.StatementLeadTypes"] = "private constant table",
@@ -78,10 +76,12 @@ namespace Tests
         {
             if (type.IsArray) return true;
             if (type.IsInterface) return false; // IReadOnlyList<T> and the like
+            // ReadOnlyCollection<T> and ReadOnlyDictionary<K, V> implement
+            // ICollection, but every mutating member throws.
+            if (type.Name.StartsWith("ReadOnly", StringComparison.Ordinal)) return false;
             if (typeof(ICollection).IsAssignableFrom(type)) return true;
             return type.GetInterfaces().Any(i => i.IsGenericType
-                                                 && i.GetGenericTypeDefinition() == typeof(ICollection<>)
-                                                 && !type.Name.StartsWith("ReadOnly", StringComparison.Ordinal));
+                                                 && i.GetGenericTypeDefinition() == typeof(ICollection<>));
         }
 
         private static List<string> Violations()
@@ -120,6 +120,18 @@ namespace Tests
                     .Select(f => t.FullName + "." + f.Name)));
             foreach (var entry in AllowList.Keys)
                 Assert.IsTrue(fields.Contains(entry), "Allow-list entry names no static field: " + entry);
+        }
+
+        [Test]
+        public void LibraryRegistry_CannotBeChangedByTheHost()
+        {
+            // A public table every instance registers from: writing an entry
+            // would change the standard library of every other instance.
+            var libraries = WarScriptLibraryRegistry.Libraries;
+            Assert.IsFalse(libraries is WarScriptLibraryRegistry.LibraryInfo[], "the table must not be a writable array");
+            Assert.IsTrue(!(libraries is IList<WarScriptLibraryRegistry.LibraryInfo> list) || list.IsReadOnly,
+                "the table must not be writable through IList");
+            Assert.Greater(libraries.Count, 0);
         }
 
         // ── Lexer cache ─────────────────────────────────────────────────
