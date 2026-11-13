@@ -304,32 +304,21 @@ namespace WarScript.Editor
                 sb.AppendLine($"{indent}            __scope.AddClass(__enumDef);");
                 sb.AppendLine();
 
-                // Build name[] method
-                sb.AppendLine($"{indent}            var __nameBody = new WarScript.Statement.FunctionStatement(__script, 0, \"{Esc(e.WsName)}#name\");");
-                sb.AppendLine($"{indent}            var __nameScope = new DefinitionScope(__script, null);");
-                sb.AppendLine($"{indent}            var __nameDef = new FunctionDefinition(");
+                // Build name[] as a native method: the AST is not executable
+                // (plan T2.1) and the host's definitions are not compiled, so
+                // an AST body would only raise "Method 'name' is not compiled".
+                // A member value matches only a numeric argument (a script
+                // enum's '==' also matches its text form, a v1 quirk, SEM-6).
+                sb.AppendLine($"{indent}            __enumScope.AddFunction(new NativeFunctionDefinition(");
                 sb.AppendLine($"{indent}                new FunctionDetails(\"name\", new List<string> {{ \"value\" }}),");
-                sb.AppendLine($"{indent}                __nameBody, __nameScope);");
-                sb.AppendLine($"{indent}            __enumScope.AddFunction(__nameDef);");
-                sb.AppendLine();
-
-                // Emit if-chain for name[] body
+                sb.AppendLine($"{indent}                __args =>");
+                sb.AppendLine($"{indent}                {{");
+                sb.AppendLine($"{indent}                    var __v = __args.Count > 0 ? __args[0] : WarValue.Null;");
                 foreach (var (name, value) in e.Members)
-                {
-                    sb.AppendLine($"{indent}            {{");
-                    sb.AppendLine($"{indent}                var __cond = new WarScript.Statement.ConditionStatement(__script, 0, \"{Esc(e.WsName)}#name\");");
-                    sb.AppendLine($"{indent}                var __check = new WarScript.Expression.Operator.EqualsOperator(__script,");
-                    sb.AppendLine($"{indent}                    new WarScript.Expression.VariableExpression(__script, \"value\"),");
-                    sb.AppendLine($"{indent}                    new WarScript.Expression.Value.ConstantExpression(WarValue.FromNumeric({value})));");
-                    sb.AppendLine($"{indent}                var __then = new WarScript.Statement.CompositeStatement(__script, 0, \"{Esc(e.WsName)}#name\");");
-                    sb.AppendLine($"{indent}                __then.AddStatement(new WarScript.Statement.ReturnStatement(__script, 0, \"{Esc(e.WsName)}#name\",");
-                    sb.AppendLine($"{indent}                    new WarScript.Expression.Value.ConstantExpression(WarValue.FromText(\"{Esc(name)}\"))));");
-                    sb.AppendLine($"{indent}                __cond.AddCase(__check, __then);");
-                    sb.AppendLine($"{indent}                __nameBody.AddStatement(__cond);");
-                    sb.AppendLine($"{indent}            }}");
-                }
-                sb.AppendLine($"{indent}            __nameBody.AddStatement(new WarScript.Statement.ReturnStatement(__script, 0, \"{Esc(e.WsName)}#name\",");
-                sb.AppendLine($"{indent}                new WarScript.Expression.Value.ConstantExpression(WarValue.FromText(\"unknown\"))));");
+                    sb.AppendLine($"{indent}                    if (__v.IsNumeric && __v.Numeric == F64.FromInt({value})) return WarValue.FromText(\"{Esc(name)}\");");
+                sb.AppendLine($"{indent}                    return WarValue.FromText(\"unknown\");");
+                sb.AppendLine($"{indent}                }},");
+                sb.AppendLine($"{indent}                \"Name of a {Esc(e.WsName)} value\", \"TextValue\"));");
                 sb.AppendLine();
 
                 // Create the instance and set it as a global + constant. The
