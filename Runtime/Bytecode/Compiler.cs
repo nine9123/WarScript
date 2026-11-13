@@ -45,6 +45,27 @@ namespace WarScript.Bytecode
         private int _scopeDepth;
         private int _maxLocals;
         private readonly List<LoopCtx> _loops = new();
+
+        /// <summary>Where in a begin block the code being compiled is.</summary>
+        private enum TryRegion { Begin, Rescue, Ensure }
+
+        /// <summary>
+        /// A begin block being compiled. <c>break</c> and <c>next</c> use it
+        /// to leave the block: remove its handler, discard what its ensure
+        /// block was going to re-raise or return, and run its ensure block
+        /// (Q-12, CRASH-8).
+        /// </summary>
+        private sealed class TryCtx
+        {
+            public int LoopCount;          // _loops.Count when the block started
+            public int RuntimeScopeDepth;  // outside the block
+            public int LocalCount;         // outside the block
+            public TryRegion Region;
+            public CompositeStatement? Ensure;
+            public readonly List<int> DropPendingPatches = new();
+        }
+
+        private readonly List<TryCtx> _tries = new();
         private readonly List<string> _localNames = new();
 
         /// <summary>
@@ -734,18 +755,10 @@ namespace WarScript.Bytecode
             int line = Line(stmt);
 
             var loop = _loops[_loops.Count - 1];
-            // Pop runtime scopes opened since the loop started (e.g. from if-blocks)
-            var scopesToPop = _runtimeScopeDepth - loop.RuntimeScopeDepth;
-            for (int i = 0; i < scopesToPop; i++)
-                EmitPopScope(line);
-            // Pop locals down to the loop's entry point
-            var popCount = _locals.Count - loop.LocalCountAtLoop;
-            if (popCount > 0)
-            {
-                Chunk.EmitOp(OpCode.PopN, line);
-                Chunk.EmitByte((byte)popCount, line);
-            }
+            var saved = SaveBlockState();
+            EmitLeaveLoopBody(loop, line);
             loop.BreakJumps.Add(Chunk.EmitJump(OpCode.Jump, line));
+            RestoreBlockState(saved);
         }
 
         // ── Next (continue) ──
@@ -756,15 +769,8 @@ namespace WarScript.Bytecode
             int line = Line(stmt);
 
             var loop = _loops[_loops.Count - 1];
-            var scopesToPop = _runtimeScopeDepth - loop.RuntimeScopeDepth;
-            for (int i = 0; i < scopesToPop; i++)
-                EmitPopScope(line);
-            var popCount = _locals.Count - loop.LocalCountAtLoop;
-            if (popCount > 0)
-            {
-                Chunk.EmitOp(OpCode.PopN, line);
-                Chunk.EmitByte((byte)popCount, line);
-            }
+            var saved = SaveBlockState();
+            EmitLeaveLoopBody(loop, line);
             if (loop.UsesForwardNext)
             {
                 // Forward jump — patched after body to point at increment
@@ -774,6 +780,83 @@ namespace WarScript.Bytecode
             {
                 // While loop: backward jump to condition
                 Chunk.EmitLoop(loop.ContinueTarget, line);
+            }
+            RestoreBlockState(saved);
+        }
+
+        private struct BlockState
+        {
+            public Local[] Locals;
+            public int RuntimeScopeDepth;
+            public int ScopeDepth;
+            public TryCtx[] Tries;
+        }
+
+        // 'break' and 'next' emit the code that leaves the blocks they are
+        // in, but the statements after them (unreachable) are compiled as if
+        // still inside: the compile-time state is put back afterwards.
+        private BlockState SaveBlockState() => new BlockState
+        {
+            Locals = _locals.ToArray(),
+            RuntimeScopeDepth = _runtimeScopeDepth,
+            ScopeDepth = _scopeDepth,
+            Tries = _tries.ToArray()
+        };
+
+        private void RestoreBlockState(in BlockState state)
+        {
+            _locals.Clear();
+            _locals.AddRange(state.Locals);
+            _runtimeScopeDepth = state.RuntimeScopeDepth;
+            _scopeDepth = state.ScopeDepth;
+            _tries.Clear();
+            _tries.AddRange(state.Tries);
+        }
+
+        /// <summary>
+        /// Emits what leaving the body of <paramref name="loop"/> takes: for
+        /// every begin block opened inside the loop, innermost first, pop its
+        /// scopes and locals, then remove its handler (from the begin body) or
+        /// discard its pending re-raise or return (from the ensure body), and
+        /// run its ensure block unless already in it (Q-12, CRASH-8); finally
+        /// pop the scopes and locals opened since the loop started.
+        /// Changes the compile-time state; see <see cref="SaveBlockState"/>.
+        /// </summary>
+        private void EmitLeaveLoopBody(LoopCtx loop, int line)
+        {
+            while (_tries.Count > 0 && _tries[_tries.Count - 1].LoopCount == _loops.Count)
+            {
+                var t = _tries[_tries.Count - 1];
+                _tries.RemoveAt(_tries.Count - 1);
+                EmitUnwindTo(t.RuntimeScopeDepth, t.LocalCount, line);
+                switch (t.Region)
+                {
+                    case TryRegion.Begin:
+                        Chunk.EmitOp(OpCode.PopHandler, line);
+                        break;
+                    case TryRegion.Ensure:
+                        Chunk.EmitOp(OpCode.DropPending, line);
+                        t.DropPendingPatches.Add(Chunk.Count);
+                        Chunk.EmitU16(0, line); // the block's end IP, patched with PushHandler's
+                        break;
+                }
+                if (t.Region != TryRegion.Ensure && t.Ensure != null)
+                    CompileEnsureBody(t.Ensure, line);
+            }
+            EmitUnwindTo(loop.RuntimeScopeDepth, loop.LocalCountAtLoop, line);
+        }
+
+        /// <summary>Pops runtime scopes and stack locals down to the given counts.</summary>
+        private void EmitUnwindTo(int runtimeScopeDepth, int localCount, int line)
+        {
+            while (_runtimeScopeDepth > runtimeScopeDepth)
+                EmitPopScope(line);
+            var popCount = _locals.Count - localCount;
+            if (popCount > 0)
+            {
+                Chunk.EmitOp(OpCode.PopN, line);
+                Chunk.EmitByte((byte)popCount, line);
+                _locals.RemoveRange(localCount, popCount);
             }
         }
 
@@ -789,6 +872,15 @@ namespace WarScript.Bytecode
         {
             int line = Line(stmt);
             _tryDepth++;
+            var tryCtx = new TryCtx
+            {
+                LoopCount = _loops.Count,
+                RuntimeScopeDepth = _runtimeScopeDepth,
+                LocalCount = _locals.Count,
+                Region = TryRegion.Begin,
+                Ensure = stmt.EnsureStatement
+            };
+            _tries.Add(tryCtx);
 
             // Emit PushHandler with placeholder offsets
             Chunk.EmitOp(OpCode.PushHandler, line);
@@ -807,6 +899,7 @@ namespace WarScript.Bytecode
             EmitPopScope(line);
 
             // Normal exit: pop handler, fall through to ensure
+            tryCtx.Region = TryRegion.Rescue;
             Chunk.EmitOp(OpCode.PopHandler, line);
             var jumpToEnsure = Chunk.EmitJump(OpCode.Jump, line);
 
@@ -836,17 +929,17 @@ namespace WarScript.Bytecode
             // ── Ensure body ──
             int ensureIP = Chunk.Count;
             Chunk.PatchJump(jumpToEnsure);
+            tryCtx.Region = TryRegion.Ensure;
             if (stmt.EnsureStatement != null)
-            {
-                EmitPushScope(line);
-                BeginScope();
-                foreach (var s in stmt.EnsureStatement.StatementsToExecute)
-                    CompileStatement(s);
-                EndScope(line);
-                EmitPopScope(line);
-            }
+                CompileEnsureBody(stmt.EnsureStatement, line);
 
             int endIP = Chunk.Count;
+            _tries.RemoveAt(_tries.Count - 1);
+            foreach (var at in tryCtx.DropPendingPatches)
+            {
+                Chunk.Code[at]     = (byte)((endIP >> 8) & 0xFF);
+                Chunk.Code[at + 1] = (byte)(endIP & 0xFF);
+            }
 
             // Patch the PushHandler operands (absolute IPs)
             Chunk.Code[patchBase]     = (byte)((rescueIP >> 8) & 0xFF);
@@ -857,6 +950,16 @@ namespace WarScript.Bytecode
             Chunk.Code[patchBase + 5] = (byte)(endIP & 0xFF);
 
             _tryDepth--;
+        }
+
+        private void CompileEnsureBody(CompositeStatement ensure, int line)
+        {
+            EmitPushScope(line);
+            BeginScope();
+            foreach (var s in ensure.StatementsToExecute)
+                CompileStatement(s);
+            EndScope(line);
+            EmitPopScope(line);
         }
 
         // ── Import ──

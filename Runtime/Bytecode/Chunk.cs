@@ -230,6 +230,9 @@ namespace WarScript.Bytecode
                     var mi = ReadU16(offset + 1);
                     sb.AppendLine($"IMPORT          {Constants[mi]}");
                     return offset + 3;
+                case OpCode.DropPending:
+                    sb.AppendLine($"DROP_PENDING    end={ReadU16(offset + 1)}");
+                    return offset + 3;
                 case OpCode.PushHandler:
                     sb.AppendLine($"PUSH_HANDLER    rescue={ReadU16(offset+1)} ensure={ReadU16(offset+3)} end={ReadU16(offset+5)}");
                     return offset + 7;

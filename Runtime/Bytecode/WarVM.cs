@@ -1701,6 +1701,17 @@ namespace WarScript.Bytecode
                     case OpCode.PopHandler:
                         if (_handlerCount > 0) _handlerCount--;
                         break;
+                    case OpCode.DropPending:
+                    {
+                        // 'break'/'next' leaves an ensure block: what it was
+                        // going to re-raise or return is discarded (Q-12),
+                        // as 'return' and 'raise' inside it already do.
+                        var endIP = ReadU16(code, ref _frames[fi].IP);
+                        if (_pendingCount > 0 && _pending[_pendingCount - 1].FrameIndex == fi
+                            && _pending[_pendingCount - 1].EndIP == endIP)
+                            ClearPending(_pendingCount - 1);
+                        break;
+                    }
 
                     case OpCode.Raise:
                     {

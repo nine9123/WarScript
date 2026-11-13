@@ -1,4 +1,3 @@
-# known-failing: CRASH-8
 # budget: 10000
 # Plan A.26 (found by the fuzzer during T1.2): 'break' (or 'next') inside a
 # begin block leaves the block's exception handler on the VM. A later error

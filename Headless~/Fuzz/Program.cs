@@ -375,8 +375,6 @@ namespace WarScript.Fuzz
         {
             // Thrown while parsing or compiling (the site is a frontend method), not while running.
             (new Regex(@"^host-fault: \w*Exception: .*\(in WarScript\.(Parser\.|Expression\.ExpressionReader\.|Expression\.Operator\.Extensions\.|Bytecode\.Compiler\.)[\w.]+\)$"), "CRASH-6"),
-            // A stale handler left by 'break'/'next' inside begin (A.26) unwinds too many scopes.
-            (new Regex(@"^host-fault: InvalidOperationException: Stack empty\. \(in WarScript\.Context\.MemoryContext\.(EndScope|GetScope)\)$"), "CRASH-8"),
             // The only hang found so far; any other cause looks the same, so check a timeout's case.
             (new Regex(@"^crash: timed out"), "BUDGET-2?"),
         };

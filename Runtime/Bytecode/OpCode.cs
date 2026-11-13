@@ -112,5 +112,10 @@ namespace WarScript.Bytecode
 
         // This + SetProperty: set property on this.
         ThisSetProperty,    // [op][name_hi][name_lo][cache_hi][cache_lo]
+
+        // ── Leaving an ensure block by break/next (appended: values are implicit until T1.7) ──
+        // Discard the top pending re-raise/return if it belongs to this frame's
+        // ensure block ending at end_ip (Q-12, CRASH-8).
+        DropPending,        // [op][end_hi][end_lo]
     }
 }
