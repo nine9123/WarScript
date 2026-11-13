@@ -105,10 +105,12 @@ namespace WarScript.Expression
         private IExpression ReadExpression()
         {
             var lastWasOperand = false;
+            var lastRow = 0;
 
             while (HasNextToken())
             {
                 var token = Tokens.Next();
+                lastRow = token.RowNumber;
                 switch (token.Type)
                 {
                     case TokenType.Operator:
@@ -209,7 +211,8 @@ namespace WarScript.Expression
                 // A '(' still open when the expression ends (`x = (1]`) is
                 // not an operator to apply (CRASH-6).
                 if (_operators.Peek() == Operator.Operator.LeftParen)
-                    throw new SyntaxException("Unbalanced '(': missing ')'");
+                    throw new SyntaxException(
+                        System.FormattableString.Invariant($"Unbalanced '(' at line {lastRow}: missing ')'"));
                 ApplyTopOperator();
             }
 
