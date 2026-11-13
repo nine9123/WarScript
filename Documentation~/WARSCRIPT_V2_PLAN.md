@@ -234,6 +234,7 @@ All findings below were verified by running the code (section 1.4) unless marked
 | SEM-10 | Unused opcodes have semantics that differ from the ones actually used. | `EqualJump` and `NotEqualJump` compare with type-strict `Equals`, while `Equal` coerces through `ToString`. Only `LessJump` is ever emitted by the compiler. `YieldUntil` is reserved and unused. | `OpCode.cs`, `WarVM` | T1.7 |
 | SEM-11 | `array + value` appends to a copy. | `{1, 2} + 5` evaluates to `[1, 2, 5]`. | `WarVM.AddArrays` | PROP-6 |
 | SEM-12 | A second `break` or `next` in the same top-level loop pops too few block scopes, so later assignments create variables in a leaked scope instead of globals. Found while fixing CRASH-8. | `fun read_y [] return y end`, a `loop i in 0..10` with `if i == 50` / `break` / `end` then `if i == 2` / `break` / `end`, then `y = 5` and `print read_y []` prints `null`. The leaked scope is popped when the script frame returns, so the invariants do not see it. | `Compiler.CompileBreak`/`CompileNext` emitted their `PopScope`s through `EmitPopScope`, which also lowers the compiler's runtime scope depth for the code after the jump, so the next `if` block's `break` counted one scope too few. | T1.3 follow-up (fixed with CRASH-8) |
+| SEM-13 | Leaving a rescue body by `return`, `raise` or a runtime error skips the `ensure` block. Found reviewing the CRASH-8 fix. | `begin` / `raise "a"` / `rescue e` / `return 1` / `ensure` / `print "ensure"` / `end` inside a function returns 1 without printing; `raise "b"` or `1 / 0` in the rescue body propagates without running the ensure block either. Falling off the end of the rescue body, and since the CRASH-8 fix `break`/`next` out of it, do run it. | `WarVM.DoHandleException` removes the block's handler before jumping to the rescue body, so `Return` and the next `DoHandleException` find no handler with that ensure block. | Open (Q-14) |
 
 ### 4.5 Host API and developer experience
 
@@ -1853,6 +1854,7 @@ Implementation proceeds with the default until the owner answers. The "Blocks" c
 | Q-11 | The fuzzer (T0.7) found CRASH-5, CRASH-6, CRASH-7 and BUDGET-2. Which tasks fix them, and: should a class inheriting from itself be a compile error or a runtime error at `new` (CRASH-5)? After the instruction budget runs out, should it stay exhausted, so that the error ends the entry even if the script rescues it (BUDGET-2)? | CRASH-5 in T1.1 (its allocation step walks the base classes and must detect the cycle), as a rescuable error at `new`; CRASH-6 in T1.8 (compile errors); CRASH-7 in T1.3; BUDGET-2 in T1.5 (instance-level budgets), with the budget staying exhausted. Goldens A.22 to A.25 are written against these defaults. | T1.1, T1.3, T1.5, T1.8 |
 | Q-12 | The fuzzer found CRASH-8 during T1.2: `break`/`next` inside `begin` leaves the handler behind. Which task fixes it, and should leaving a `begin` block by `break` or `next` run its `ensure` block (v1 skips it)? | A follow-up to T1.3 (the exception boundary): `break` and `next` remove the handlers of the `begin` blocks they leave and run their `ensure` blocks, as `return` already does. Golden A.26 is written against this default. | T1.3 follow-up |
 | Q-13 | The state hash (9.7) walks shared arrays once per path, like equality did before the BUDGET-3 fix, so `ComputeStateHash()` does not return for a global holding 40 levels of `a = {a, a}`. Fixing it changes the pinned encoding for every value that holds the same array twice (for example `{s, s}`), which invalidates recorded hashes. Should an array or instance already encoded be written as a back-reference marker with its index? | Yes, with a new marker byte 0xFC followed by a 4-byte index in encoding order; done together with the next change that invalidates the hashes anyway (T1.6 changes number formatting). Until then golden files must not leave such values in globals (A.27 clears them). | T1.6 |
+| Q-14 | Leaving a rescue body by `return`, `raise` or a runtime error skips the `ensure` block (SEM-13), while `break`/`next` out of it run it (Q-12). Section 5.9 says ensure semantics are unchanged; should every way out of a rescue body run the ensure block? | Yes: when the rescue body is entered with an ensure block, the VM keeps an ensure-only handler for it until the rescue body ends. This needs a compiler change too (the rescue body's normal exit and a `break`/`next` out of it remove that handler), so bytecode compiled before it would leave the handler behind; land it with the format change in T1.7. Golden A.28 is written against this default. | T1.7 |
 
 ---
 
@@ -2261,6 +2263,25 @@ print a == b
 ```
 
 Before the fix, `a == b` compares 2^40 leaf pairs and never returns, and so does `print a`. The golden (`repro/A27_shared_arrays.ws`) also checks `!=`, `Array_contains`, an unequal pair, and that the memo keeps the depth limit; `Tests/ValueDepthTests.cs` checks the formatting cap.
+
+### A.28 Leaving a rescue body (SEM-13, found reviewing the CRASH-8 fix)
+
+```ruby
+fun leave_by_return []
+    begin
+        raise "a"
+    rescue e
+        return "returned"
+    ensure
+        print "ensure after return"
+    end
+end
+print leave_by_return []
+# expect: ensure after return
+# expect: returned
+```
+
+v1 prints only `returned`: the handler that would run the ensure block is removed when the rescue body is entered. The golden (`repro/A28_leave_rescue_body.ws`, `# known-failing: SEM-13`) also leaves the rescue body by `raise` and by a division by zero.
 
 ---
 

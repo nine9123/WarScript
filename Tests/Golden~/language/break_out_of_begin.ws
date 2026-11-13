@@ -70,6 +70,26 @@ fun leave_return []
 end
 print leave_return []                    # expect: 2
 
+# Leaving an inner ensure block drops only that block's pending work: the
+# loop is inside an outer ensure block entered with an error, which is still
+# re-raised when the outer ensure block ends.
+begin
+    begin
+        raise "outer pending"
+    ensure
+        loop i in 0..3
+            begin
+                print "inner body " + i  # expect: inner body 0
+            ensure
+                break
+            end
+        end
+        print "after inner loop"         # expect: after inner loop
+    end
+rescue e
+    print "rescued " + e                 # expect: rescued outer pending
+end
+
 # A begin block outside the loop keeps its handler.
 begin
     loop i in 0..3
