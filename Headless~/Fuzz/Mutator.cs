@@ -34,6 +34,38 @@ namespace WarScript.Fuzz
             new Prng(master ^ ((ulong)index * 0xD1B54A32D192ED03UL)).NextULong();
     }
 
+    /// <summary>
+    /// The bytecode mutations of plan 9.6 (T1.7): one case in eight truncates
+    /// the file at a random length, the others set 1 to 8 random bytes after
+    /// the header to random values. The 9-byte header (magic, version, format
+    /// hash) is kept, or nearly every case would stop at the header check.
+    /// </summary>
+    internal static class BytecodeMutator
+    {
+        private const int HeaderLength = 9;
+
+        public static byte[] Mutate(byte[] original, Prng rng, List<string> log)
+        {
+            if (original.Length <= HeaderLength || rng.Next(8) == 0)
+            {
+                var length = rng.Next(original.Length);
+                log.Add($"truncate to {length} of {original.Length} bytes");
+                var cut = new byte[length];
+                Array.Copy(original, cut, length);
+                return cut;
+            }
+            var bytes = (byte[])original.Clone();
+            for (var k = 1 + rng.Next(8); k > 0; k--)
+            {
+                var at = HeaderLength + rng.Next(bytes.Length - HeaderLength);
+                var value = (byte)rng.Next(256);
+                log.Add($"byte {at}: 0x{bytes[at]:X2} -> 0x{value:X2}");
+                bytes[at] = value;
+            }
+            return bytes;
+        }
+    }
+
     internal enum Kind { Space, Newline, Comment, Text, Number, Identifier, Operator }
 
     internal readonly struct SurfaceToken

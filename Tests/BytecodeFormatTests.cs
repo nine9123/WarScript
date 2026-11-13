@@ -496,6 +496,46 @@ namespace Tests
             TestContext.WriteLine(relativePath + ": " + rejected + " rejected, " + ran + " ran");
         }
 
+        /// <summary>
+        /// The fuzzer's bytecode mode (9.6) runs each mutated file as a
+        /// <c>.wsbc</c> through the runner: a file the loader refuses reports
+        /// status "rejected", one it accepts runs.
+        /// </summary>
+        [Test]
+        [Category("HeadlessOnly")]
+        public void Runner_RunsABytecodeFile_OrReportsItRejected()
+        {
+            var runner = Tests.Golden.IsolatedRun.RunnerPath();
+            if (runner == null) Assert.Ignore("The runner is part of the headless build only.");
+
+            var dir = Path.Combine(Path.GetTempPath(), "warscript-wsbc-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var good = Path.Combine(dir, "good.wsbc");
+                File.WriteAllBytes(good, File_(Function("<script>", 0, new byte[] { Const, 0, 0, (byte)OpCode.Print, Null_, Ret },
+                    new[] { WarValue.FromText("hi") })));
+                var bad = Path.Combine(dir, "bad.wsbc");
+                File.WriteAllBytes(bad, File_(Function("<script>", 0, new byte[] { (byte)OpCode.PopScope, Null_, Ret })));
+
+                var ran = Tests.Golden.IsolatedRun.Execute(runner, Tests.Golden.GoldenFile.LoadBytecode(good),
+                    Tests.Golden.GoldenMode.Source, "", 1000, 1024 * 1024);
+                CollectionAssert.AreEqual(new[] { "hi" }, ran.Output);
+                Assert.IsNull(ran.Rejected);
+                Assert.IsNull(ran.EscapedException);
+
+                var refused = Tests.Golden.IsolatedRun.Execute(runner, Tests.Golden.GoldenFile.LoadBytecode(bad),
+                    Tests.Golden.GoldenMode.Source, "");
+                StringAssert.Contains("PopScope without an open block scope", refused.Rejected);
+                Assert.IsNull(refused.EscapedException);
+                Assert.IsNull(refused.Hash, "nothing ran");
+            }
+            finally
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+
         // ── Compiler output against the table (A.19, DX-5) ──────────────
 
         [Test]

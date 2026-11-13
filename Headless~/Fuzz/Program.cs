@@ -13,10 +13,10 @@ using Tests.Golden;
 namespace WarScript.Fuzz
 {
     /// <summary>
-    /// Fuzzer v0, source mode (plan 9.6, T0.7).
+    /// Fuzzer v0 (plan 9.6, T0.7), source mode and, with --bytecode, bytecode mode (T1.7).
     ///
     ///   WarScript.Fuzz [--minutes m] [--seed n] [--corpus folder] [--out folder]
-    ///                  [--jobs n] [--cases n] [--case seed] [--replay case.ws]
+    ///                  [--jobs n] [--cases n] [--case seed] [--replay case.ws|case.wsbc] [--bytecode]
     ///
     /// Each case takes a corpus file (default <c>Tests/Golden~</c>, without the
     /// '# isolate' files, which are known process killers), drops its comments
@@ -36,7 +36,7 @@ namespace WarScript.Fuzz
     /// <c>&lt;out&gt;/summary.txt</c> lists every signature
     /// with its count and, where it matches one, the known finding or task
     /// that covers it (<see cref="KnownFindings"/>). The output folder defaults
-    /// to <c>Headless~/out/fuzz/</c>.
+    /// to <c>Headless~/out/fuzz/</c> (<c>Headless~/out/fuzz-bytecode/</c> with --bytecode).
     ///
     /// A case depends only on its seed and the corpus: <c>--case &lt;seed&gt;</c>
     /// regenerates and runs one case and prints it (adding or changing a
@@ -46,6 +46,19 @@ namespace WarScript.Fuzz
     /// default from the clock) is printed and written to the summary; case i's
     /// seed is derived from it, so a run with the same seed, corpus and
     /// --cases is the same set of cases whatever --jobs is.
+    ///
+    /// <c>--bytecode</c> is the bytecode mode (plan 9.6, T1.7): every corpus
+    /// file that compiles is compiled once, in this process (the corpus is
+    /// known-good source, unlike a mutated case), and each case flips 1 to 8
+    /// bytes after the 9-byte header to random values or, one case in eight,
+    /// truncates the file (<see cref="BytecodeMutator"/>). The case runs as a
+    /// <c>.wsbc</c> file through the runner with the same budgets and
+    /// timeout. Besides the outcomes above, the loader may reject it with
+    /// <c>InvalidDataException</c> (outcome <c>rejected</c>); anything else
+    /// escaping the load is a host fault. Imports are not compiled in: an
+    /// imported file is looked up next to the case and not found. Seeds
+    /// select different cases in the two modes, so <c>--case</c> needs
+    /// <c>--bytecode</c> again; <c>--replay</c> recognises a <c>.wsbc</c> file.
     ///
     /// Exit codes: 0 every finding matches a known one, 4 at least one does
     /// not, 1 bad arguments or setup.
@@ -62,6 +75,8 @@ namespace WarScript.Fuzz
             var minutes = 10.0;
             ulong? seed = null, single = null;
             string replay = null;
+            var bytecode = false;
+            var outGiven = false;
             long maxCases = 0;
             var jobs = Environment.ProcessorCount;
             var corpusDir = root == null ? null : Path.Combine(root, "Tests", "Golden~");
@@ -80,18 +95,21 @@ namespace WarScript.Fuzz
                         case "--cases": maxCases = long.Parse(Value(args, ref i), CultureInfo.InvariantCulture); break;
                         case "--jobs": jobs = Math.Max(1, int.Parse(Value(args, ref i), CultureInfo.InvariantCulture)); break;
                         case "--corpus": corpusDir = Value(args, ref i); break;
-                        case "--out": outDir = Value(args, ref i); break;
+                        case "--out": outDir = Value(args, ref i); outGiven = true; break;
+                        case "--bytecode": bytecode = true; break;
                         default: throw new ArgumentException("unexpected argument " + args[i]);
                     }
                 }
                 if (corpusDir == null || outDir == null)
                     throw new ArgumentException("--corpus and --out are required when the build did not record the repository root");
+                // A bytecode run keeps its own summary and cases next to the source mode's.
+                if (bytecode && !outGiven) outDir += "-bytecode";
             }
             catch (System.Exception e) when (e is ArgumentException || e is FormatException || e is OverflowException)
             {
                 Console.Error.WriteLine(e.Message);
                 Console.Error.WriteLine("usage: WarScript.Fuzz [--minutes m] [--seed n] [--corpus folder] [--out folder] " +
-                                        "[--jobs n] [--cases n] [--case seed] [--replay case.ws]");
+                                        "[--jobs n] [--cases n] [--case seed] [--replay case.ws|case.wsbc] [--bytecode]");
                 return 1;
             }
 
@@ -104,7 +122,9 @@ namespace WarScript.Fuzz
 
             if (replay != null)
             {
-                var saved = new Case { BaseFile = replay, Content = File.ReadAllText(replay) };
+                var saved = IsBytecodeFile(replay)
+                    ? new Case { BaseFile = replay, Bytecode = File.ReadAllBytes(replay) }
+                    : new Case { BaseFile = replay, Content = File.ReadAllText(replay) };
                 Execute(saved, runner, Path.GetFullPath(replay));
                 Console.Out.WriteLine(saved.Describe());
                 return saved.Signature == null || saved.Known != null ? 0 : 4;
@@ -116,22 +136,38 @@ namespace WarScript.Fuzz
                 Console.Error.WriteLine("no .ws files in " + corpusDir);
                 return 1;
             }
+            var compiled = bytecode ? CompileCorpus(corpus, corpusDir) : null;
+            if (compiled != null && compiled.Count == 0)
+            {
+                Console.Error.WriteLine("no file in " + corpusDir + " compiles");
+                return 1;
+            }
+            var mode = bytecode ? "bytecode" : "source";
+            var corpusFiles = compiled?.Count ?? corpus.Count;
+            Case NewCase(ulong caseSeed, string path) => compiled != null
+                ? RunBytecodeCase(caseSeed, compiled, runner, Path.ChangeExtension(path, ".wsbc"))
+                : RunCase(caseSeed, corpus, runner, path);
 
             var workDir = Path.Combine(outDir, "work");
             Directory.CreateDirectory(workDir);
 
             if (single.HasValue)
             {
-                var one = RunCase(single.Value, corpus, runner, Path.Combine(workDir, "case.ws"));
+                var one = NewCase(single.Value, Path.Combine(workDir, "case.ws"));
                 Console.Out.WriteLine(one.Describe());
+                if (one.Bytecode != null)
+                {
+                    Console.Out.WriteLine("case written to " + Path.Combine(workDir, "case.wsbc"));
+                    return 0;
+                }
                 Console.Out.WriteLine("----- case.ws -----");
                 Console.Out.WriteLine(one.Content);
                 return 0;
             }
 
             var master = seed ?? (ulong)DateTime.UtcNow.Ticks;
-            var fuzz = new Session(outDir, master, corpusDir, corpus.Count);
-            Console.Out.WriteLine($"fuzz: seed {master}, {corpus.Count} corpus files, {jobs} jobs, " +
+            var fuzz = new Session(outDir, master, corpusDir, corpusFiles, mode);
+            Console.Out.WriteLine($"fuzz: {mode} mode, seed {master}, {corpusFiles} corpus files, {jobs} jobs, " +
                                   (maxCases > 0 ? $"{maxCases} cases" : $"{minutes} minutes") + $", output in {outDir}");
 
             var deadline = Stopwatch.StartNew();
@@ -145,7 +181,7 @@ namespace WarScript.Fuzz
                     if (maxCases <= 0 && deadline.Elapsed >= limit) return;
                     var index = Interlocked.Increment(ref next);
                     if (maxCases > 0 && index >= maxCases) return;
-                    fuzz.Record(RunCase(Prng.CaseSeed(master, index), corpus, runner, path));
+                    fuzz.Record(NewCase(Prng.CaseSeed(master, index), path));
                 }
             }) { IsBackground = true }).ToList();
             workers.ForEach(t => t.Start());
@@ -172,6 +208,46 @@ namespace WarScript.Fuzz
                 .ToList();
         }
 
+        private static bool IsBytecodeFile(string path) =>
+            path.EndsWith(".wsbc", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// The corpus compiled as the golden runner's bytecode mode does (full
+        /// stdlib registered, then <c>SaveBytecode</c>); files that do not
+        /// compile are left out.
+        /// </summary>
+        private static List<(string name, byte[] bytes)> CompileCorpus(List<(string name, string source)> corpus, string corpusDir)
+        {
+            var result = new List<(string, byte[])>();
+            foreach (var (name, source) in corpus)
+            {
+                try
+                {
+                    var script = new WarScriptLanguage(name, source, null, (s, m) => { });
+                    global::WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
+                    var ms = new MemoryStream();
+                    script.SaveBytecode(ms);
+                    result.Add((name, ms.ToArray()));
+                }
+                catch (System.Exception)
+                {
+                    // A compile error (the file's golden checks it) or a known compiler crash (CRASH-6).
+                }
+            }
+            return result;
+        }
+
+        private static Case RunBytecodeCase(ulong caseSeed, List<(string name, byte[] bytes)> corpus, string runner, string path)
+        {
+            var rng = new Prng(caseSeed);
+            var (name, bytes) = rng.Pick(corpus);
+            var c = new Case { Seed = caseSeed, BaseFile = name };
+            c.Bytecode = BytecodeMutator.Mutate(bytes, rng, c.Mutations);
+            File.WriteAllBytes(path, c.Bytecode);
+            Execute(c, runner, path);
+            return c;
+        }
+
         private static Case RunCase(ulong caseSeed, List<(string name, string source)> corpus, string runner, string path)
         {
             var rng = new Prng(caseSeed);
@@ -187,8 +263,9 @@ namespace WarScript.Fuzz
 
         private static void Execute(Case c, string runner, string path)
         {
-            var file = new GoldenFile { Path = path, Name = Path.GetFileName(path), Source = c.Content };
-            c.Run = IsolatedRun.Execute(runner, file, GoldenMode.Source, "");
+            var file = new GoldenFile { Path = path, Name = Path.GetFileName(path), Source = c.Content ?? "" };
+            // The budgets are also in a source case's header; a .wsbc file has no directives.
+            c.Run = IsolatedRun.Execute(runner, file, GoldenMode.Source, "", CaseBudget, CaseMemoryBudget);
             c.Signature = Signature(c.Run);
             c.Known = c.Signature == null ? null : KnownFindings.Match(c.Signature);
         }
@@ -243,13 +320,20 @@ namespace WarScript.Fuzz
         public ulong? Seed;   // null: a replayed case file
         public string BaseFile;
         public readonly List<string> Mutations = new List<string>();
-        public string Content;
+        public string Content;     // a source case
+        public byte[] Bytecode;    // a bytecode case (--bytecode)
         public GoldenRun Run;
         public string Signature;   // null: acceptable outcome
         public string Known;       // finding/task covering the signature, or null
 
+        /// <summary>The case's size, to keep the shortest case per signature.</summary>
+        public int Size => Bytecode?.Length ?? Content.Length;
+
+        public string FileName => Bytecode != null ? "case.wsbc" : "case.ws";
+
         public string Outcome =>
             Signature != null ? "finding" :
+            Run.Rejected != null ? "rejected" :
             Run.CompileError != null ? "compile-error" :
             Run.ErrorMessage != null ? "script-error" : "ok";
 
@@ -264,8 +348,9 @@ namespace WarScript.Fuzz
             if (Signature != null) sb.Append("known: ").Append(Known ?? "no (new)").Append('\n');
             if (Run.Crash != null) sb.Append("crash: ").Append(Run.Crash).Append('\n');
             else sb.Append("result: ").Append(IsolatedRun.ToJson(Run)).Append('\n');
-            sb.Append("reproduce: WarScript.Fuzz --replay case.ws");
-            if (Seed.HasValue) sb.Append("   (or --case ").Append(Seed.Value).Append(" with the same corpus)");
+            sb.Append("reproduce: WarScript.Fuzz --replay ").Append(FileName);
+            if (Seed.HasValue)
+                sb.Append("   (or --case ").Append(Seed.Value).Append(Bytecode != null ? " --bytecode" : "").Append(" with the same corpus)");
             sb.Append('\n');
             return sb.ToString();
         }
@@ -279,13 +364,15 @@ namespace WarScript.Fuzz
         private readonly ulong _seed;
         private readonly string _corpusDir;
         private readonly int _corpusFiles;
+        private readonly string _mode;
         private readonly Dictionary<string, int> _outcomes = new Dictionary<string, int>(StringComparer.Ordinal);
         private readonly Dictionary<string, (int count, int length, string known)> _signatures =
             new Dictionary<string, (int, int, string)>(StringComparer.Ordinal);
         private long _cases;
 
-        public Session(string outDir, ulong seed, string corpusDir, int corpusFiles)
+        public Session(string outDir, ulong seed, string corpusDir, int corpusFiles, string mode)
         {
+            _mode = mode;
             _outDir = outDir;
             _seed = seed;
             _corpusDir = corpusDir;
@@ -305,13 +392,14 @@ namespace WarScript.Fuzz
                 _outcomes[c.Outcome] = (_outcomes.TryGetValue(c.Outcome, out var n) ? n : 0) + 1;
                 if (c.Signature == null) return;
 
-                var shorter = !_signatures.TryGetValue(c.Signature, out var entry) || c.Content.Length < entry.length;
-                _signatures[c.Signature] = (entry.count + 1, shorter ? c.Content.Length : entry.length, c.Known);
+                var shorter = !_signatures.TryGetValue(c.Signature, out var entry) || c.Size < entry.length;
+                _signatures[c.Signature] = (entry.count + 1, shorter ? c.Size : entry.length, c.Known);
                 if (!shorter) return;
 
                 var dir = Path.Combine(_outDir, Hash(c.Signature));
                 Directory.CreateDirectory(dir);
-                File.WriteAllText(Path.Combine(dir, "case.ws"), c.Content, new UTF8Encoding(false));
+                if (c.Bytecode != null) File.WriteAllBytes(Path.Combine(dir, c.FileName), c.Bytecode);
+                else File.WriteAllText(Path.Combine(dir, c.FileName), c.Content, new UTF8Encoding(false));
                 File.WriteAllText(Path.Combine(dir, "case.txt"), c.Describe(), new UTF8Encoding(false));
                 // A crashed or timed-out child wrote no JSON; case.txt has the crash.
                 if (c.Run.Crash == null)
@@ -332,6 +420,7 @@ namespace WarScript.Fuzz
             lock (_lock)
             {
                 var sb = new StringBuilder();
+                sb.Append("mode: ").Append(_mode).Append('\n');
                 sb.Append("seed: ").Append(_seed).Append('\n');
                 sb.Append("corpus: ").Append(_corpusDir).Append(" (").Append(_corpusFiles).Append(" files)\n");
                 sb.Append("elapsed: ").Append(elapsed.ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture)).Append('\n');
@@ -380,6 +469,11 @@ namespace WarScript.Fuzz
             // state hash part, Q-13); any other cause looks the same, so check a
             // timeout's case.
             (new Regex(@"^crash: timed out"), "BUDGET-3?"),
+            // A yield outside a coroutine in a called frame ends Run() with that
+            // frame's scopes pushed (SEM-14, Q-15; the bytecode mode reaches it
+            // by turning a Return into YieldWait). Any other scope leak after a
+            // completed run looks the same, so check the case.
+            (new Regex(@"^invariant: MemoryContextDepth: N before the entry, N after$"), "SEM-14?"),
         };
 
         public static string Match(string signature)

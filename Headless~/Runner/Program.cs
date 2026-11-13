@@ -10,10 +10,14 @@ namespace WarScript.Runner
     /// object (plan 9.5). The golden runner starts it for '# isolate' files,
     /// so a script that kills the process kills only this child.
     ///
-    ///   WarScript.Runner &lt;file.ws&gt; [--mode source|bytecode] [--budget n]
+    ///   WarScript.Runner &lt;file.ws|file.wsbc&gt; [--mode source|bytecode] [--budget n]
     ///                    [--memory-budget n] [--culture name|invariant]
     ///
-    /// Budgets default to the file's '# budget:' / '# memory-budget:' directives.
+    /// A <c>.wsbc</c> file is bytecode, loaded as it is (the fuzzer's bytecode
+    /// mode, plan 9.6; --mode does not apply): a file the loader rejects with
+    /// InvalidDataException reports status "rejected".
+    /// Budgets default to the file's '# budget:' / '# memory-budget:' directives
+    /// (a .wsbc file has none: the GoldenFile defaults).
     /// Exit codes: 0 the script completed (with any script status), 2 an
     /// invariant was violated, 3 a C# exception escaped, 1 bad arguments.
     /// </summary>
@@ -65,7 +69,9 @@ namespace WarScript.Runner
             }
 
             var full = Path.GetFullPath(path);
-            var file = GoldenFile.Load(Path.GetDirectoryName(full), Path.GetFileName(full));
+            var file = full.EndsWith(".wsbc", StringComparison.OrdinalIgnoreCase)
+                ? GoldenFile.LoadBytecode(full)
+                : GoldenFile.Load(Path.GetDirectoryName(full), Path.GetFileName(full));
             if (budget.HasValue) file.Budget = budget.Value;
             if (memoryBudget.HasValue) file.MemoryBudget = memoryBudget.Value;
 

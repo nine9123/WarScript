@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Source-mode fuzzer over the golden corpus (plan 9.6, T0.7). -->
+  <!-- Fuzzer over the golden corpus, source and bytecode mode (plan 9.6, T0.7, T1.7). -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>

@@ -40,6 +40,23 @@ namespace Tests.Golden
         public bool NoStdlib;
         public GoldenMode[] Modes = { GoldenMode.Source, GoldenMode.Bytecode };
 
+        /// <summary>
+        /// A bytecode file to load as it is instead of compiling
+        /// <see cref="Source"/> (the fuzzer's bytecode mode, plan 9.6): an
+        /// <see cref="InvalidDataException"/> from the loader is the
+        /// <see cref="GoldenRun.Rejected"/> outcome. Null for a golden.
+        /// </summary>
+        public byte[] Bytecode;
+
+        /// <summary>A <c>.wsbc</c> file: no source, no directives (budgets come from the caller).</summary>
+        public static GoldenFile LoadBytecode(string path) => new GoldenFile
+        {
+            Path = path,
+            Name = System.IO.Path.GetFileName(path),
+            Source = "",
+            Bytecode = File.ReadAllBytes(path)
+        };
+
         public static GoldenFile Load(string root, string relativePath)
         {
             var path = System.IO.Path.Combine(root, relativePath);
@@ -167,6 +184,7 @@ namespace Tests.Golden
         public string EscapedException;       // "<type>: <message>" of a C# exception that left the runtime
         public string Crash;                  // how an isolated child process died, or null
         public string Hash;                   // ComputeStateHash() as 16 hex digits, once the script ran
+        public string Rejected;               // the loader's InvalidDataException message for GoldenFile.Bytecode, or null
 
         /// <summary>
         /// Runs the file once with <c>CurrentCulture</c> and <c>CurrentUICulture</c>
@@ -230,7 +248,17 @@ namespace Tests.Golden
             WarScriptLanguage target;
             try
             {
-                if (mode == GoldenMode.Source)
+                if (file.Bytecode != null)
+                {
+                    target = NewInstance("");
+                    try { target.LoadBytecode(new MemoryStream(file.Bytecode)); }
+                    catch (InvalidDataException e)
+                    {
+                        run.Rejected = e.Message;
+                        return run;
+                    }
+                }
+                else if (mode == GoldenMode.Source)
                 {
                     target = NewInstance(file.Source);
                 }

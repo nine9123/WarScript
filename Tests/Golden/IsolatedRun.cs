@@ -16,7 +16,9 @@ namespace Tests.Golden
     /// (plan 9.5), and the JSON both sides use for its result:
     /// <c>{"output": [...], "status": "...", "error": {...}, "invariants": "ok"|"&lt;violation&gt;", "hash": "&lt;16 hex digits&gt;"|null}</c>.
     /// <c>status</c> is <c>ok</c>, <c>error</c> (unhandled script error),
-    /// <c>compile-error</c> or <c>host-fault</c> (a C# exception escaped).
+    /// <c>compile-error</c>, <c>rejected</c> (a <c>.wsbc</c> file the loader
+    /// refused with <c>InvalidDataException</c>) or <c>host-fault</c> (a C#
+    /// exception escaped).
     /// <c>hash</c> is the instance's <c>ComputeStateHash()</c> after the run, or
     /// null when the script did not get to run.
     /// </summary>
@@ -40,7 +42,14 @@ namespace Tests.Golden
             return path != null && File.Exists(path) ? path : null;
         }
 
-        public static GoldenRun Execute(string runnerPath, GoldenFile file, GoldenMode mode, string culture)
+        /// <summary>
+        /// Runs <paramref name="file"/>'s path (a <c>.ws</c> file, or a
+        /// <c>.wsbc</c> bytecode file, which the runner loads as it is) in a
+        /// child. <paramref name="budget"/> and <paramref name="memoryBudget"/>,
+        /// when given, override the file's directives.
+        /// </summary>
+        public static GoldenRun Execute(string runnerPath, GoldenFile file, GoldenMode mode, string culture,
+            int? budget = null, long? memoryBudget = null)
         {
             var info = new ProcessStartInfo
             {
@@ -57,6 +66,10 @@ namespace Tests.Golden
                 Quote(runnerPath), Quote(file.Path),
                 "--mode", mode == GoldenMode.Source ? "source" : "bytecode",
                 "--culture", culture.Length == 0 ? "invariant" : culture);
+            if (budget.HasValue)
+                info.Arguments += " --budget " + budget.Value.ToString(CultureInfo.InvariantCulture);
+            if (memoryBudget.HasValue)
+                info.Arguments += " --memory-budget " + memoryBudget.Value.ToString(CultureInfo.InvariantCulture);
 
             using (var process = Process.Start(info))
             {
@@ -163,6 +176,13 @@ namespace Tests.Golden
                 WriteString(sb, run.EscapedException);
                 sb.Append('}');
             }
+            else if (run.Rejected != null)
+            {
+                WriteString(sb, "rejected");
+                sb.Append(", \"error\": {\"message\": ");
+                WriteString(sb, run.Rejected);
+                sb.Append('}');
+            }
             else if (run.CompileError != null)
             {
                 WriteString(sb, "compile-error");
@@ -211,6 +231,7 @@ namespace Tests.Golden
                 case "ok": break;
                 case "error": run.ErrorMessage = message ?? ""; break;
                 case "compile-error": run.CompileError = message ?? ""; break;
+                case "rejected": run.Rejected = message ?? ""; break;
                 case "host-fault": run.EscapedException = message ?? ""; break;
                 default: throw new FormatException($"unknown status '{status}'");
             }
