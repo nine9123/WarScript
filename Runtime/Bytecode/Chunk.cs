@@ -1,6 +1,7 @@
 #nullable enable
 
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using WarScript.Expression.Value;
 
@@ -153,93 +154,101 @@ namespace WarScript.Bytecode
         public string Disassemble(string name)
         {
             var sb = new StringBuilder();
-            sb.AppendLine($"=== {name} ===");
+            sb.AppendLine("=== " + name + " ===");
             int i = 0;
             while (i < Code.Count)
                 i = DisassembleInstruction(sb, i);
             return sb.ToString();
         }
 
+        /// <summary>
+        /// The offsets at which <see cref="Disassemble"/> starts an
+        /// instruction: each instruction's length comes from
+        /// <see cref="OpInfo"/>; an unknown opcode byte counts as one byte.
+        /// </summary>
+        internal List<int> InstructionStarts()
+        {
+            var starts = new List<int>();
+            int i = 0;
+            while (i < Code.Count)
+            {
+                starts.Add(i);
+                i += OpInfo.Get(Code[i])?.Length ?? 1;
+            }
+            return starts;
+        }
+
+        /// <summary>
+        /// One instruction, decoded through <see cref="OpInfo"/> (T1.7,
+        /// DX-5). Never throws on malformed code: an unknown opcode, an
+        /// instruction cut off by the end of the code or a constant index
+        /// out of range is written as such.
+        /// </summary>
         private int DisassembleInstruction(StringBuilder sb, int offset)
         {
-            sb.Append(System.FormattableString.Invariant($"{offset:D4} "));
+            sb.Append(offset.ToString("D4", CultureInfo.InvariantCulture)).Append(' ');
             if (offset > 0 && offset < Lines.Count && Lines[offset] == Lines[offset - 1])
                 sb.Append("   | ");
             else if (offset < Lines.Count)
-                sb.Append(System.FormattableString.Invariant($"{Lines[offset],4} "));
+                sb.Append(Lines[offset].ToString(CultureInfo.InvariantCulture).PadLeft(4)).Append(' ');
             else
                 sb.Append("   ? ");
 
-            var op = (OpCode)Code[offset];
-            switch (op)
+            var info = OpInfo.Get(Code[offset]);
+            if (info == null)
             {
-                case OpCode.Constant:
-                    var ci = ReadU16(offset + 1);
-                    sb.AppendLine(System.FormattableString.Invariant($"CONSTANT        {ci} ({Constants[ci]})"));
-                    return offset + 3;
-                case OpCode.GetLocal: case OpCode.SetLocal:
-                    sb.AppendLine(System.FormattableString.Invariant($"{op,-16}{ReadU16(offset + 1)}"));
-                    return offset + 3;
-                case OpCode.GetGlobal: case OpCode.SetGlobal:
-                    var gi = ReadU16(offset + 1);
-                    sb.AppendLine(System.FormattableString.Invariant($"{op,-16}{gi} ({Constants[gi]})"));
-                    return offset + 3;
-                case OpCode.Jump: case OpCode.JumpIfFalse: case OpCode.JumpIfTrue:
-                    var fwd = ReadU16(offset + 1);
-                    sb.AppendLine(System.FormattableString.Invariant($"{op,-16}{offset} -> {offset + 3 + fwd}"));
-                    return offset + 3;
-                case OpCode.Loop:
-                    var bck = ReadU16(offset + 1);
-                    sb.AppendLine(System.FormattableString.Invariant($"{op,-16}{offset} -> {offset + 3 - bck}"));
-                    return offset + 3;
-                case OpCode.Call: case OpCode.TailCall: case OpCode.CallMethod:
-                    var ni = ReadU16(offset + 1);
-                    sb.AppendLine(System.FormattableString.Invariant($"{op,-16}{Constants[ni]} ({Code[offset + 3]} args)"));
-                    return offset + 4;
-                case OpCode.CallValue:
-                    sb.AppendLine(System.FormattableString.Invariant($"CALL_VALUE      ({Code[offset + 1]} args)"));
-                    return offset + 2;
-                case OpCode.NewArray:
-                    sb.AppendLine(System.FormattableString.Invariant($"NEW_ARRAY       {ReadU16(offset + 1)}"));
-                    return offset + 3;
-                case OpCode.NewInstance:
-                    var ii = ReadU16(offset + 1);
-                    sb.AppendLine(System.FormattableString.Invariant($"NEW_INSTANCE    {Constants[ii]} ({Code[offset + 3]} args)"));
-                    return offset + 4;
-                case OpCode.GetProperty: case OpCode.SetProperty:
-                case OpCode.IndexSetProp:
-                case OpCode.ThisGetProperty: case OpCode.ThisSetProperty:
-                    var pi = ReadU16(offset + 1);
-                    var cs = ReadU16(offset + 3);
-                    sb.AppendLine(System.FormattableString.Invariant($"{op,-16}{Constants[pi]} (cache={cs})"));
-                    return offset + 5;
-                case OpCode.LessJump: case OpCode.LessEqualJump:
-                case OpCode.GreaterJump: case OpCode.GreaterEqualJump:
-                case OpCode.EqualJump: case OpCode.NotEqualJump:
-                    var cjFwd = ReadU16(offset + 1);
-                    sb.AppendLine(System.FormattableString.Invariant($"{op,-16}{offset} -> {offset + 3 + cjFwd}"));
-                    return offset + 3;
-                case OpCode.CastAs: case OpCode.InstanceOf:
-                    var ci2 = ReadU16(offset + 1);
-                    sb.AppendLine($"{op,-16}{Constants[ci2]}");
-                    return offset + 3;
-                case OpCode.PopN:
-                    sb.AppendLine(System.FormattableString.Invariant($"POP_N           {Code[offset + 1]}"));
-                    return offset + 2;
-                case OpCode.Import:
-                    var mi = ReadU16(offset + 1);
-                    sb.AppendLine($"IMPORT          {Constants[mi]}");
-                    return offset + 3;
-                case OpCode.DropPending:
-                    sb.AppendLine(System.FormattableString.Invariant($"DROP_PENDING    end={ReadU16(offset + 1)}"));
-                    return offset + 3;
-                case OpCode.PushHandler:
-                    sb.AppendLine(System.FormattableString.Invariant($"PUSH_HANDLER    rescue={ReadU16(offset+1)} ensure={ReadU16(offset+3)} end={ReadU16(offset+5)}"));
-                    return offset + 7;
-                default:
-                    sb.AppendLine($"{op}");
-                    return offset + 1;
+                sb.Append("<invalid opcode ").Append(Code[offset].ToString(CultureInfo.InvariantCulture)).AppendLine(">");
+                return offset + 1;
             }
+            if (offset + info.Length > Code.Count)
+            {
+                sb.Append(info.Name).AppendLine(" <truncated>");
+                return Code.Count;
+            }
+
+            sb.Append(info.Name.PadRight(16));
+            int at = offset + 1;
+            int end = offset + info.Length;
+            for (int k = 0; k < info.Operands.Length; k++)
+            {
+                var kind = info.Operands[k];
+                int value = OpInfo.OperandSize(kind) == 1 ? Code[at] : ReadU16(at);
+                at += OpInfo.OperandSize(kind);
+                if (k > 0) sb.Append(' ');
+                switch (kind)
+                {
+                    case OperandKind.U16Const:
+                    case OperandKind.U16Name:
+                        sb.Append(value.ToString(CultureInfo.InvariantCulture));
+                        if (value < Constants.Count) sb.Append(" (").Append(Constants[value].Format(null)).Append(')');
+                        else sb.Append(" (out of range)");
+                        break;
+                    case OperandKind.U16JumpForward:
+                        sb.Append("-> ").Append((end + value).ToString(CultureInfo.InvariantCulture));
+                        break;
+                    case OperandKind.U16JumpBackward:
+                        sb.Append("-> ").Append((end - value).ToString(CultureInfo.InvariantCulture));
+                        break;
+                    case OperandKind.U16Address:
+                        sb.Append('@').Append(value.ToString(CultureInfo.InvariantCulture));
+                        break;
+                    case OperandKind.U16Local:
+                        sb.Append("slot ").Append(value.ToString(CultureInfo.InvariantCulture));
+                        break;
+                    case OperandKind.U16Cache:
+                        sb.Append("cache=").Append(value.ToString(CultureInfo.InvariantCulture));
+                        break;
+                    case OperandKind.U8Count:
+                    case OperandKind.U16Count:
+                        sb.Append('#').Append(value.ToString(CultureInfo.InvariantCulture));
+                        break;
+                    default:
+                        sb.Append(value.ToString(CultureInfo.InvariantCulture));
+                        break;
+                }
+            }
+            sb.AppendLine();
+            return end;
         }
 
         private int ReadU16(int offset)

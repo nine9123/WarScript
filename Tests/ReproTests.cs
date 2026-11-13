@@ -246,7 +246,7 @@ end", null, (w, m) => output.Add(m));
             Assert.IsNull(failure, failure);
         }
 
-        // ── A.19 Disassembler (DX-5, T1.7) ───────────────────────────────
+        // ── A.19 Disassembler (DX-5, fixed by T1.7) ─────────────────────
 
         [Test]
         public void A19_DisassembleHandlerOpcodes()
@@ -260,20 +260,18 @@ fun f [arr, i]
     end
     return arr
 end", null, (w, m) => { });
-            var failure = RunChecked(s, out _);
-            if (failure == null)
-            {
-                try
-                {
-                    s.GetFunction("f", 2).Compiled.Chunk.Disassemble("f");
-                    // From T1.7: also compare the instruction boundaries with the verifier's.
-                }
-                catch (System.Exception e)
-                {
-                    failure = $"Disassemble threw {e.GetType().Name}: {e.Message}";
-                }
-            }
-            KnownFailing("DX-5", failure);
+            Assert.IsNull(RunChecked(s, out _));
+            var chunk = s.GetFunction("f", 2).Compiled.Chunk;
+            string text = null;
+            Assert.DoesNotThrow(() => text = chunk.Disassemble("f"));
+            // One line per instruction, at the offsets the opcode table gives.
+            // TODO(T1.7 verifier): also compare with the verifier's boundaries.
+            var offsets = new List<int>();
+            foreach (var line in text.Split('\n'))
+                if (line.Length >= 4 && int.TryParse(line.Substring(0, 4), System.Globalization.NumberStyles.None,
+                        System.Globalization.CultureInfo.InvariantCulture, out var offset))
+                    offsets.Add(offset);
+            CollectionAssert.AreEqual(chunk.InstructionStarts(), offsets);
         }
 
         // ── A.21 A native method that throws (CRASH-3, fixed by T1.3) ────

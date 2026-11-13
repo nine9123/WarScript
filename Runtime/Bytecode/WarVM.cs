@@ -710,9 +710,9 @@ namespace WarScript.Bytecode
                         break;
                     }
 
-                    // ── Superinstructions: Compare + JumpIfFalse + Pop ──
+                    // ── Superinstruction: Less + JumpIfFalse + Pop ──
                     // Fuses three dispatches into one. Pops two operands,
-                    // compares, and jumps if the condition is false.
+                    // compares, and jumps if the first is not less.
                     // No intermediate boolean is pushed.
 
                     case OpCode.LessJump:
@@ -720,46 +720,6 @@ namespace WarScript.Bytecode
                         var offset = ReadU16(code, ref _frames[fi].IP);
                         var b = Pop(); var a = Pop();
                         if (!(Compare(a, b, fi) < 0))
-                            _frames[fi].IP += offset;
-                        break;
-                    }
-                    case OpCode.LessEqualJump:
-                    {
-                        var offset = ReadU16(code, ref _frames[fi].IP);
-                        var b = Pop(); var a = Pop();
-                        if (!(Compare(a, b, fi) <= 0))
-                            _frames[fi].IP += offset;
-                        break;
-                    }
-                    case OpCode.GreaterJump:
-                    {
-                        var offset = ReadU16(code, ref _frames[fi].IP);
-                        var b = Pop(); var a = Pop();
-                        if (!(Compare(a, b, fi) > 0))
-                            _frames[fi].IP += offset;
-                        break;
-                    }
-                    case OpCode.GreaterEqualJump:
-                    {
-                        var offset = ReadU16(code, ref _frames[fi].IP);
-                        var b = Pop(); var a = Pop();
-                        if (!(Compare(a, b, fi) >= 0))
-                            _frames[fi].IP += offset;
-                        break;
-                    }
-                    case OpCode.EqualJump:
-                    {
-                        var offset = ReadU16(code, ref _frames[fi].IP);
-                        var b = Pop(); var a = Pop();
-                        if (!a.Equals(b))
-                            _frames[fi].IP += offset;
-                        break;
-                    }
-                    case OpCode.NotEqualJump:
-                    {
-                        var offset = ReadU16(code, ref _frames[fi].IP);
-                        var b = Pop(); var a = Pop();
-                        if (a.Equals(b))
                             _frames[fi].IP += offset;
                         break;
                     }
@@ -1774,6 +1734,13 @@ namespace WarScript.Bytecode
                         }
                         break;
                     }
+
+                    // An opcode byte that is not an instruction (T1.7): a host
+                    // fault. The loader's verifier is meant to make this
+                    // unreachable; until it does, it stops misaligned execution.
+                    default:
+                        throw new System.InvalidOperationException(System.FormattableString.Invariant(
+                            $"Invalid opcode {(byte)instruction} at offset {_frames[fi].IP - 1} in '{_frames[fi].Function.Name}'"));
                 }
 
                 // An ensure block entered with a re-raise or return to finish

@@ -514,6 +514,20 @@ namespace WarScript
         public void SaveBytecode(Stream stream)
         {
             // Ensure we have something to save
+            CompileWithoutRunning();
+
+            using var w = new System.IO.BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+            BytecodeSerializer.Save(w, _cachedCompiled!, _definitionScope);
+        }
+
+        /// <summary>
+        /// Parses and compiles the script (cached) without running it, and
+        /// returns the script body and the scope holding its functions and
+        /// classes. Used by <see cref="SaveBytecode"/> and by tests that
+        /// inspect compiler output (T1.7).
+        /// </summary>
+        internal (CompiledFunction script, DefinitionScope definitions) CompileWithoutRunning()
+        {
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
             try { EnsureCompiled(); }
@@ -522,9 +536,7 @@ namespace WarScript
                 DefinitionContext.EndScope();
                 MemoryContext.EndScope();
             }
-
-            using var w = new System.IO.BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
-            BytecodeSerializer.Save(w, _cachedCompiled!, _definitionScope);
+            return (_cachedCompiled!, _definitionScope);
         }
 
         /// <summary>

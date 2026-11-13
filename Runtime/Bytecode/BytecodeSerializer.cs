@@ -15,7 +15,8 @@ namespace WarScript.Bytecode
     /// and loaded at runtime without the lexer, parser, or compiler.
     ///
     /// Binary format (little-endian):
-    ///   Header: "WSBC" magic (4 bytes) + version (u8)
+    ///   Header: "WSBC" magic (4 bytes) + version (u8) + format hash (u32);
+    ///   both must equal <see cref="BytecodeFormat"/> exactly (T1.7, PROP-18)
     ///   Top-level CompiledFunction (script body)
     ///   Function table (user-defined functions)
     ///   Class table (user-defined classes, recursive for nesting)
@@ -33,7 +34,6 @@ namespace WarScript.Bytecode
     public static class BytecodeSerializer
     {
         private static readonly byte[] Magic = { (byte)'W', (byte)'S', (byte)'B', (byte)'C' };
-        private const byte Version = 1;
 
         // ────────────────────────────────────────────────────────
         //  Save
@@ -44,7 +44,8 @@ namespace WarScript.Bytecode
         {
             // Header
             w.Write(Magic);
-            w.Write(Version);
+            w.Write(BytecodeFormat.Version);
+            w.Write(BytecodeFormat.Hash);
 
             // Top-level script body
             WriteCompiledFunction(w, topLevel);
@@ -186,12 +187,9 @@ namespace WarScript.Bytecode
         {
             // Header
             var magic = r.ReadBytes(4);
-            if (magic[0] != 'W' || magic[1] != 'S' || magic[2] != 'B' || magic[3] != 'C')
+            if (magic.Length < 4 || magic[0] != 'W' || magic[1] != 'S' || magic[2] != 'B' || magic[3] != 'C')
                 throw new InvalidDataException("Not a WSBC file");
-            var version = r.ReadByte();
-            if (version > Version)
-                throw new InvalidDataException(
-                    System.FormattableString.Invariant($"Bytecode version {version} is newer than supported version {Version}"));
+            ReadHeader(r);
 
             // Top-level script body
             var topLevel = ReadCompiledFunction(r);
@@ -201,6 +199,32 @@ namespace WarScript.Bytecode
             ReadDefinitionScope(r, script, scope);
 
             return (topLevel, scope);
+        }
+
+        /// <summary>
+        /// The version and format hash after the magic: the loader accepts
+        /// only the exact current format (R4, PROP-18), so bytecode compiled
+        /// by an older or newer runtime is rejected instead of misread (DET-4).
+        /// </summary>
+        private static void ReadHeader(BinaryReader r)
+        {
+            byte version;
+            uint hash;
+            try
+            {
+                version = r.ReadByte();
+                hash = r.ReadUInt32();
+            }
+            catch (EndOfStreamException)
+            {
+                throw new InvalidDataException("Truncated bytecode header");
+            }
+            if (version != BytecodeFormat.Version)
+                throw new InvalidDataException(System.FormattableString.Invariant(
+                    $"Bytecode format version {version} is not the supported version {BytecodeFormat.Version}; recompile the script"));
+            if (hash != BytecodeFormat.Hash)
+                throw new InvalidDataException(System.FormattableString.Invariant(
+                    $"Bytecode format hash {hash:X8} does not match {BytecodeFormat.Hash:X8}; recompile the script"));
         }
 
         private static void ReadDefinitionScope(BinaryReader r,

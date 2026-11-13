@@ -69,12 +69,13 @@ WarScript/
 │   │   ├── YieldStatement.cs
 │   │   └── ...
 │   ├── Bytecode/
-│   │   ├── OpCode.cs            # All VM opcodes (Call, CallValue, TailCall, etc.)
+│   │   ├── OpCode.cs            # All VM opcodes, explicit values (never renumber or reuse one)
+│   │   ├── OpInfo.cs            # Opcode table (operands, stack effects) + BytecodeFormat (Version, Hash)
 │   │   ├── Chunk.cs             # Bytecode buffer + constant pool + inline caches
 │   │   ├── CompiledFunction.cs  # Compiled function + CallFrame struct
 │   │   ├── Compiler.cs          # Single-pass AST→bytecode compiler
 │   │   ├── WarVM.cs             # Stack-based bytecode VM ← HOTTEST FILE
-│   │   ├── BytecodeSerializer.cs # Binary serialization (v1: MinArity, lambda constants, F64-raw numerics)
+│   │   ├── BytecodeSerializer.cs # Binary serialization (format v2 header: version + format hash)
 │   │   └── DebugContext.cs      # Source-map debugger (StepMode, DebugHook, StackEntry)
 │   ├── Context/
 │   │   ├── MemoryScope.cs       # Variable storage (dict-based, parent chain lookup)
@@ -284,7 +285,7 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 - **Lambda limitations**: No closures (params + globals only). No postfix call syntax (`arr{0}[args]` — use temp variable). TCO disabled for local lambda calls.
 - **Enums** are class instances. Members are properties. `name[]` is a method. Protected from reassignment via `ConstantNames`.
 - **`[WsEnum]`/`[WsConst]` codegen** uses `GlobalMemoryScope.Set()` because `Register()` is called before `Run()` when the scope stack is empty.
-- **BytecodeSerializer format version is 1.** Includes `MinArity` and `NativeObject(CompiledFunction)` (lambda) constants. Numeric constants serialize as the 64-bit **F64 raw** (`Numeric.Raw` / `FromRawNumeric`), replacing the old IEEE-754 `double` encoding — so bytecode produced before the fixed-point migration is **binary-incompatible despite sharing the version byte**; regenerate it from source.
+- **Bytecode format version is 2 (T1.7, in progress).** The header is `WSBC`, `BytecodeFormat.Version` (u8) and `BytecodeFormat.Hash` (u32, FNV-1a over the `OpInfo` table, the version and `BytecodeFormat.Layout`); the loader accepts only an exact match (R4), so any older bytecode must be regenerated from source. Every `OpCode` has an explicit value; removed values (58 `YieldUntil`, 61–65 the unused fused compare-jumps) are never reused. `OpInfo.Table` is the one description of each opcode's operands and stack effect: the disassembler decodes through it (unknown or truncated code prints as such, never throws), the VM's dispatch `default:` is a host fault ("Invalid opcode"). Changing an opcode, an operand or what the serializer writes means: update the table/`Layout`, bump `Version`, and record the new `Hash` (`BytecodeFormatTests.FormatHash_MatchesTheOpcodeTable` prints it). `BytecodeFormatTests.CompiledGolden_*` checks every function compiled from `Tests/Golden~` against the table. Not done yet: the load-time verifier and `MaxStack` (10.3), loader hardening (10.4), the run-length line table. The record content is otherwise v1's: `MinArity`, `NativeObject(CompiledFunction)` (lambda) constants, numerics as the 64-bit F64 raw.
 - **`import` can start from bytecode.** `WarScriptLanguage.BytecodeResolver` (optional 5th ctor argument, `ScriptRunner.ImportScriptBytecode`) is asked for an imported path before `FileResolver` is; when it answers, the import is deserialized and run instead of lexed/parsed/compiled. A null answer, an unloadable one, or a throwing resolver falls back to the source (the last two also log through `Logger`). `const`/`enum` names in a bytecode-loaded import do not enter `ConstantNames` — same as `LoadBytecode()`.
 - **Function lookup is by (name, argCount).** Default params register at all valid arities.
 - **Exception boundary (T1.3)** is `WarVM.Execute`. A native that throws `ScriptErrorException(kind, message)` (`Runtime/Exception/ScriptErrorException.cs`) raises a script error with that message; any other exception from a native function *or* native method becomes the rescuable `"Native function/method '<name>' failed: <message>"`. An error no handler catches unwinds every VM frame (scopes and class contexts popped) before the host entry logs it. Any other C# exception inside the VM is a **host fault**: the VM restores the context depths recorded when it was entered, resets, and rethrows through every enclosing VM to the host entry (`Run`, `Call`, a coroutine resume), which logs `[WarScript] Host fault in '<script>': <exception with stack trace>`, records `LastHostFault` (internal) and returns — `Run()` no longer throws for it (a faulted coroutine ends). Exception: a `SyntaxException` from compiling an import still propagates out of `Run()`. Tests trigger a host fault with a throwing `DebugHook`.
