@@ -284,7 +284,7 @@ namespace WarScript.Bytecode
 
         private static CompiledFunction CompileLambda(WarScriptLanguage script, LambdaExpression lambda, string? source)
         {
-            CheckParameterCount(lambda.Parameters.Count, source, 0);
+            CheckParameterCount(lambda.Parameters.Count, source, lambda.Line);
             var compiler = new Compiler(script, functionDepth: 1);
             compiler._source = source;
             compiler._current = new CompiledFunction("<lambda>", lambda.Parameters.Count);
