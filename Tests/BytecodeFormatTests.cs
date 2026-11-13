@@ -655,6 +655,45 @@ end", null, null);
             Assert.IsEmpty(problems, string.Join("\n", problems));
         }
 
+        /// <summary>
+        /// T1.10 (DX-3): every instruction compiled from a golden file has a
+        /// source line, except the implicit <c>Null</c>, <c>Return</c> that
+        /// ends every function (it belongs to no statement, so the debugger
+        /// does not stop on it).
+        /// </summary>
+        [TestCaseSource(nameof(GoldenSources))]
+        public void CompiledGolden_EveryInstructionHasALine(string relativePath)
+        {
+            var source = File.ReadAllText(Path.Combine(GoldenRoot(), relativePath));
+            CompiledFunction body;
+            DefinitionScope definitions;
+            try
+            {
+                (body, definitions) = new WarScriptLanguage("t", source, null, null).CompileWithoutRunning();
+            }
+            catch (System.Exception e)
+            {
+                Assert.Pass("does not compile: " + e.GetType().Name);
+                return;
+            }
+
+            var problems = new List<string>();
+            foreach (var (name, function) in AllFunctions(body, definitions))
+            {
+                var chunk = function.Chunk;
+                var starts = chunk.InstructionStarts();
+                // The implicit return: the last two instructions.
+                int checkedCount = starts.Count - 2;
+                for (int i = 0; i < checkedCount; i++)
+                {
+                    if (chunk.Lines.GetLine(starts[i]) > 0) continue;
+                    problems.Add($"{name}@{starts[i]}: {OpInfo.Get(chunk.Code[starts[i]])?.Name} has line 0");
+                    break;
+                }
+            }
+            Assert.IsEmpty(problems, string.Join("\n", problems));
+        }
+
         private static IEnumerable<(string, CompiledFunction)> AllFunctions(CompiledFunction body, DefinitionScope scope)
         {
             var result = new List<(string, CompiledFunction)>();

@@ -41,6 +41,14 @@ namespace WarScript.Bytecode
         private string? _source;
         private Chunk Chunk => _current.Chunk;
 
+        /// <summary>
+        /// The source line of the statement being compiled (T1.10, DX-3).
+        /// Expressions carry no line of their own, so everything emitted for
+        /// one gets its statement's line. A statement without a line (one the
+        /// parser desugared) keeps the line of the code around it.
+        /// </summary>
+        private int _line;
+
         private readonly List<Local> _locals = new();
         private int _scopeDepth;
         private int _maxLocals;
@@ -152,6 +160,7 @@ namespace WarScript.Bytecode
             child._source = _source;
             child._current = new CompiledFunction(funcDef.Details.Name, funcDef.Details.Arguments.Count);
             child._current.Chunk.Source = _source;
+            child._line = Line(funcDef.Statement);
 
             child.BeginScope();
 
@@ -202,6 +211,7 @@ namespace WarScript.Bytecode
             child._source = _source;
             child._current = new CompiledFunction(classDef.ClassDetails.Name + "#ctor", 0);
             child._current.Chunk.Source = _source;
+            child._line = Line(classDef.Statement);
 
             foreach (var stmt in stmts)
                 child.CompileStatement(stmt);
@@ -240,8 +250,8 @@ namespace WarScript.Bytecode
 
         /// <summary>
         /// The source line of the code at <paramref name="offset"/>, or of the
-        /// nearest code before it that has one (expressions are emitted
-        /// with line 0 until T1.10); 0 when none does.
+        /// nearest code before it that has one (only a function's implicit
+        /// return has line 0, T1.10); 0 when none does.
         /// </summary>
         private static int LineNear(Chunk chunk, int offset)
         {
@@ -279,6 +289,7 @@ namespace WarScript.Bytecode
             compiler._source = source;
             compiler._current = new CompiledFunction("<lambda>", lambda.Parameters.Count);
             compiler._current.Chunk.Source = source;
+            compiler._line = lambda.Line;
             compiler.BeginScope();
 
             foreach (var param in lambda.Parameters)
@@ -391,13 +402,16 @@ namespace WarScript.Bytecode
 
         private void CompileStatement(Statement.Statement stmt)
         {
+            var outerLine = _line;
+            if (Line(stmt) > 0) _line = Line(stmt);
             try { CompileStatementBody(stmt); }
-            catch (CompileError e) when (e.Line == 0 && Line(stmt) > 0)
+            catch (CompileError e) when (e.Line == 0 && _line > 0)
             {
                 // A limit found while emitting (T1.8) carries no line: report
                 // the innermost statement that has one.
-                throw new CompileError(e.Reason, e.ScriptName, Line(stmt));
+                throw new CompileError(e.Reason, e.ScriptName, _line);
             }
+            finally { _line = outerLine; }
         }
 
         private void CompileStatementBody(Statement.Statement stmt)
@@ -1108,14 +1122,14 @@ namespace WarScript.Bytecode
                 case ConstantExpression c:
                 {
                     var val = c.Value;
-                    if (val.IsNull) Chunk.EmitOp(OpCode.Null, 0);
-                    else if (val.IsLogical) Chunk.EmitOp(val.LogicalValue ? OpCode.True : OpCode.False, 0);
-                    else Chunk.EmitConstant(val, 0);
+                    if (val.IsNull) Chunk.EmitOp(OpCode.Null, _line);
+                    else if (val.IsLogical) Chunk.EmitOp(val.LogicalValue ? OpCode.True : OpCode.False, _line);
+                    else Chunk.EmitConstant(val, _line);
                     break;
                 }
 
                 case ThisExpression:
-                    Chunk.EmitOp(OpCode.This, 0);
+                    Chunk.EmitOp(OpCode.This, _line);
                     break;
 
                 // ── Variables ──
@@ -1124,107 +1138,107 @@ namespace WarScript.Bytecode
                     var slot = ResolveLocal(v.Name);
                     if (slot != -1)
                     {
-                        Chunk.EmitOp(OpCode.GetLocal, 0);
-                        Chunk.EmitU16(slot, 0);
+                        Chunk.EmitOp(OpCode.GetLocal, _line);
+                        Chunk.EmitU16(slot, _line);
                     }
                     else
                     {
-                        Chunk.EmitOp(OpCode.GetGlobal, 0);
-                        Chunk.EmitU16(Chunk.AddConstant(WarValue.FromText(v.Name)), 0);
+                        Chunk.EmitOp(OpCode.GetGlobal, _line);
+                        Chunk.EmitU16(Chunk.AddConstant(WarValue.FromText(v.Name)), _line);
                     }
                     break;
                 }
 
                 // ── Assignment (as sub-expression) ──
                 case AssignmentOperator a:
-                    CompileAssignment(a, 0);
+                    CompileAssignment(a, _line);
                     break;
 
                 // ── Arithmetic ──
                 case AdditionOperator a:
                     CompileExpression(a.Left);
                     CompileExpression(a.Right);
-                    Chunk.EmitOp(OpCode.Add, 0);
+                    Chunk.EmitOp(OpCode.Add, _line);
                     break;
 
                 case SubtractionOperator s:
                     CompileExpression(s.Left);
                     CompileExpression(s.Right);
-                    Chunk.EmitOp(OpCode.Sub, 0);
+                    Chunk.EmitOp(OpCode.Sub, _line);
                     break;
 
                 case MultiplicationOperator m:
                     CompileExpression(m.Left);
                     CompileExpression(m.Right);
-                    Chunk.EmitOp(OpCode.Mul, 0);
+                    Chunk.EmitOp(OpCode.Mul, _line);
                     break;
 
                 case DivisionOperator d:
                     CompileExpression(d.Left);
                     CompileExpression(d.Right);
-                    Chunk.EmitOp(OpCode.Div, 0);
+                    Chunk.EmitOp(OpCode.Div, _line);
                     break;
 
                 case ModuloOperator mo:
                     CompileExpression(mo.Left);
                     CompileExpression(mo.Right);
-                    Chunk.EmitOp(OpCode.Mod, 0);
+                    Chunk.EmitOp(OpCode.Mod, _line);
                     break;
 
                 // ── Unary ──
                 case NegateOperator n:
                     CompileExpression(n.Value);
-                    Chunk.EmitOp(OpCode.Negate, 0);
+                    Chunk.EmitOp(OpCode.Negate, _line);
                     break;
 
                 case NotOperator no:
                     CompileExpression(no.Value);
-                    Chunk.EmitOp(OpCode.Not, 0);
+                    Chunk.EmitOp(OpCode.Not, _line);
                     break;
 
                 // ── Comparison ──
                 case EqualsOperator e:
                     CompileExpression(e.Left);
                     CompileExpression(e.Right);
-                    Chunk.EmitOp(OpCode.Equal, 0);
+                    Chunk.EmitOp(OpCode.Equal, _line);
                     break;
 
                 case NotEqualsOperator ne:
                     CompileExpression(ne.Left);
                     CompileExpression(ne.Right);
-                    Chunk.EmitOp(OpCode.NotEqual, 0);
+                    Chunk.EmitOp(OpCode.NotEqual, _line);
                     break;
 
                 case LessThanOperator lt:
                     CompileExpression(lt.Left);
                     CompileExpression(lt.Right);
-                    Chunk.EmitOp(OpCode.Less, 0);
+                    Chunk.EmitOp(OpCode.Less, _line);
                     break;
 
                 case LessThanOrEqualToOperator le:
                     CompileExpression(le.Left);
                     CompileExpression(le.Right);
-                    Chunk.EmitOp(OpCode.LessEqual, 0);
+                    Chunk.EmitOp(OpCode.LessEqual, _line);
                     break;
 
                 case GreaterThanOperator gt:
                     CompileExpression(gt.Left);
                     CompileExpression(gt.Right);
-                    Chunk.EmitOp(OpCode.Greater, 0);
+                    Chunk.EmitOp(OpCode.Greater, _line);
                     break;
 
                 case GreaterThanOrEqualToOperator ge:
                     CompileExpression(ge.Left);
                     CompileExpression(ge.Right);
-                    Chunk.EmitOp(OpCode.GreaterEqual, 0);
+                    Chunk.EmitOp(OpCode.GreaterEqual, _line);
                     break;
 
                 // ── Logical (short-circuit) ──
                 case LogicalAndOperator la:
                 {
                     CompileExpression(la.Left);
-                    var endJump = Chunk.EmitJump(OpCode.JumpIfFalse, 0);
-                    Chunk.EmitOp(OpCode.Pop, 0);
+                    var endJump = Chunk.EmitJump(OpCode.JumpIfFalse, _line);
+                    Chunk.EmitOp(OpCode.Pop, _line);
                     CompileExpression(la.Right);
                     Chunk.PatchJump(endJump);
                     break;
@@ -1233,8 +1247,8 @@ namespace WarScript.Bytecode
                 case LogicalOrOperator lo:
                 {
                     CompileExpression(lo.Left);
-                    var endJump = Chunk.EmitJump(OpCode.JumpIfTrue, 0);
-                    Chunk.EmitOp(OpCode.Pop, 0);
+                    var endJump = Chunk.EmitJump(OpCode.JumpIfTrue, _line);
+                    Chunk.EmitOp(OpCode.Pop, _line);
                     CompileExpression(lo.Right);
                     Chunk.PatchJump(endJump);
                     break;
@@ -1253,20 +1267,20 @@ namespace WarScript.Bytecode
                         throw Chunk.LimitError("array literal too large; build it with <<");
                     foreach (var elem in arr.Values)
                         CompileExpression(elem);
-                    Chunk.EmitOp(OpCode.NewArray, 0);
-                    Chunk.EmitU16(arr.Values.Count, 0);
+                    Chunk.EmitOp(OpCode.NewArray, _line);
+                    Chunk.EmitU16(arr.Values.Count, _line);
                     break;
 
                 case ArrayValueOperator av:
                     CompileExpression(av.Left);
                     CompileExpression(av.Right);
-                    Chunk.EmitOp(OpCode.IndexGet, 0);
+                    Chunk.EmitOp(OpCode.IndexGet, _line);
                     break;
 
                 case ArrayAppendOperator ap:
                     CompileExpression(ap.Left);
                     CompileExpression(ap.Right);
-                    Chunk.EmitOp(OpCode.ArrayAppend, 0);
+                    Chunk.EmitOp(OpCode.ArrayAppend, _line);
                     break;
 
                 // ── Class operations ──
@@ -1288,8 +1302,8 @@ namespace WarScript.Bytecode
                     CompileExpression(cast.Left);
                     var typeName = TypeNameOperand(cast.Right, "as");
                     var nameIdx = Chunk.AddConstant(WarValue.FromText(typeName));
-                    Chunk.EmitOp(OpCode.CastAs, 0);
-                    Chunk.EmitU16(nameIdx, 0);
+                    Chunk.EmitOp(OpCode.CastAs, _line);
+                    Chunk.EmitU16(nameIdx, _line);
                     break;
                 }
 
@@ -1298,8 +1312,8 @@ namespace WarScript.Bytecode
                     CompileExpression(iof.Left);
                     var typeName = TypeNameOperand(iof.Right, "is");
                     var nameIdx = Chunk.AddConstant(WarValue.FromText(typeName));
-                    Chunk.EmitOp(OpCode.InstanceOf, 0);
-                    Chunk.EmitU16(nameIdx, 0);
+                    Chunk.EmitOp(OpCode.InstanceOf, _line);
+                    Chunk.EmitU16(nameIdx, _line);
                     break;
                 }
 
@@ -1311,9 +1325,9 @@ namespace WarScript.Bytecode
                         foreach (var arg in nestedCe.PropertiesExpressions)
                             CompileExpression(arg);
                         var nameIdx = Chunk.AddConstant(WarValue.FromText(nestedCe.ClassName));
-                        Chunk.EmitOp(OpCode.NewNestedInstance, 0);
-                        Chunk.EmitU16(nameIdx, 0);
-                        EmitArgCount(nestedCe.PropertiesExpressions.Count, 0);
+                        Chunk.EmitOp(OpCode.NewNestedInstance, _line);
+                        Chunk.EmitU16(nameIdx, _line);
+                        EmitArgCount(nestedCe.PropertiesExpressions.Count, _line);
                     }
                     break;
 
@@ -1335,21 +1349,21 @@ namespace WarScript.Bytecode
             if (localSlot != -1)
             {
                 // Push the function value, then arguments
-                Chunk.EmitOp(OpCode.GetLocal, 0);
-                Chunk.EmitU16(localSlot, 0);
+                Chunk.EmitOp(OpCode.GetLocal, _line);
+                Chunk.EmitU16(localSlot, _line);
                 foreach (var arg in call.ArgumentExpression)
                     CompileExpression(arg);
-                Chunk.EmitOp(OpCode.CallValue, 0);
-                EmitArgCount(call.ArgumentExpression.Count, 0);
+                Chunk.EmitOp(OpCode.CallValue, _line);
+                EmitArgCount(call.ArgumentExpression.Count, _line);
             }
             else
             {
                 foreach (var arg in call.ArgumentExpression)
                     CompileExpression(arg);
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(call.Name));
-                Chunk.EmitOp(OpCode.Call, 0);
-                Chunk.EmitU16(nameIdx, 0);
-                EmitArgCount(call.ArgumentExpression.Count, 0);
+                Chunk.EmitOp(OpCode.Call, _line);
+                Chunk.EmitU16(nameIdx, _line);
+                EmitArgCount(call.ArgumentExpression.Count, _line);
             }
         }
 
@@ -1360,9 +1374,9 @@ namespace WarScript.Bytecode
                 CompileExpression(arg);
 
             var nameIdx = Chunk.AddConstant(WarValue.FromText(ce.ClassName));
-            Chunk.EmitOp(OpCode.NewInstance, 0);
-            Chunk.EmitU16(nameIdx, 0);
-            EmitArgCount(ce.PropertiesExpressions.Count, 0);
+            Chunk.EmitOp(OpCode.NewInstance, _line);
+            Chunk.EmitU16(nameIdx, _line);
+            EmitArgCount(ce.PropertiesExpressions.Count, _line);
         }
 
         /// <summary>
@@ -1373,7 +1387,7 @@ namespace WarScript.Bytecode
         private string TypeNameOperand(IExpression right, string keyword)
         {
             if (right is VariableExpression type) return type.Name;
-            throw new CompileError("'" + keyword + "' must be followed by a class name", _source, 0);
+            throw new CompileError("'" + keyword + "' must be followed by a class name", _source, _line);
         }
 
         // ── Class property access: obj::prop, obj::method[args], obj::arr{i} ──
@@ -1383,9 +1397,9 @@ namespace WarScript.Bytecode
             if (cp.Left is ThisExpression && cp.Right is VariableExpression thisVar)
             {
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(thisVar.Name));
-                Chunk.EmitOp(OpCode.ThisGetProperty, 0);
-                Chunk.EmitU16(nameIdx, 0);
-                Chunk.EmitU16(Chunk.AllocCacheSlot(), 0);
+                Chunk.EmitOp(OpCode.ThisGetProperty, _line);
+                Chunk.EmitU16(nameIdx, _line);
+                Chunk.EmitU16(Chunk.AllocCacheSlot(), _line);
                 return;
             }
             // ── Superinstruction: this :: arr{i} → ThisGetProperty + IndexGet ──
@@ -1393,11 +1407,11 @@ namespace WarScript.Bytecode
                 && thisArrOp.Left is VariableExpression thisArrVar)
             {
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(thisArrVar.Name));
-                Chunk.EmitOp(OpCode.ThisGetProperty, 0);
-                Chunk.EmitU16(nameIdx, 0);
-                Chunk.EmitU16(Chunk.AllocCacheSlot(), 0);
+                Chunk.EmitOp(OpCode.ThisGetProperty, _line);
+                Chunk.EmitU16(nameIdx, _line);
+                Chunk.EmitU16(Chunk.AllocCacheSlot(), _line);
                 CompileExpression(thisArrOp.Right);
-                Chunk.EmitOp(OpCode.IndexGet, 0);
+                Chunk.EmitOp(OpCode.IndexGet, _line);
                 return;
             }
 
@@ -1406,9 +1420,9 @@ namespace WarScript.Bytecode
             if (cp.Right is VariableExpression varExpr)
             {
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(varExpr.Name));
-                Chunk.EmitOp(OpCode.GetProperty, 0);
-                Chunk.EmitU16(nameIdx, 0);
-                Chunk.EmitU16(Chunk.AllocCacheSlot(), 0);
+                Chunk.EmitOp(OpCode.GetProperty, _line);
+                Chunk.EmitU16(nameIdx, _line);
+                Chunk.EmitU16(Chunk.AllocCacheSlot(), _line);
             }
             else if (cp.Right is FunctionExpression funcExpr)
             {
@@ -1416,19 +1430,19 @@ namespace WarScript.Bytecode
                 foreach (var arg in funcExpr.ArgumentExpression)
                     CompileExpression(arg);
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(funcExpr.Name));
-                Chunk.EmitOp(OpCode.CallMethod, 0);
-                Chunk.EmitU16(nameIdx, 0);
-                EmitArgCount(funcExpr.ArgumentExpression.Count, 0);
+                Chunk.EmitOp(OpCode.CallMethod, _line);
+                Chunk.EmitU16(nameIdx, _line);
+                EmitArgCount(funcExpr.ArgumentExpression.Count, _line);
             }
             else if (cp.Right is ArrayValueOperator arrayOp && arrayOp.Left is VariableExpression arrayVar)
             {
                 // obj::arr{i}  →  GetProperty then IndexGet
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(arrayVar.Name));
-                Chunk.EmitOp(OpCode.GetProperty, 0);
-                Chunk.EmitU16(nameIdx, 0);
-                Chunk.EmitU16(Chunk.AllocCacheSlot(), 0);
+                Chunk.EmitOp(OpCode.GetProperty, _line);
+                Chunk.EmitU16(nameIdx, _line);
+                Chunk.EmitU16(Chunk.AllocCacheSlot(), _line);
                 CompileExpression(arrayOp.Right);
-                Chunk.EmitOp(OpCode.IndexGet, 0);
+                Chunk.EmitOp(OpCode.IndexGet, _line);
             }
         }
     }
