@@ -62,29 +62,41 @@ namespace WarScript.Expression.Value
             PropertyValues[index].Value = value;
         }
 
-        public bool StructuralEquals(ClassData other) => StructuralEquals(other, 0);
+        public bool StructuralEquals(ClassData other)
+        {
+            WarValue.EqualityMemo? memo = null;
+            return StructuralEquals(other, 0, ref memo, out _);
+        }
 
         /// <summary>
         /// Structural equality of an instance nested <paramref name="depth"/>
         /// arrays or instances deep: its properties are compared one level
         /// deeper, so the <see cref="WarValue.MaxValueDepth"/> guard of
         /// <see cref="WarValue"/> equality applies (T1.2; DEC-9 removes
-        /// structural class equality in T3.6).
+        /// structural class equality in T3.6). <paramref name="memo"/> and
+        /// <paramref name="height"/> are as in
+        /// <see cref="WarValue.Equals(in WarValue, int, ref WarValue.EqualityMemo?, out int)"/>.
         /// </summary>
-        internal bool StructuralEquals(ClassData other, int depth)
+        internal bool StructuralEquals(ClassData other, int depth, ref WarValue.EqualityMemo? memo, out int height)
         {
+            height = 1;
             if (ReferenceEquals(this, other)) return true;
             if (other == null) return false;
+            if (memo != null && memo.TryGet(this, other, depth, out height)) return true;
 
             var properties = Definition.ClassDetails.Properties;
+            var below = 0;
             for (int i = 0; i < properties.Count; i++)
             {
                 var prop = properties[i];
                 var thisVal = MemoryScope.GetLocal(prop);
                 var otherVal = other.MemoryScope.GetLocal(prop);
-                if (!thisVal.Equals(otherVal, depth + 1))
+                if (!thisVal.Equals(otherVal, depth + 1, ref memo, out var h))
                     return false;
+                if (h > below) below = h;
             }
+            height = below + 1;
+            if (below > 0) WarValue.EqualityMemo.Add(ref memo, this, other, height);
             return true;
         }
 

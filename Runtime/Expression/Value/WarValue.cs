@@ -171,6 +171,23 @@ namespace WarScript.Expression.Value
         /// </summary>
         internal bool Equals(in WarValue other, int depth)
         {
+            EqualityMemo? memo = null;
+            return Equals(other, depth, ref memo, out _);
+        }
+
+        /// <summary>
+        /// Equality with a memo of the array and instance pairs already found
+        /// equal, so that arrays shared inside a value (a DAG such as
+        /// <c>a = {a, a}</c> repeated) are compared once per pair instead of
+        /// once per path, which is exponential (BUDGET-3). The memo is created
+        /// on the first pair worth remembering, so flat values allocate
+        /// nothing. <paramref name="height"/> is the number of array/instance
+        /// levels the comparison walked, this value included (0 for a scalar):
+        /// a memo hit raises the same depth error the walk would have.
+        /// </summary>
+        internal bool Equals(in WarValue other, int depth, ref EqualityMemo? memo, out int height)
+        {
+            height = 0;
             if (Tag != other.Tag) return false;
             switch (Tag)
             {
@@ -184,16 +201,66 @@ namespace WarScript.Expression.Value
                     var a = ArrayValue;
                     var b = other.ArrayValue;
                     if (a.Count != b.Count) return false;
+                    if (memo != null && memo.TryGet(a, b, depth, out height)) return true;
+                    var below = 0;
                     for (int i = 0; i < a.Count; i++)
-                        if (!a[i].Equals(b[i], depth + 1)) return false;
+                    {
+                        if (!a[i].Equals(b[i], depth + 1, ref memo, out var h)) return false;
+                        if (h > below) below = h;
+                    }
+                    height = below + 1;
+                    if (below > 0) EqualityMemo.Add(ref memo, a, b, height);
                     return true;
                 case ValueTag.Class:
                     if (depth >= MaxValueDepth)
                         throw new WarScriptLimitException(ValueTooDeepMessage);
-                    return ClassValue.StructuralEquals(other.ClassValue, depth);
+                    return ClassValue.StructuralEquals(other.ClassValue, depth, ref memo, out height);
                 case ValueTag.NativeObject:
                     return Ref != null && Ref.Equals(other.Ref);
                 default: return false;
+            }
+        }
+
+        /// <summary>
+        /// Array and instance pairs one equality comparison has already found
+        /// equal, with the height of each pair's comparison (see
+        /// <see cref="Equals(in WarValue, int, ref EqualityMemo?, out int)"/>).
+        /// Only pairs with nested arrays or instances are recorded. Lives for
+        /// one comparison; no static state (R1).
+        /// </summary>
+        internal sealed class EqualityMemo
+        {
+            private readonly Dictionary<(object, object), int> _equal =
+                new Dictionary<(object, object), int>(PairComparer.Instance);
+
+            internal static void Add(ref EqualityMemo? memo, object a, object b, int height)
+            {
+                memo ??= new EqualityMemo();
+                memo._equal[(a, b)] = height;
+            }
+
+            /// <summary>
+            /// True when (a, b) is known equal; throws the depth error the
+            /// comparison would have raised at <paramref name="depth"/>.
+            /// </summary>
+            internal bool TryGet(object a, object b, int depth, out int height)
+            {
+                if (!_equal.TryGetValue((a, b), out height)) return false;
+                if (depth + height > MaxValueDepth)
+                    throw new WarScriptLimitException(ValueTooDeepMessage);
+                return true;
+            }
+
+            private sealed class PairComparer : IEqualityComparer<(object, object)>
+            {
+                public static readonly PairComparer Instance = new PairComparer();
+
+                public bool Equals((object, object) x, (object, object) y) =>
+                    ReferenceEquals(x.Item1, y.Item1) && ReferenceEquals(x.Item2, y.Item2);
+
+                public int GetHashCode((object, object) p) =>
+                    System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(p.Item1) * 31
+                    + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(p.Item2);
             }
         }
 
@@ -257,10 +324,23 @@ namespace WarScript.Expression.Value
         }
 
         /// <summary>
+        /// Formatting an array stops adding elements once the text reaches
+        /// this many characters and writes <c>...</c> in place of the rest
+        /// (BUDGET-3): arrays shared inside an array format once per path, so
+        /// 40 levels of <c>a = {a, a}</c> would otherwise format 2^40
+        /// elements. The same value as the default
+        /// <see cref="WarScriptLanguage.MaxTextLength"/>; a constant because
+        /// formatting has no instance to read a setting from.
+        /// </summary>
+        public const int MaxFormattedLength = 1_048_576;
+
+        /// <summary>
         /// Formats an array nested <paramref name="depth"/> arrays deep.
         /// <paramref name="inProgress"/> holds the arrays being formatted
         /// around it; an array already among them, or one nested deeper than
-        /// <see cref="MaxValueDepth"/>, prints as <c>[...]</c> (CRASH-1).
+        /// <see cref="MaxValueDepth"/>, prints as <c>[...]</c> (CRASH-1). Past
+        /// <see cref="MaxFormattedLength"/> characters the remaining elements
+        /// of every open array print as <c>...</c>.
         /// </summary>
         private static void AppendArray(StringBuilder sb, List<WarValue> vals, int depth,
             List<List<WarValue>> inProgress)
@@ -275,6 +355,11 @@ namespace WarScript.Expression.Value
             for (int i = 0; i < vals.Count; i++)
             {
                 if (i > 0) sb.Append(", ");
+                if (sb.Length >= MaxFormattedLength)
+                {
+                    sb.Append("...");
+                    break;
+                }
                 var v = vals[i];
                 if (v.Tag == ValueTag.Array)
                     AppendArray(sb, v.ArrayValue, depth + 1, inProgress);

@@ -29,6 +29,35 @@ namespace Tests
             return value;
         }
 
+        // 'a = {a, a}' repeated: 'levels' + 1 distinct arrays, 2^levels paths.
+        private static WarValue Shared(int levels, int leaf)
+        {
+            var value = WarValue.FromArray(new List<WarValue> { WarValue.FromNumeric(leaf) });
+            for (int i = 0; i < levels; i++)
+                value = WarValue.FromArray(new List<WarValue> { value, value });
+            return value;
+        }
+
+        [Test]
+        public void SharedSubarrays_CompareOncePerPair()
+        {
+            // BUDGET-3 (A.27): 2^60 paths; a walk per path never returns.
+            Assert.IsTrue(Shared(60, 1).Equals(Shared(60, 1)));
+            Assert.IsFalse(Shared(60, 1).Equals(Shared(60, 2)));
+        }
+
+        [Test]
+        public void SharedSubarrays_FormatUpToMaxFormattedLength()
+        {
+            var text = Shared(60, 1).ToString();
+            Assert.That(text.Length, Is.GreaterThanOrEqualTo(WarValue.MaxFormattedLength));
+            Assert.That(text.Length, Is.LessThan(WarValue.MaxFormattedLength + 1000));
+            StringAssert.StartsWith("[[[[", text);
+            // The elided rest is '...' in every open array, and all of them close.
+            StringAssert.EndsWith(", ...], ...]", text);
+            Assert.AreEqual(text.Split('[').Length, text.Split(']').Length);
+        }
+
         [Test]
         public void CyclicArray_FormatsWithAMarker()
         {
