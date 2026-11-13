@@ -533,7 +533,7 @@ namespace WarScript.Bytecode
                         else
                         {
                             if (_script.AuditSink != null) AuditConcatenation(a, b, fi);
-                            var left = a.ToString(); var right = b.ToString();
+                            var left = Text(a); var right = Text(b);
                             long length = (long)left.Length + right.Length;
                             if (!CheckTextLength(length) || !TrackAlloc(EstimateTextBytes(length)))
                             {
@@ -556,7 +556,7 @@ namespace WarScript.Bytecode
                             // The result is never longer than the left operand, so
                             // there is no length check. 'text - ""' leaves the text
                             // as it is (String.Replace rejects an empty pattern; T1.4).
-                            var left = a.ToString(); var right = b.ToString();
+                            var left = Text(a); var right = Text(b);
                             var s = _interner.Intern(right.Length == 0 ? left : left.Replace(right, ""));
                             if (!TrackAlloc(EstimateTextBytes(s.Length)))
                             {
@@ -660,7 +660,7 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            var equal = a.ToString() == b.ToString();
+                            var equal = Text(a) == Text(b);
                             if (_script.AuditSink != null) AuditMixedEquality(a, b, "==", equal, fi);
                             Push(WarValue.FromLogical(equal));
                         }
@@ -679,7 +679,7 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            var equal = a.ToString() == b.ToString();
+                            var equal = Text(a) == Text(b);
                             if (_script.AuditSink != null) AuditMixedEquality(a, b, "!=", !equal, fi);
                             Push(WarValue.FromLogical(!equal));
                         }
@@ -824,7 +824,7 @@ namespace WarScript.Bytecode
                                 lambdaFunc = cf;
                             else
                             {
-                                RuntimeError($"Function '{funcName}' with {argCount} args is not defined");
+                                RuntimeError(System.FormattableString.Invariant($"Function '{funcName}' with {argCount} args is not defined"));
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -993,7 +993,7 @@ namespace WarScript.Bytecode
                                 tailLambda = cf;
                             else
                             {
-                                RuntimeError($"Function '{funcName}' with {argCount} args is not defined");
+                                RuntimeError(System.FormattableString.Invariant($"Function '{funcName}' with {argCount} args is not defined"));
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -1149,7 +1149,7 @@ namespace WarScript.Bytecode
                         var classDef = FindClassWithMethod(classData.Definition, methodName, argCount);
                         if (classDef == null)
                         {
-                            RuntimeError($"Method '{methodName}' with {argCount} args not found");
+                            RuntimeError(System.FormattableString.Invariant($"Method '{methodName}' with {argCount} args not found"));
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1288,7 +1288,7 @@ namespace WarScript.Bytecode
                             target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                         else if (target.IsText && index.IsNumeric)
                         {
-                            var replacement = value.ToString();
+                            var replacement = Text(value);
                             if (!TextWriteFits(target, index, replacement))
                             {
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
@@ -1312,7 +1312,7 @@ namespace WarScript.Bytecode
                             target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                         else if (target.IsText && index.IsNumeric)
                         {
-                            var replacement = value.ToString();
+                            var replacement = Text(value);
                             if (!TextWriteFits(target, index, replacement))
                             {
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
@@ -1356,7 +1356,7 @@ namespace WarScript.Bytecode
                                 propVal.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                             else if (propVal.IsText && index.IsNumeric)
                             {
-                                var replacement = value.ToString();
+                                var replacement = Text(value);
                                 if (!TextWriteFits(propVal, index, replacement))
                                 {
                                     if (DoHandleException(ref fi, ref code, ref constants)) break;
@@ -1668,7 +1668,7 @@ namespace WarScript.Bytecode
                         var printed = Pop();
                         if (_script.AuditSink != null && ContainsLogical(printed, 0))
                             Audit(AuditKind.LogicalFormatted, fi, "print " + Describe(printed));
-                        _script.Print(printed.ToString());
+                        _script.Print(Text(printed));
                         break;
                     }
 
@@ -1678,7 +1678,7 @@ namespace WarScript.Bytecode
                         {
                             var line = _frames[fi].IP > 0 && _frames[fi].IP - 1 < _frames[fi].Function.Chunk.Lines.Count
                                 ? _frames[fi].Function.Chunk.Lines[_frames[fi].IP - 1] : 0;
-                            RuntimeError($"Assertion error at line {line}");
+                            RuntimeError(System.FormattableString.Invariant($"Assertion error at line {line}"));
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -2398,6 +2398,12 @@ namespace WarScript.Bytecode
         }
 
         /// <summary>
+        /// A value as text for <c>print</c> and the text operators: the
+        /// canonical format (T1.6), with the instance's native formatters.
+        /// </summary>
+        private string Text(in WarValue v) => v.Format(_script.NativeFormatters);
+
+        /// <summary>
         /// A value for an audit detail: its type and a short form. Never calls
         /// ToString on an array, instance or native object (a cyclic array
         /// would recurse, CRASH-1; host objects are not formatted, R1).
@@ -2408,15 +2414,12 @@ namespace WarScript.Bytecode
             {
                 case ValueTag.Null: return "null";
                 case ValueTag.Numeric:
-                    // Integers culture-invariantly (R1); v1's fractional formatting is integer-only already.
-                    return "number " + (F64.Fract(v.Numeric) == F64.Zero
-                        ? WarValue.ToInt(v.Numeric).ToString(System.Globalization.CultureInfo.InvariantCulture)
-                        : v.ToString());
+                    return "number " + WarValue.FormatNumber(v.Numeric); // culture-invariant (T1.6)
                 case ValueTag.Logical: return "logical " + (v.LogicalValue ? "true" : "false");
                 case ValueTag.Text:
                     var t = v.TextValue;
                     return "text \"" + (t.Length <= 40 ? t : t.Substring(0, 37) + "...") + "\"";
-                case ValueTag.Array: return "array of " + v.ArrayValue.Count;
+                case ValueTag.Array: return "array of " + v.ArrayValue.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 case ValueTag.Class: return v.ClassValue.Definition.ClassDetails.Name + " instance";
                 case ValueTag.NativeObject: return "native " + (v.Ref?.GetType().Name ?? "null");
                 default: return v.Tag.ToString();

@@ -1,4 +1,3 @@
-# known-failing: DET-1
 # Interpolation combined with all language features:
 # class methods, array access, arithmetic, conditionals,
 # loop-generated strings, nested interpolation

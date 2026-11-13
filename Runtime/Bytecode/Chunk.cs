@@ -162,11 +162,11 @@ namespace WarScript.Bytecode
 
         private int DisassembleInstruction(StringBuilder sb, int offset)
         {
-            sb.Append($"{offset:D4} ");
+            sb.Append(System.FormattableString.Invariant($"{offset:D4} "));
             if (offset > 0 && offset < Lines.Count && Lines[offset] == Lines[offset - 1])
                 sb.Append("   | ");
             else if (offset < Lines.Count)
-                sb.Append($"{Lines[offset],4} ");
+                sb.Append(System.FormattableString.Invariant($"{Lines[offset],4} "));
             else
                 sb.Append("   ? ");
 
@@ -175,66 +175,66 @@ namespace WarScript.Bytecode
             {
                 case OpCode.Constant:
                     var ci = ReadU16(offset + 1);
-                    sb.AppendLine($"CONSTANT        {ci} ({Constants[ci]})");
+                    sb.AppendLine(System.FormattableString.Invariant($"CONSTANT        {ci} ({Constants[ci]})"));
                     return offset + 3;
                 case OpCode.GetLocal: case OpCode.SetLocal:
-                    sb.AppendLine($"{op,-16}{ReadU16(offset + 1)}");
+                    sb.AppendLine(System.FormattableString.Invariant($"{op,-16}{ReadU16(offset + 1)}"));
                     return offset + 3;
                 case OpCode.GetGlobal: case OpCode.SetGlobal:
                     var gi = ReadU16(offset + 1);
-                    sb.AppendLine($"{op,-16}{gi} ({Constants[gi]})");
+                    sb.AppendLine(System.FormattableString.Invariant($"{op,-16}{gi} ({Constants[gi]})"));
                     return offset + 3;
                 case OpCode.Jump: case OpCode.JumpIfFalse: case OpCode.JumpIfTrue:
                     var fwd = ReadU16(offset + 1);
-                    sb.AppendLine($"{op,-16}{offset} -> {offset + 3 + fwd}");
+                    sb.AppendLine(System.FormattableString.Invariant($"{op,-16}{offset} -> {offset + 3 + fwd}"));
                     return offset + 3;
                 case OpCode.Loop:
                     var bck = ReadU16(offset + 1);
-                    sb.AppendLine($"{op,-16}{offset} -> {offset + 3 - bck}");
+                    sb.AppendLine(System.FormattableString.Invariant($"{op,-16}{offset} -> {offset + 3 - bck}"));
                     return offset + 3;
                 case OpCode.Call: case OpCode.TailCall: case OpCode.CallMethod:
                     var ni = ReadU16(offset + 1);
-                    sb.AppendLine($"{op,-16}{Constants[ni]} ({Code[offset + 3]} args)");
+                    sb.AppendLine(System.FormattableString.Invariant($"{op,-16}{Constants[ni]} ({Code[offset + 3]} args)"));
                     return offset + 4;
                 case OpCode.CallValue:
-                    sb.AppendLine($"CALL_VALUE      ({Code[offset + 1]} args)");
+                    sb.AppendLine(System.FormattableString.Invariant($"CALL_VALUE      ({Code[offset + 1]} args)"));
                     return offset + 2;
                 case OpCode.NewArray:
-                    sb.AppendLine($"NEW_ARRAY       {ReadU16(offset + 1)}");
+                    sb.AppendLine(System.FormattableString.Invariant($"NEW_ARRAY       {ReadU16(offset + 1)}"));
                     return offset + 3;
                 case OpCode.NewInstance:
                     var ii = ReadU16(offset + 1);
-                    sb.AppendLine($"NEW_INSTANCE    {Constants[ii]} ({Code[offset + 3]} args)");
+                    sb.AppendLine(System.FormattableString.Invariant($"NEW_INSTANCE    {Constants[ii]} ({Code[offset + 3]} args)"));
                     return offset + 4;
                 case OpCode.GetProperty: case OpCode.SetProperty:
                 case OpCode.IndexSetProp:
                 case OpCode.ThisGetProperty: case OpCode.ThisSetProperty:
                     var pi = ReadU16(offset + 1);
                     var cs = ReadU16(offset + 3);
-                    sb.AppendLine($"{op,-16}{Constants[pi]} (cache={cs})");
+                    sb.AppendLine(System.FormattableString.Invariant($"{op,-16}{Constants[pi]} (cache={cs})"));
                     return offset + 5;
                 case OpCode.LessJump: case OpCode.LessEqualJump:
                 case OpCode.GreaterJump: case OpCode.GreaterEqualJump:
                 case OpCode.EqualJump: case OpCode.NotEqualJump:
                     var cjFwd = ReadU16(offset + 1);
-                    sb.AppendLine($"{op,-16}{offset} -> {offset + 3 + cjFwd}");
+                    sb.AppendLine(System.FormattableString.Invariant($"{op,-16}{offset} -> {offset + 3 + cjFwd}"));
                     return offset + 3;
                 case OpCode.CastAs: case OpCode.InstanceOf:
                     var ci2 = ReadU16(offset + 1);
                     sb.AppendLine($"{op,-16}{Constants[ci2]}");
                     return offset + 3;
                 case OpCode.PopN:
-                    sb.AppendLine($"POP_N           {Code[offset + 1]}");
+                    sb.AppendLine(System.FormattableString.Invariant($"POP_N           {Code[offset + 1]}"));
                     return offset + 2;
                 case OpCode.Import:
                     var mi = ReadU16(offset + 1);
                     sb.AppendLine($"IMPORT          {Constants[mi]}");
                     return offset + 3;
                 case OpCode.DropPending:
-                    sb.AppendLine($"DROP_PENDING    end={ReadU16(offset + 1)}");
+                    sb.AppendLine(System.FormattableString.Invariant($"DROP_PENDING    end={ReadU16(offset + 1)}"));
                     return offset + 3;
                 case OpCode.PushHandler:
-                    sb.AppendLine($"PUSH_HANDLER    rescue={ReadU16(offset+1)} ensure={ReadU16(offset+3)} end={ReadU16(offset+5)}");
+                    sb.AppendLine(System.FormattableString.Invariant($"PUSH_HANDLER    rescue={ReadU16(offset+1)} ensure={ReadU16(offset+3)} end={ReadU16(offset+5)}"));
                     return offset + 7;
                 default:
                     sb.AppendLine($"{op}");

@@ -28,8 +28,38 @@ namespace WarScript.Parser
 
         public static F64 Parse(string s)
         {
+            var error = TryParseCore(s, out long raw, out char bad);
+            switch (error)
+            {
+                case Error.None:
+                    return F64.FromRaw(raw);
+                case Error.Empty:
+                    throw new SyntaxException("Empty numeric literal");
+                case Error.InvalidCharacter:
+                    throw new SyntaxException($"Invalid character '{bad}' in numeric literal '{s}'");
+                case Error.OutOfRange:
+                    throw new SyntaxException($"Numeric literal '{s}' is out of the representable F64 range");
+                default:
+                    throw new SyntaxException($"Malformed numeric literal '{s}'");
+            }
+        }
+
+        /// <summary>
+        /// Parses <paramref name="s"/> exactly as <see cref="Parse"/> does, but
+        /// returns false instead of throwing when it is not a valid literal
+        /// (v2 plan T1.6: the number formatter checks its candidates with it).
+        /// </summary>
+        public static bool TryParseRaw(string s, out long raw) =>
+            TryParseCore(s, out raw, out _) == Error.None;
+
+        private enum Error { None, Empty, InvalidCharacter, OutOfRange, Malformed }
+
+        private static Error TryParseCore(string s, out long raw, out char bad)
+        {
+            raw = 0;
+            bad = '\0';
             if (string.IsNullOrEmpty(s))
-                throw new SyntaxException("Empty numeric literal");
+                return Error.Empty;
 
             int i = 0;
             bool negative = false;
@@ -42,11 +72,10 @@ namespace WarScript.Parser
             while (i < s.Length && s[i] != '.')
             {
                 char c = s[i];
-                if (c < '0' || c > '9')
-                    throw new SyntaxException($"Invalid character '{c}' in numeric literal '{s}'");
+                if (c < '0' || c > '9') { bad = c; return Error.InvalidCharacter; }
                 intPart = intPart * 10 + (c - '0');
                 if (intPart > MaxIntegerPart)
-                    throw new SyntaxException($"Numeric literal '{s}' is out of the representable F64 range");
+                    return Error.OutOfRange;
                 intDigits++;
                 i++;
             }
@@ -62,8 +91,7 @@ namespace WarScript.Parser
                 while (i < s.Length)
                 {
                     char c = s[i];
-                    if (c < '0' || c > '9')
-                        throw new SyntaxException($"Invalid character '{c}' in numeric literal '{s}'");
+                    if (c < '0' || c > '9') { bad = c; return Error.InvalidCharacter; }
                     if (fracDigits < 9)
                     {
                         fracNum = fracNum * 10 + (c - '0');
@@ -78,11 +106,11 @@ namespace WarScript.Parser
             }
 
             if (intDigits == 0 && fracDigits == 0)
-                throw new SyntaxException($"Malformed numeric literal '{s}'");
+                return Error.Malformed;
 
-            long raw = (intPart << Shift) + fracRaw;
+            raw = (intPart << Shift) + fracRaw;
             if (negative) raw = -raw;
-            return F64.FromRaw(raw);
+            return Error.None;
         }
     }
 }

@@ -467,7 +467,7 @@ namespace WarScript.Bytecode
             // right back here, so recursing on the same node can only overflow
             // the stack — reject the assignment target instead.
             throw new SyntaxException(
-                $"Invalid assignment target at line {line}: " +
+                System.FormattableString.Invariant($"Invalid assignment target at line {line}: ") +
                 "only variables, array elements and class properties can be assigned to");
         }
 
@@ -751,7 +751,7 @@ namespace WarScript.Bytecode
         private void CompileBreak(BreakStatement stmt)
         {
             if (_loops.Count == 0)
-                throw new SyntaxException($"'break' outside of a loop at line {Line(stmt)}");
+                throw new SyntaxException(System.FormattableString.Invariant($"'break' outside of a loop at line {Line(stmt)}"));
             int line = Line(stmt);
 
             var loop = _loops[_loops.Count - 1];
@@ -765,7 +765,7 @@ namespace WarScript.Bytecode
         private void CompileNext(NextStatement stmt)
         {
             if (_loops.Count == 0)
-                throw new SyntaxException($"'next' outside of a loop at line {Line(stmt)}");
+                throw new SyntaxException(System.FormattableString.Invariant($"'next' outside of a loop at line {Line(stmt)}"));
             int line = Line(stmt);
 
             var loop = _loops[_loops.Count - 1];

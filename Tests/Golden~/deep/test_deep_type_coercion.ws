@@ -1,4 +1,3 @@
-# known-failing: DET-1
 # Type coercion, dynamic typing, mixed-type operations,
 # edge cases with null, booleans, numbers, strings
 

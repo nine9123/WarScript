@@ -198,6 +198,27 @@ namespace WarScript
         /// </summary>
         public int MaxArrayLength { get; set; } = 1_048_576;
 
+        // ── Formatting native objects (v2 plan T1.6, 5.10, PROP-14) ──
+
+        /// <summary>
+        /// The formatters registered with <see cref="RegisterNativeFormatter{T}"/>.
+        /// </summary>
+        internal readonly Native.NativeFormatters NativeFormatters = new();
+
+        /// <summary>
+        /// Registers how <c>print</c>, text concatenation and interpolation
+        /// format native objects whose runtime type is exactly
+        /// <typeparamref name="T"/>. Without one such an object prints as
+        /// <c>&lt;TypeName&gt;</c>: the runtime never calls a host object's
+        /// own <c>ToString()</c>, which may depend on the culture or go
+        /// through <c>double</c> (DET-3). <c>F64Vec3</c> and function values
+        /// have built-in formats that a registration does not change. The
+        /// formatter must be deterministic; it is kept across
+        /// <see cref="Reload"/>.
+        /// </summary>
+        public void RegisterNativeFormatter<T>(Func<T, string> formatter) =>
+            NativeFormatters.Register(formatter);
+
         // ── Host entries and instance budgets (v2 plan T1.5, 6.5) ──
 
         /// <summary>
@@ -807,7 +828,7 @@ namespace WarScript
             if (function == null)
             {
                 ExceptionContext.RaiseException(
-                    $"Coroutine function '{functionName}' with {argCount} arguments is not defined");
+                    System.FormattableString.Invariant($"Coroutine function '{functionName}' with {argCount} arguments is not defined"));
                 return -1;
             }
 

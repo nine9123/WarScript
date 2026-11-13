@@ -29,7 +29,7 @@ namespace WarScript.Token
 
         public override string ToString()
         {
-            return $"[{RowNumber}] {Type}:\t{Value}";
+            return System.FormattableString.Invariant($"[{RowNumber}] {Type}:\t{Value}");
         }
     }
 }

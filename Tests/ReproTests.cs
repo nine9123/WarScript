@@ -181,7 +181,7 @@ print ""not reached""", null, (w, m) => output.Add(m));
             return null;
         }
 
-        // ── A.9 Formatting fractions and native objects (DET-2, DET-3, T1.6) ──
+        // ── A.9 Formatting fractions and native objects (DET-2, DET-3, fixed by T1.6) ──
 
         [Test]
         public void A09_F64Vec3PrintsWithTheCanonicalNumberFormat()
@@ -202,7 +202,7 @@ end", null, (w, m) => output.Add(m));
                     return Expect("(1, 0.33333333325572311878204345703125, -2)", output.LastOrDefault());
                 });
             }
-            KnownFailing("DET-2", failure);
+            Assert.IsNull(failure, failure);
         }
 
         /// <summary>Plan 5.10 and T1.6: the formatting table, identical in every culture.</summary>
@@ -243,7 +243,7 @@ end", null, (w, m) => output.Add(m));
                 }
                 return null;
             });
-            KnownFailing("DET-2", failure);
+            Assert.IsNull(failure, failure);
         }
 
         // ── A.19 Disassembler (DX-5, T1.7) ───────────────────────────────

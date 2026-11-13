@@ -110,7 +110,7 @@ namespace WarScript
             {
                 if (Peek(2) == '"' && Peek(3) == '"')
                     throw new SyntaxException(
-                        $"Raw text literals (\"\"\") do not support interpolation at line {_row}");
+                        System.FormattableString.Invariant($"Raw text literals (\"\"\") do not support interpolation at line {_row}"));
 
                 _pos++; // skip $
                 ScanString();
@@ -207,7 +207,7 @@ namespace WarScript
                 return;
             }
 
-            throw new SyntaxException($"Unexpected character '{c}' at line {_row}");
+            throw new SyntaxException(System.FormattableString.Invariant($"Unexpected character '{c}' at line {_row}"));
         }
         
         /// <summary>
@@ -296,7 +296,7 @@ namespace WarScript
             }
 
             if (!terminated)
-                throw new SyntaxException($"Unterminated text literal starting at line {openRow}");
+                throw new SyntaxException(System.FormattableString.Invariant($"Unterminated text literal starting at line {openRow}"));
 
             // Emit the trailing segment — or the whole (possibly empty) literal
             // when there was no interpolation at all.
@@ -326,7 +326,7 @@ namespace WarScript
 
             var end = FindRawStringEnd(_pos);
             if (end < 0)
-                throw new SyntaxException($"Unterminated raw text literal starting at line {openRow}");
+                throw new SyntaxException(System.FormattableString.Invariant($"Unterminated raw text literal starting at line {openRow}"));
 
             var start = _pos;
             var stop = end;
@@ -418,7 +418,7 @@ namespace WarScript
         private char ReadEscape()
         {
             if (AtEnd)
-                throw new SyntaxException($"Text literal ends with a dangling '\\' at line {_row}");
+                throw new SyntaxException(System.FormattableString.Invariant($"Text literal ends with a dangling '\\' at line {_row}"));
 
             var c = Current;
             _pos++;
@@ -433,7 +433,7 @@ namespace WarScript
                 case 't': return '\t';
                 case 'r': return '\r';
                 default:
-                    throw new SyntaxException($"Unknown escape sequence '\\{c}' at line {_row}");
+                    throw new SyntaxException(System.FormattableString.Invariant($"Unknown escape sequence '\\{c}' at line {_row}"));
             }
         }
 
@@ -480,7 +480,7 @@ namespace WarScript
                 _pos++;
             }
 
-            throw new SyntaxException($"Unterminated interpolation in text literal at line {openRow}");
+            throw new SyntaxException(System.FormattableString.Invariant($"Unterminated interpolation in text literal at line {openRow}"));
         }
 
         /// <summary>

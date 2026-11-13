@@ -191,7 +191,7 @@ namespace WarScript.Bytecode
             var version = r.ReadByte();
             if (version > Version)
                 throw new InvalidDataException(
-                    $"Bytecode version {version} is newer than supported version {Version}");
+                    System.FormattableString.Invariant($"Bytecode version {version} is newer than supported version {Version}"));
 
             // Top-level script body
             var topLevel = ReadCompiledFunction(r);

@@ -1,4 +1,3 @@
-# known-failing: DET-1
 # ──────────────────────────────────────────────────────
 # test_deep_operators.ws
 # Deep operator interaction tests: exercises all the

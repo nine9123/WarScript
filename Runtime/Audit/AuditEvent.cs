@@ -81,6 +81,6 @@ namespace WarScript.Audit
             Detail = detail;
         }
 
-        public override string ToString() => $"{Kind} at {Script}:{Line} in {Function}: {Detail}";
+        public override string ToString() => System.FormattableString.Invariant($"{Kind} at {Script}:{Line} in {Function}: {Detail}");
     }
 }

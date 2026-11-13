@@ -11,12 +11,12 @@ namespace WarScript
         {
             if (index >= args.Count)
                 throw new ArgumentException(
-                    $"Expected argument at position {index}, but only {args.Count} were provided");
+                    System.FormattableString.Invariant($"Expected argument at position {index}, but only {args.Count} were provided"));
 
             var val = args[index];
             if (val.Tag != expectedTag)
                 throw new ArgumentException(
-                    $"Argument {index} expected {expectedTag}, got {val.Tag}");
+                    System.FormattableString.Invariant($"Argument {index} expected {expectedTag}, got {val.Tag}"));
 
             return val;
         }
@@ -46,13 +46,13 @@ namespace WarScript
         {
             if (index >= args.Count)
                 throw new ArgumentException(
-                    $"Expected argument at position {index}, but only {args.Count} were provided");
+                    System.FormattableString.Invariant($"Expected argument at position {index}, but only {args.Count} were provided"));
 
             if (args[index].IsNativeObject && args[index].Ref is T typed)
                 return typed;
 
             throw new ArgumentException(
-                $"Argument {index} expected {typeof(T).Name}, got {args[index].Tag}");
+                System.FormattableString.Invariant($"Argument {index} expected {typeof(T).Name}, got {args[index].Tag}"));
         }
     }
 }

@@ -2,9 +2,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using FixMath;
+using WarScript.Bytecode;
 using WarScript.Exception;
+using WarScript.Native;
 
 namespace WarScript.Expression.Value
 {
@@ -299,28 +302,73 @@ namespace WarScript.Expression.Value
 
         // ── ToString ──
 
-        public override string ToString()
+        public override string ToString() => Format(null);
+
+        /// <summary>
+        /// Formats the value by the canonical rules (v2 plan 5.10, T1.6): the
+        /// same text in every culture, numbers through integer arithmetic only.
+        /// A native object is formatted by <paramref name="formatters"/> when
+        /// one is registered for its type (the instance's, for <c>print</c> and
+        /// text operators), otherwise as <c>&lt;TypeName&gt;</c>.
+        /// </summary>
+        internal string Format(NativeFormatters? formatters)
         {
             switch (Tag)
             {
                 case ValueTag.Null: return "null";
-                case ValueTag.Numeric:
-                    return StringInterner.TryGetIntegerString(Numeric)
-                        ?? (F64.Fract(Numeric) == F64.Zero
-                                ? ToInt(Numeric).ToString()
-                                : FormatFractional(Numeric));
+                case ValueTag.Numeric: return FormatNumber(Numeric);
                 case ValueTag.Logical: return LogicalValue ? "True" : "False";
                 case ValueTag.Text: return TextValue;
                 case ValueTag.Array:
                     var sb = new StringBuilder();
-                    AppendArray(sb, ArrayValue, 0, new List<List<WarValue>>());
+                    AppendArray(sb, ArrayValue, 0, new List<List<WarValue>>(), formatters);
                     return sb.ToString();
                 case ValueTag.Class:
                     return ClassValue.Definition.ClassDetails.Name;
                 case ValueTag.NativeObject:
-                    return Ref?.ToString() ?? "null";
+                    return FormatNative(Ref, formatters);
                 default: return "";
             }
+        }
+
+        /// <summary>
+        /// A native object (PROP-14): never the host object's own
+        /// <c>ToString()</c>, which may go through <c>double</c> or the
+        /// current culture (DET-3). <c>F64Vec3</c> prints as <c>(x, y, z)</c>
+        /// with the number rules, a function value as <c>&lt;fun name&gt;</c>
+        /// (a lambda as <c>&lt;fun lambda&gt;</c>), anything else as the
+        /// registered formatter's text or <c>&lt;TypeName&gt;</c>.
+        /// </summary>
+        private static string FormatNative(object? obj, NativeFormatters? formatters)
+        {
+            switch (obj)
+            {
+                case null:
+                    return "null";
+                case F64Vec3 v:
+                    return "(" + FormatNumber(v.X) + ", " + FormatNumber(v.Y) + ", " + FormatNumber(v.Z) + ")";
+                case CompiledFunction f:
+                    return "<fun " + (f.Name == "<lambda>" ? "lambda" : f.Name) + ">";
+            }
+            if (formatters != null && !formatters.IsEmpty && formatters.TryFormat(obj, out var text))
+                return text;
+            return "<" + obj.GetType().Name + ">";
+        }
+
+        /// <summary>
+        /// Formats a number (5.10): an integer as invariant digits with an
+        /// ASCII '-', a fraction as the shortest decimal of up to 9 fractional
+        /// digits that the literal parser reads back to the same raw value,
+        /// or else its exact decimal expansion. No <c>double</c>, no culture.
+        /// </summary>
+        public static string FormatNumber(F64 v)
+        {
+            var interned = StringInterner.TryGetIntegerString(v);
+            if (interned != null) return interned;
+            long raw = v.Raw;
+            if ((raw & 0xFFFFFFFFL) == 0)
+                return (raw >> 32).ToString(CultureInfo.InvariantCulture); // exact for negatives too
+            return FormatFractional(raw);
         }
 
         /// <summary>
@@ -343,7 +391,7 @@ namespace WarScript.Expression.Value
         /// of every open array print as <c>...</c>.
         /// </summary>
         private static void AppendArray(StringBuilder sb, List<WarValue> vals, int depth,
-            List<List<WarValue>> inProgress)
+            List<List<WarValue>> inProgress, NativeFormatters? formatters)
         {
             if (depth >= MaxValueDepth || ContainsReference(inProgress, vals))
             {
@@ -362,9 +410,9 @@ namespace WarScript.Expression.Value
                 }
                 var v = vals[i];
                 if (v.Tag == ValueTag.Array)
-                    AppendArray(sb, v.ArrayValue, depth + 1, inProgress);
+                    AppendArray(sb, v.ArrayValue, depth + 1, inProgress, formatters);
                 else
-                    sb.Append(v.ToString());
+                    sb.Append(v.Format(formatters));
             }
             sb.Append(']');
             inProgress.RemoveAt(inProgress.Count - 1);
@@ -377,37 +425,51 @@ namespace WarScript.Expression.Value
             return false;
         }
 
-        private static readonly long[] Pow10 =
+        private static readonly ulong[] Pow10 =
             { 1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000 };
 
-        // Display a fractional fixed-point value as the shortest decimal string that
-        // round-trips to the same raw — so a literal like 3.14 prints as "3.14" rather
-        // than its full binary expansion "3.1399999998975545". Computed with integer
-        // math only (no float/double in runtime); the Parse round-trip check guarantees
-        // correctness. Values with no short round-tripping form (e.g. transcendental
-        // results) fall back to full precision.
-        private static string FormatFractional(F64 v)
+        /// <summary>
+        /// A number with a fractional part (5.10, T1.6). For p = 1..9 the
+        /// p-digit decimal rounded to nearest is a candidate; the first one
+        /// <see cref="NumericLiteral.TryParseRaw"/> reads back to
+        /// <paramref name="raw"/> is the result, so the literal <c>3.14</c>
+        /// prints as <c>3.14</c> rather than its binary expansion. When none
+        /// does, the exact expansion of the 32-bit fraction is written
+        /// (multiply by 10, emit the integer digit, keep the remainder), which
+        /// ends within 32 digits: 1/3 prints as
+        /// <c>0.33333333325572311878204345703125</c>. Integer arithmetic only,
+        /// on the magnitude as an unsigned value, so <c>F64.MinValue</c> does
+        /// not overflow.
+        /// </summary>
+        private static string FormatFractional(long raw)
         {
-            long raw = v.Raw;
             bool neg = raw < 0;
-            ulong mag = neg ? (ulong)(-raw) : (ulong)raw;
+            ulong mag = neg ? unchecked(0UL - (ulong)raw) : (ulong)raw;
             ulong intPart = mag >> 32;
             ulong frac = mag & 0xFFFFFFFFUL;
+            string sign = neg ? "-" : "";
             for (int p = 1; p <= 9; p++)
             {
-                ulong pow = (ulong)Pow10[p];
+                ulong pow = Pow10[p];
                 ulong scaled = (frac * pow + (1UL << 31)) >> 32; // round to nearest
                 ulong ip = intPart;
                 if (scaled >= pow) { ip++; scaled -= pow; }      // rounding carry
-                string candidate = (neg ? "-" : "") + ip + "." + scaled.ToString().PadLeft(p, '0');
-                try
-                {
-                    if (WarScript.Parser.NumericLiteral.Parse(candidate).Raw == raw)
-                        return candidate;
-                }
-                catch { /* candidate out of range / malformed at this precision — try next */ }
+                string candidate = sign + ip.ToString(CultureInfo.InvariantCulture) + "."
+                                   + scaled.ToString(CultureInfo.InvariantCulture).PadLeft(p, '0');
+                // An out-of-range candidate (a carry past 2147483647) is rejected, not thrown.
+                if (WarScript.Parser.NumericLiteral.TryParseRaw(candidate, out long parsed) && parsed == raw)
+                    return candidate;
             }
-            return v.ToString();
+
+            var sb = new StringBuilder(sign.Length + 11 + 1 + 32);
+            sb.Append(sign).Append(intPart.ToString(CultureInfo.InvariantCulture)).Append('.');
+            while (frac != 0)
+            {
+                frac *= 10;                          // < 2^36: no overflow
+                sb.Append((char)('0' + (int)(frac >> 32)));
+                frac &= 0xFFFFFFFFUL;
+            }
+            return sb.ToString();
         }
 
         // ── Comparison helpers (used by comparison operators) ──

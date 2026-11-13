@@ -57,7 +57,7 @@ namespace WarScript
             // Silently stopping here would discard the rest of the script.
             if (parser.Tokens.TryPeek(out var leftover))
                 throw new SyntaxException(
-                    $"Unexpected `{leftover.Value}` at line {leftover.RowNumber} — not a valid start of a statement");
+                    System.FormattableString.Invariant($"Unexpected `{leftover.Value}` at line {leftover.RowNumber} — not a valid start of a statement"));
         }
 
         /// <summary>
@@ -343,7 +343,7 @@ namespace WarScript
             var loopExpression = ExpressionReader.ReadExpression(_script, Tokens);
             if (ReferenceEquals(loopExpression, _script.NullExpr))
                 throw new SyntaxException(
-                    $"'loop' at line {rowToken.RowNumber} requires a condition or an iterable");
+                    System.FormattableString.Invariant($"'loop' at line {rowToken.RowNumber} requires a condition or an iterable"));
 
             AbstractLoopStatement loopStatement;
 
