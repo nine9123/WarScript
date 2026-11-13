@@ -8,6 +8,7 @@ using WarScript;
 using WarScript.Bytecode;
 using WarScript.Context.Definition;
 using WarScript.Expression.Value;
+using WarScript.Native;
 
 namespace Tests
 {
@@ -113,6 +114,305 @@ namespace Tests
                 Assert.Throws<InvalidDataException>(() => Load(bytes.Take(length).ToArray()), length.ToString());
         }
 
+        // ── Verifier and loader (10.3, 10.4; A.20, SEC-1) ───────────────
+
+        private const byte Const = (byte)OpCode.Constant;
+        private const byte Null_ = (byte)OpCode.Null;
+        private const byte Ret = (byte)OpCode.Return;
+
+        /// <summary>A function with the given code, one line per byte.</summary>
+        private static CompiledFunction Function(string name, int arity, byte[] code,
+            WarValue[] constants = null, int caches = 0)
+        {
+            var f = new CompiledFunction(name, arity);
+            f.Chunk.Code.AddRange(code);
+            for (int i = 0; i < code.Length; i++) f.Chunk.Lines.Add(1);
+            if (constants != null) f.Chunk.Constants.AddRange(constants);
+            f.Chunk.PropertyCaches = new InlineCache[caches];
+            return f;
+        }
+
+        /// <summary>A bytecode file whose script body is <paramref name="body"/>, written by the real serializer.</summary>
+        private static byte[] File_(CompiledFunction body)
+        {
+            var host = new WarScriptLanguage("t", "", null, null);
+            var ms = new MemoryStream();
+            using (var w = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
+                BytecodeSerializer.Save(w, body, new DefinitionScope(host, null));
+            return ms.ToArray();
+        }
+
+        private static InvalidDataException Rejected(byte[] bytes, string expected)
+        {
+            var output = new List<string>();
+            var script = new WarScriptLanguage("t", "", null, (w, m) => output.Add(m));
+            var e = Assert.Throws<InvalidDataException>(() => script.LoadBytecode(new MemoryStream(bytes)));
+            StringAssert.Contains(expected, e.Message);
+            Assert.IsEmpty(output, "nothing ran");
+            return e;
+        }
+
+        private static InvalidDataException RejectedBody(byte[] code, string expected, int arity = 0,
+            WarValue[] constants = null, int caches = 0) =>
+            Rejected(File_(Function("<script>", arity, code, constants, caches)), expected);
+
+        [Test]
+        public void Verifier_AcceptsAHandBuiltFunction_AndItRuns()
+        {
+            var output = new List<string>();
+            var body = Function("<script>", 0, new byte[]
+            {
+                Const, 0, 0, (byte)OpCode.Print, Null_, Ret,
+            }, new[] { WarValue.FromText("hi") });
+            var script = new WarScriptLanguage("t", "", null, (w, m) => output.Add(m));
+            script.LoadBytecode(new MemoryStream(File_(body)));
+            script.Run();
+            CollectionAssert.AreEqual(new[] { "hi" }, output);
+        }
+
+        [Test]
+        public void Verifier_ComputesMaxStack()
+        {
+            // a + (1 + 2) with a in slot 0: heights 1, 2, 3, 4, 3, 2, then return.
+            var f = Function("f", 1, new byte[]
+            {
+                (byte)OpCode.GetLocal, 0, 0, Const, 0, 0, Const, 0, 0,
+                (byte)OpCode.Add, (byte)OpCode.Add, Ret,
+            }, new[] { WarValue.FromNumeric(1) });
+            BytecodeVerifier.Verify(f, atLoad: true);
+            Assert.AreEqual(4, f.MaxStack);
+        }
+
+        // A.20, one test per case of the appendix.
+
+        [Test]
+        public void A20_TruncatedAfterTheHeader() =>
+            Rejected(File_(Function("<script>", 0, new[] { Null_, Ret })).Take(9).ToArray(), "truncated bytecode");
+
+        [Test]
+        public void A20_TruncatedAnywhere_IsInvalidData()
+        {
+            var bytes = File_(Function("<script>", 0, new byte[] { Const, 0, 0, (byte)OpCode.Print, Null_, Ret },
+                new[] { WarValue.FromText("hi") }));
+            for (int length = 0; length < bytes.Length; length++)
+                Assert.Throws<InvalidDataException>(() => Load(bytes.Take(length).ToArray()), length.ToString());
+        }
+
+        [Test]
+        public void A20_JumpIntoTheMiddleOfAnInstruction() =>
+            RejectedBody(new byte[] { (byte)OpCode.Jump, 0, 1, Const, 0, 0, Null_, Ret }, "not an instruction boundary",
+                constants: new[] { WarValue.Null });
+
+        [Test]
+        public void A20_ConstantIndexOutOfRange() =>
+            RejectedBody(new byte[] { Const, 0, 5, Ret }, "constant index out of range", constants: new[] { WarValue.Null });
+
+        [Test]
+        public void A20_NameOperandOnANumber() =>
+            RejectedBody(new byte[] { (byte)OpCode.GetGlobal, 0, 0, Ret }, "not a text constant",
+                constants: new[] { WarValue.FromNumeric(1) });
+
+        [Test]
+        public void A20_LocalSlotAtTheStackHeight()
+        {
+            RejectedBody(new byte[] { (byte)OpCode.GetLocal, 0, 0, Ret }, "slot is not below the stack height");
+            // An argument is a live slot; the one above it is not.
+            RejectedBody(new byte[] { (byte)OpCode.GetLocal, 0, 1, Ret }, "slot is not below the stack height", arity: 1);
+        }
+
+        [Test]
+        public void A20_UnknownOpcode() =>
+            RejectedBody(new byte[] { 58, Null_, Ret }, "unknown opcode 58");
+
+        [Test]
+        public void A20_LambdaConstantsNested1000Deep()
+        {
+            var inner = Function("<lambda>", 0, new[] { Null_, Ret });
+            for (int i = 0; i < 1000; i++)
+                inner = Function("<lambda>", 0, new[] { Null_, Ret }, new[] { WarValue.FromNativeObject(inner) });
+            Rejected(File_(inner), "nest deeper than 32");
+        }
+
+        [Test]
+        public void A20_PathFallsOffTheEnd() =>
+            RejectedBody(new byte[] { Null_, (byte)OpCode.Pop }, "falls off the end");
+
+        // Further rejections of 10.3 and 10.4.
+
+        [Test]
+        public void Verifier_RejectsStackUnderflow() =>
+            RejectedBody(new byte[] { (byte)OpCode.Pop, Null_, Ret }, "needs 1 values, the stack has 0");
+
+        [Test]
+        public void Verifier_RejectsInconsistentHeightsAtAMerge() =>
+            // True; JumpIfFalse +1 (over Null) → the target is reached at heights 1 and 2.
+            RejectedBody(new byte[] { (byte)OpCode.True, (byte)OpCode.JumpIfFalse, 0, 1, Null_, Ret }, "differs from");
+
+        [Test]
+        public void Verifier_RejectsALoopThatJumpsForward() =>
+            RejectedBody(new byte[] { (byte)OpCode.Loop, 0, 0, Null_, Ret }, "does not jump backward");
+
+        [Test]
+        public void Verifier_RejectsUnorderedHandlerAddresses()
+        {
+            // PushHandler rescue=8 ensure=0 end=8: ensure before the PushHandler.
+            RejectedBody(new byte[] { (byte)OpCode.PushHandler, 0, 8, 0, 0, 0, 8, 1, Null_, Ret },
+                "handler addresses are not ordered");
+        }
+
+        [Test]
+        public void Verifier_RejectsACacheSlotOutOfRange() =>
+            RejectedBody(new byte[] { (byte)OpCode.This, (byte)OpCode.GetProperty, 0, 0, 0, 0, Ret }, "cache slot out of range",
+                constants: new[] { WarValue.FromText("x") });
+
+        [Test]
+        public void Verifier_RejectsMoreThanTheValueStack()
+        {
+            var code = Enumerable.Repeat(Null_, 1025).Concat(new[] { Ret }).ToArray();
+            RejectedBody(code, "needs 1025 stack slots");
+            var fits = Function("f", 0, Enumerable.Repeat(Null_, 1024).Concat(new[] { Ret }).ToArray());
+            Assert.DoesNotThrow(() => BytecodeVerifier.Verify(fits, atLoad: true));
+        }
+
+        [Test]
+        public void Verifier_RejectsPoppingAScopeOrHandlerTheFrameDidNotPush()
+        {
+            // Either would remove what the calling frame or the host pushed.
+            RejectedBody(new byte[] { (byte)OpCode.PopScope, Null_, Ret }, "PopScope without an open block scope");
+            RejectedBody(new byte[] { (byte)OpCode.PopHandler, Null_, Ret }, "PopHandler without an open handler");
+        }
+
+        [Test]
+        public void Verifier_RejectsAMergeWithDifferentOpenScopes() =>
+            // True; JumpIfFalse +1 (over PushScope); Pop: reached with 0 and 1 open scopes.
+            RejectedBody(new byte[] { (byte)OpCode.True, (byte)OpCode.JumpIfFalse, 0, 1, (byte)OpCode.PushScope,
+                (byte)OpCode.Pop, Null_, Ret }, "open scopes or handlers");
+
+        [Test]
+        public void Verifier_RejectsATailCallInsideAHandler()
+        {
+            // PushHandler rescue=9 ensure=10 end=10 has-rescue; TailCall f/0; rescue: Pop; ensure: Null, Return.
+            RejectedBody(new byte[] { (byte)OpCode.PushHandler, 0, 13, 0, 14, 0, 14, 1, (byte)OpCode.TailCall, 0, 0, 0,
+                Null_, (byte)OpCode.Pop, Null_, Ret }, "TailCall inside a block scope or handler",
+                constants: new[] { WarValue.FromText("f") });
+        }
+
+        [Test]
+        public void Verifier_RejectsAnArityAbove255AtLoad()
+        {
+            // A call's count operand is one byte: the VM could never pad up to it.
+            RejectedBody(Enumerable.Repeat(Null_, 1).Concat(new[] { Ret }).ToArray(), "arity is above 255", arity: 256);
+            Assert.DoesNotThrow(() => BytecodeVerifier.Verify(Function("f", 255, new[] { Null_, Ret }), atLoad: true));
+        }
+
+        [Test]
+        public void Loader_RejectsInvalidUtf8()
+        {
+            var bytes = File_(Function("<script>", 0, new[] { Null_, Ret }));
+            // The script body's name follows the 9-byte header: u16 length, then "<script>".
+            Assert.AreEqual((byte)'<', bytes[11]);
+            bytes[11] = 0xFF;
+            Rejected(bytes, "invalid UTF-8");
+        }
+
+        [Test]
+        public void Loader_RejectsACountLargerThanTheBytesLeft()
+        {
+            var bytes = File_(Function("<script>", 0, new[] { Null_, Ret }));
+            // name (2 + 8 bytes), arity, local count, then the constant count.
+            int constCount = 9 + 10 + 2 + 2;
+            bytes[constCount] = 0xFF;
+            bytes[constCount + 1] = 0xFF;
+            Rejected(bytes, "constant count");
+        }
+
+        [Test]
+        public void Loader_RejectedFile_LeavesTheInstanceUnchanged()
+        {
+            var output = new List<string>();
+            var script = new WarScriptLanguage("t", "fun f []\n    print \"old\"\nend", null, (w, m) => output.Add(m));
+            script.Run();
+            var bad = File_(Function("<script>", 0, new byte[] { 58, Null_, Ret }));
+            Assert.Throws<InvalidDataException>(() => script.LoadBytecode(new MemoryStream(bad)));
+            script.Call(script.GetFunction("f", 0));
+            CollectionAssert.AreEqual(new[] { "old" }, output);
+        }
+
+        [Test]
+        public void Call_WithMoreArgumentsThanTheArity_CountsTheSurplus()
+        {
+            // The 200 extra arguments stay in the lambda's frame under its
+            // 900-element literal: 1,100 slots, though its MaxStack alone fits.
+            var literal = string.Join(", ", Enumerable.Range(0, 900));
+            var args = string.Join(", ", Enumerable.Range(0, 200));
+            var output = new List<string>();
+            var script = new WarScriptLanguage("t",
+                "g = fun [] return {" + literal + "} end\nbegin\n    g [" + args + "]\nrescue e\n    print e\nend\nprint \"after\"",
+                null, (w, m) => output.Add(m));
+            script.Run();
+            Assert.IsNull(script.LastHostFault);
+            CollectionAssert.AreEqual(new[] { "Value stack overflow", "after" }, output);
+        }
+
+        [Test]
+        public void Call_OfAFunctionNeedingMoreThanTheStack_RaisesForTheCaller()
+        {
+            var literal = string.Join(", ", Enumerable.Range(0, 1100));
+            var output = new List<string>();
+            var script = new WarScriptLanguage("t",
+                "fun big []\n    return {" + literal + "}\nend\nbegin\n    big []\nrescue e\n    print e\nend\nprint \"after\"",
+                null, (w, m) => output.Add(m));
+            script.Run();
+            CollectionAssert.AreEqual(new[] { "Value stack overflow", "after" }, output);
+        }
+
+        /// <summary>
+        /// A small, deterministic version of the fuzzer's bytecode mode (9.6):
+        /// flip 1 to 8 bytes of a compiled golden, or truncate it; the result is
+        /// either rejected with <see cref="InvalidDataException"/> or runs
+        /// (budgeted) without a host fault.
+        /// </summary>
+        [TestCase("language/test_exceptions.ws")]
+        [TestCase("language/test_classes_inheritance.ws")]
+        [TestCase("language/break_out_of_begin.ws")]
+        [TestCase("language/test_loops.ws")]
+        [TestCase("language/test_nested_classes.ws")]
+        [TestCase("language/test_functions.ws")]
+        [TestCase("language/constructor_frames.ws")]
+        [TestCase("language/ensure_leaving.ws")]
+        public void MutatedBytecode_IsRejectedOrRunsWithoutHostFault(string relativePath)
+        {
+            var path = Path.Combine(GoldenRoot(), relativePath);
+                        var source = new WarScriptLanguage("t", File.ReadAllText(path), null, null);
+            var ms = new MemoryStream();
+            source.SaveBytecode(ms);
+            var original = ms.ToArray();
+
+            var random = new System.Random(relativePath.Length * 7919 + original.Length);
+            int rejected = 0, ran = 0;
+            for (int i = 0; i < 300; i++)
+            {
+                var bytes = (byte[])original.Clone();
+                if (random.Next(8) == 0)
+                    bytes = bytes.Take(random.Next(bytes.Length)).ToArray();
+                else
+                    for (int k = random.Next(1, 9); k > 0; k--)
+                        bytes[9 + random.Next(bytes.Length - 9)] = (byte)random.Next(256); // keep the header
+
+                var script = new WarScriptLanguage("t", "", null, (w, m) => { });
+                WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
+                script.InstructionBudget = 100_000;
+                script.MemoryBudget = 16 * 1024 * 1024;
+                try { script.LoadBytecode(new MemoryStream(bytes)); }
+                catch (InvalidDataException) { rejected++; continue; }
+                script.Run();
+                Assert.IsNull(script.LastHostFault, "case " + i + ": " + script.LastHostFault);
+                ran++;
+            }
+            Assert.Greater(rejected, 0);
+            TestContext.WriteLine(relativePath + ": " + rejected + " rejected, " + ran + " ran");
+        }
+
         // ── Compiler output against the table (A.19, DX-5) ──────────────
 
         [Test]
@@ -162,8 +462,9 @@ end", null, null);
         }
 
         /// <summary>
-        /// Every function the compiler produces for a golden file decodes
-        /// through <see cref="OpInfo"/>: known opcodes, instructions that end
+        /// Every function the compiler produces for a golden file passes the
+        /// verifier (with the load-time stack limit), its boundaries are the
+        /// disassembler's, and it decodes through <see cref="OpInfo"/>: known opcodes, instructions that end
         /// exactly at the end of the code, jump and handler targets on
         /// instruction boundaries, constant indices in range, name operands
         /// that are Text, one line per code byte. Files that do not compile
@@ -191,6 +492,9 @@ end", null, null);
                 var problem = CheckAgainstTable(name, function.Chunk);
                 if (problem != null) problems.Add(problem);
                 Assert.DoesNotThrow(() => function.Chunk.Disassemble(name), name);
+                Assert.DoesNotThrow(() => BytecodeVerifier.Verify(function, atLoad: true), name);
+                Assert.That(function.MaxStack, Is.GreaterThanOrEqualTo(function.Arity), name);
+                CollectionAssert.AreEqual(function.Chunk.InstructionStarts(), BytecodeVerifier.InstructionStarts(function), name);
             }
             Assert.IsEmpty(problems, string.Join("\n", problems));
         }

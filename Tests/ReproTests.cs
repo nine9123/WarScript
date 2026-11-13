@@ -5,6 +5,7 @@ using System.Linq;
 using FixMath;
 using NUnit.Framework;
 using WarScript;
+using WarScript.Bytecode;
 using WarScript.Context.Definition;
 using WarScript.Expression.Value;
 using WarScript.Native;
@@ -264,14 +265,14 @@ end", null, (w, m) => { });
             var chunk = s.GetFunction("f", 2).Compiled.Chunk;
             string text = null;
             Assert.DoesNotThrow(() => text = chunk.Disassemble("f"));
-            // One line per instruction, at the offsets the opcode table gives.
-            // TODO(T1.7 verifier): also compare with the verifier's boundaries.
+            // One line per instruction, at the offsets the verifier decodes.
             var offsets = new List<int>();
             foreach (var line in text.Split('\n'))
                 if (line.Length >= 4 && int.TryParse(line.Substring(0, 4), System.Globalization.NumberStyles.None,
                         System.Globalization.CultureInfo.InvariantCulture, out var offset))
                     offsets.Add(offset);
             CollectionAssert.AreEqual(chunk.InstructionStarts(), offsets);
+            CollectionAssert.AreEqual(BytecodeVerifier.InstructionStarts(s.GetFunction("f", 2).Compiled), offsets);
         }
 
         // ── A.21 A native method that throws (CRASH-3, fixed by T1.3) ────

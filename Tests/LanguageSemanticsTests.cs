@@ -553,13 +553,15 @@ namespace Tests
         [Test]
         public void ValueStackOverflow_IsCatchable()
         {
-            var sb = new System.Text.StringBuilder("begin\narr = {");
+            // The check is made when a function is called, against the stack
+            // its verified bytecode needs (T1.7), so the caller rescues it.
+            var sb = new System.Text.StringBuilder("fun build []\nreturn {");
             for (int i = 0; i < 1100; i++)
             {
                 if (i > 0) sb.Append(", ");
                 sb.Append(i);
             }
-            sb.Append("}\nrescue e\nprint \"caught: \" + e\nend");
+            sb.Append("}\nend\nbegin\narr = build []\nrescue e\nprint \"caught: \" + e\nend");
 
             var output = Run(sb.ToString());
             Assert.AreEqual("caught: Value stack overflow", output[0]);

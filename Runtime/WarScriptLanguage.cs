@@ -557,6 +557,13 @@ namespace WarScript
         /// </summary>
         public void LoadBytecode(Stream stream)
         {
+            // Read and verify everything first: a file that is rejected
+            // (InvalidDataException) leaves this instance unchanged (10.4).
+            CompiledFunction topLevel;
+            DefinitionScope scope;
+            using (var r = new System.IO.BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+                (topLevel, scope) = BytecodeSerializer.Load(r, this, GlobalDefinitionScope);
+
             // Stop coroutines referencing old bytecode
             _coroutines.Clear();
 
@@ -571,10 +578,6 @@ namespace WarScript
             if (ExceptionContext.IsRaised())
                 ExceptionContext.RescueException();
             HaltFlags = HaltFlag.None;
-
-            // Load from binary
-            using var r = new System.IO.BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
-            var (topLevel, scope) = BytecodeSerializer.Load(r, this, GlobalDefinitionScope);
 
             // Merge loaded definitions into _definitionScope
             scope.CopyLocalDefinitionsTo(_definitionScope);

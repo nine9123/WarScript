@@ -17,6 +17,14 @@ namespace WarScript.Bytecode
         public int LocalCount;
 
         /// <summary>
+        /// The largest stack height the function reaches, relative to its
+        /// frame's stack base, arguments included. Computed by
+        /// <see cref="BytecodeVerifier"/> (T1.7); the VM checks it whenever it
+        /// pushes a frame, so execution never runs past the value stack.
+        /// </summary>
+        internal int MaxStack;
+
+        /// <summary>
         /// Debug info: variable name for each local slot (index = slot number).
         /// Parameters occupy slots 0..Arity-1. Hidden locals (like $limit, $step)
         /// are included but prefixed with $. Null entries mean the slot was

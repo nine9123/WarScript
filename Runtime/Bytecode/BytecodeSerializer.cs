@@ -182,43 +182,56 @@ namespace WarScript.Bytecode
         //  Load
         // ────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Reads a bytecode file. Anything malformed — wrong header, truncated
+        /// data, counts larger than the bytes left, invalid UTF-8, nesting
+        /// deeper than <see cref="MaxNesting"/>, or code the
+        /// <see cref="BytecodeVerifier"/> rejects — throws
+        /// <see cref="InvalidDataException"/> (v2 plan 10.4, SEC-1). Every
+        /// function is verified while it is read, and nothing is installed:
+        /// the caller installs the returned scope, so a failed load changes
+        /// nothing.
+        /// </summary>
         public static (CompiledFunction topLevel, DefinitionScope scope) Load(
             BinaryReader r, WarScriptLanguage script, DefinitionScope parentScope)
         {
-            // Header
-            var magic = r.ReadBytes(4);
-            if (magic.Length < 4 || magic[0] != 'W' || magic[1] != 'S' || magic[2] != 'B' || magic[3] != 'C')
-                throw new InvalidDataException("Not a WSBC file");
-            ReadHeader(r);
+            var reader = new BoundedReader(r);
+            try
+            {
+                // Header
+                var magic = reader.Bytes(System.Math.Min(4, reader.Remaining), "magic");
+                if (magic.Length < 4 || magic[0] != 'W' || magic[1] != 'S' || magic[2] != 'B' || magic[3] != 'C')
+                    throw new InvalidDataException("Not a WSBC file");
+                ReadHeader(reader);
 
-            // Top-level script body
-            var topLevel = ReadCompiledFunction(r);
+                // Top-level script body
+                var topLevel = ReadCompiledFunction(reader, 0);
 
-            // Rebuild DefinitionScope
-            var scope = new DefinitionScope(script, parentScope);
-            ReadDefinitionScope(r, script, scope);
+                // Rebuild DefinitionScope
+                var scope = new DefinitionScope(script, parentScope);
+                ReadDefinitionScope(reader, script, scope, 0);
 
-            return (topLevel, scope);
+                return (topLevel, scope);
+            }
+            catch (EndOfStreamException)
+            {
+                throw reader.Truncated();
+            }
         }
+
+        /// <summary>Lambda constants and nested classes nest at most this deep (10.4).</summary>
+        internal const int MaxNesting = 32;
 
         /// <summary>
         /// The version and format hash after the magic: the loader accepts
         /// only the exact current format (R4, PROP-18), so bytecode compiled
         /// by an older or newer runtime is rejected instead of misread (DET-4).
         /// </summary>
-        private static void ReadHeader(BinaryReader r)
+        private static void ReadHeader(BoundedReader r)
         {
-            byte version;
-            uint hash;
-            try
-            {
-                version = r.ReadByte();
-                hash = r.ReadUInt32();
-            }
-            catch (EndOfStreamException)
-            {
-                throw new InvalidDataException("Truncated bytecode header");
-            }
+            if (r.Remaining < 5) throw new InvalidDataException("Truncated bytecode header");
+            var version = r.U8();
+            var hash = r.U32();
             if (version != BytecodeFormat.Version)
                 throw new InvalidDataException(System.FormattableString.Invariant(
                     $"Bytecode format version {version} is not the supported version {BytecodeFormat.Version}; recompile the script"));
@@ -227,37 +240,41 @@ namespace WarScript.Bytecode
                     $"Bytecode format hash {hash:X8} does not match {BytecodeFormat.Hash:X8}; recompile the script"));
         }
 
-        private static void ReadDefinitionScope(BinaryReader r,
-            WarScriptLanguage script, DefinitionScope scope)
+        private static void ReadDefinitionScope(BoundedReader r,
+            WarScriptLanguage script, DefinitionScope scope, int depth)
         {
-            // Functions
-            var funcCount = r.ReadUInt16();
+            // Functions: name, argument count, min arity, body (at least 2 + 2 + 2 bytes and a function)
+            var funcCount = r.Count(MinFunctionDefBytes, "function");
             for (int i = 0; i < funcCount; i++)
             {
-                var funcDef = ReadFunctionDef(r, script, scope);
+                var funcDef = ReadFunctionDef(r, depth);
                 scope.AddFunction(funcDef);
             }
 
             // Classes
-            var classCount = r.ReadUInt16();
+            var classCount = r.Count(MinClassDefBytes, "class");
             for (int i = 0; i < classCount; i++)
             {
-                var classDef = ReadClassDef(r, script, scope);
+                var classDef = ReadClassDef(r, script, scope, depth);
                 scope.AddClass(classDef);
             }
         }
 
-        private static FunctionDefinition ReadFunctionDef(BinaryReader r,
-            WarScriptLanguage script, DefinitionScope parentScope)
+        // The smallest encodings, for checking counts against the bytes left.
+        private const int MinCompiledFunctionBytes = 2 + 2 + 2 + 2 + 4 + 4 + 2 + 2;
+        private const int MinFunctionDefBytes = 2 + 2 + 2 + MinCompiledFunctionBytes;
+        private const int MinClassDefBytes = 2 + 2 + 2 + 1 + 2 + 2;
+
+        private static FunctionDefinition ReadFunctionDef(BoundedReader r, int depth)
         {
-            var name = ReadString(r);
-            var argCount = r.ReadUInt16();
+            var name = r.String();
+            var argCount = r.Count(2, "argument");
             var args = new List<string>(argCount);
             for (int i = 0; i < argCount; i++)
-                args.Add(ReadString(r));
+                args.Add(r.String());
 
-            var minArity = r.ReadUInt16();
-            var compiled = ReadCompiledFunction(r);
+            var minArity = r.U16();
+            var compiled = ReadCompiledFunction(r, depth);
 
             var details = new FunctionDetails(name, args, minArity);
             var funcDef = new FunctionDefinition(details, null!, null!);
@@ -265,38 +282,42 @@ namespace WarScript.Bytecode
             return funcDef;
         }
 
-        private static ClassDefinition ReadClassDef(BinaryReader r,
-            WarScriptLanguage script, DefinitionScope parentScope)
+        private static ClassDefinition ReadClassDef(BoundedReader r,
+            WarScriptLanguage script, DefinitionScope parentScope, int depth)
         {
+            if (depth >= MaxNesting)
+                throw new InvalidDataException("Bytecode classes nest deeper than 32 levels");
+
             // Class identity
-            var name = ReadString(r);
-            var propCount = r.ReadUInt16();
+            var name = r.String();
+            var propCount = r.Count(2, "property");
             var props = new List<string>(propCount);
             for (int i = 0; i < propCount; i++)
-                props.Add(ReadString(r));
+                props.Add(r.String());
 
             // Base types
-            var baseCount = r.ReadUInt16();
+            var baseCount = r.Count(4, "base type");
             var baseTypes = new List<ClassDetails>(baseCount);
             for (int i = 0; i < baseCount; i++)
             {
-                var btName = ReadString(r);
-                var btPropCount = r.ReadUInt16();
+                var btName = r.String();
+                var btPropCount = r.Count(2, "property");
                 var btProps = new List<string>(btPropCount);
                 for (int j = 0; j < btPropCount; j++)
-                    btProps.Add(ReadString(r));
+                    btProps.Add(r.String());
                 baseTypes.Add(new ClassDetails(btName, btProps));
             }
 
             // Constructor bytecode
             CompiledFunction? compiledCtor = null;
-            var hasCtor = r.ReadByte();
+            var hasCtor = r.U8();
+            if (hasCtor > 1) throw new InvalidDataException("Invalid constructor flag in class '" + name + "'");
             if (hasCtor != 0)
-                compiledCtor = ReadCompiledFunction(r);
+                compiledCtor = ReadCompiledFunction(r, depth);
 
             // Build the class's own DefinitionScope (for methods + nested classes)
             var classScope = new DefinitionScope(script, parentScope);
-            ReadDefinitionScope(r, script, classScope);
+            ReadDefinitionScope(r, script, classScope, depth + 1);
 
             var classDetails = new ClassDetails(name, props);
             var classDef = new ClassDefinition(classDetails, baseTypes, null!, classScope);
@@ -304,70 +325,140 @@ namespace WarScript.Bytecode
             return classDef;
         }
 
-        private static CompiledFunction ReadCompiledFunction(BinaryReader r)
+        private static CompiledFunction ReadCompiledFunction(BoundedReader r, int depth)
         {
-            var name = ReadString(r);
-            var arity = r.ReadUInt16();
-            var localCount = r.ReadUInt16();
+            if (depth >= MaxNesting)
+                throw new InvalidDataException("Bytecode lambda constants nest deeper than 32 levels");
+
+            var name = r.String();
+            var arity = r.U16();
+            var localCount = r.U16();
 
             var func = new CompiledFunction(name, arity);
             func.LocalCount = localCount;
 
             // Constant pool
-            var constCount = r.ReadUInt16();
+            var constCount = r.Count(1, "constant");
             for (int i = 0; i < constCount; i++)
-                func.Chunk.Constants.Add(ReadConstant(r));
+                func.Chunk.Constants.Add(ReadConstant(r, depth));
 
             // Bytecode
-            var codeLen = r.ReadUInt32();
-            for (uint i = 0; i < codeLen; i++)
-                func.Chunk.Code.Add(r.ReadByte());
+            var codeLen = r.U32();
+            if (codeLen > BytecodeVerifier.MaxCodeLength)
+                throw new InvalidDataException("Bytecode function '" + name + "' is longer than 65,535 bytes");
+            func.Chunk.Code.AddRange(r.Bytes((int)codeLen, "code"));
 
-            // Line numbers
-            var lineCount = r.ReadUInt32();
+            // Line numbers: one per code byte in format v2
+            var lineCount = r.U32();
+            if (lineCount != codeLen)
+                throw new InvalidDataException("Bytecode function '" + name + "' has a line table that does not match its code");
+            r.Need((long)lineCount * 4, "line table");
             for (uint i = 0; i < lineCount; i++)
-                func.Chunk.Lines.Add(r.ReadInt32());
+                func.Chunk.Lines.Add(r.I32());
 
             // Local variable names
-            var nameCount = r.ReadUInt16();
+            var nameCount = r.Count(2, "local name");
             var names = new string[nameCount];
             for (int i = 0; i < nameCount; i++)
             {
-                var n = ReadString(r);
+                var n = r.String();
                 names[i] = n.Length == 0 ? null! : n;
             }
             func.LocalNames = names;
 
             // Inline cache slots (runtime-only, just allocate empty array)
-            var cacheCount = r.ReadUInt16();
+            var cacheCount = r.U16();
             func.Chunk.PropertyCaches = new InlineCache[cacheCount];
 
+            BytecodeVerifier.Verify(func, atLoad: true);
             return func;
         }
 
-        private static WarValue ReadConstant(BinaryReader r)
+        private static WarValue ReadConstant(BoundedReader r, int depth)
         {
-            var tag = (ValueTag)r.ReadByte();
+            var tag = (ValueTag)r.U8();
             switch (tag)
             {
                 case ValueTag.Null:    return WarValue.Null;
-                case ValueTag.Numeric: return WarValue.FromRawNumeric(r.ReadInt64());
-                case ValueTag.Text:    return WarValue.FromText(ReadString(r));
-                case ValueTag.Logical: return WarValue.FromLogical(r.ReadByte() != 0);
+                case ValueTag.Numeric: return WarValue.FromRawNumeric(r.I64());
+                case ValueTag.Text:    return WarValue.FromText(r.String());
+                case ValueTag.Logical: return WarValue.FromLogical(r.U8() != 0);
                 case ValueTag.NativeObject:
                     // Lambda function value — deserialize the compiled function
-                    var cf = ReadCompiledFunction(r);
+                    var cf = ReadCompiledFunction(r, depth + 1);
                     return WarValue.FromNativeObject(cf);
                 default:
-                    throw new InvalidDataException($"Unknown constant tag: {tag}");
+                    throw new InvalidDataException(System.FormattableString.Invariant($"Unknown constant tag: {(byte)tag}"));
             }
         }
 
-        private static string ReadString(BinaryReader r)
+        /// <summary>
+        /// Reads through a <see cref="BinaryReader"/> while knowing how many
+        /// bytes are left, so a count is checked against them before anything
+        /// is allocated for it (10.4). A non-seekable stream is copied first.
+        /// </summary>
+        private sealed class BoundedReader
         {
-            var len = r.ReadUInt16();
-            var bytes = r.ReadBytes(len);
-            return Encoding.UTF8.GetString(bytes);
+            private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
+
+            private readonly BinaryReader _r;
+            private readonly long _end;
+
+            public BoundedReader(BinaryReader r)
+            {
+                if (!r.BaseStream.CanSeek)
+                {
+                    var copy = new MemoryStream();
+                    r.BaseStream.CopyTo(copy);
+                    copy.Position = 0;
+                    r = new BinaryReader(copy, Encoding.UTF8);
+                }
+                _r = r;
+                _end = r.BaseStream.Length;
+            }
+
+            public long Offset => _r.BaseStream.Position;
+            public int Remaining => (int)System.Math.Min(int.MaxValue, System.Math.Max(0, _end - Offset));
+
+            public InvalidDataException Truncated() =>
+                new InvalidDataException(System.FormattableString.Invariant($"truncated bytecode at offset {Offset}"));
+
+            public void Need(long bytes, string what)
+            {
+                if (bytes > Remaining)
+                    throw new InvalidDataException(System.FormattableString.Invariant(
+                        $"truncated bytecode at offset {Offset}: {what} needs {bytes} bytes, {Remaining} left"));
+            }
+
+            /// <summary>A u16 count of elements of at least <paramref name="minSize"/> bytes each.</summary>
+            public int Count(int minSize, string what)
+            {
+                int count = U16();
+                Need((long)count * minSize, what + " count");
+                return count;
+            }
+
+            public byte U8() => _r.ReadByte();
+            public ushort U16() => _r.ReadUInt16();
+            public uint U32() => _r.ReadUInt32();
+            public int I32() => _r.ReadInt32();
+            public long I64() => _r.ReadInt64();
+
+            public byte[] Bytes(int count, string what)
+            {
+                Need(count, what);
+                return _r.ReadBytes(count);
+            }
+
+            public string String()
+            {
+                var bytes = Bytes(U16(), "string");
+                try { return StrictUtf8.GetString(bytes); }
+                catch (System.ArgumentException)
+                {
+                    throw new InvalidDataException(System.FormattableString.Invariant($"invalid UTF-8 in bytecode before offset {Offset}"));
+                }
+            }
         }
     }
 }

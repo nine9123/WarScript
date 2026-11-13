@@ -121,6 +121,7 @@ namespace WarScript.Bytecode
             _current.LocalCount = _maxLocals;
             _current.LocalNames = _localNames.ToArray();
             Chunk.FinalizePropertyCaches();
+            VerifyOutput(_current);
             return _current;
         }
 
@@ -166,6 +167,7 @@ namespace WarScript.Bytecode
             child._current.LocalCount = child._maxLocals;
             child._current.LocalNames = child._localNames.ToArray();
             child._current.Chunk.FinalizePropertyCaches();
+            VerifyOutput(child._current);
             funcDef.Compiled = child._current;
         }
 
@@ -207,7 +209,24 @@ namespace WarScript.Bytecode
             child._current.LocalCount = child._maxLocals;
             child._current.LocalNames = child._localNames.ToArray();
             child._current.Chunk.FinalizePropertyCaches();
+            VerifyOutput(child._current);
             classDef.CompiledConstructor = child._current;
+        }
+
+        /// <summary>
+        /// Runs <see cref="BytecodeVerifier"/> on a finished function, which
+        /// computes the <see cref="CompiledFunction.MaxStack"/> the VM checks
+        /// when it calls it (T1.7). A function needing more than the value
+        /// stack is accepted and raises "Value stack overflow" when called; any
+        /// other rejection is a compiler bug, reported as a host fault.
+        /// </summary>
+        private static void VerifyOutput(CompiledFunction function)
+        {
+            try { BytecodeVerifier.Verify(function, atLoad: false); }
+            catch (System.IO.InvalidDataException e)
+            {
+                throw new System.InvalidOperationException("Compiler produced bytecode the verifier rejects: " + e.Message, e);
+            }
         }
 
         // ────────────────────────────────────────────────────────
@@ -239,6 +258,7 @@ namespace WarScript.Bytecode
             compiler._current.LocalCount = compiler._maxLocals;
             compiler._current.LocalNames = compiler._localNames.ToArray();
             compiler._current.Chunk.FinalizePropertyCaches();
+            VerifyOutput(compiler._current);
             return compiler._current;
         }
 
