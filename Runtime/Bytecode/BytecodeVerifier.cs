@@ -15,7 +15,8 @@ namespace WarScript.Bytecode
     /// Heights are relative to the frame's stack base: a function starts at
     /// height <see cref="CompiledFunction.Arity"/> (its arguments, padded by
     /// the VM), a rescue body at its <c>PushHandler</c>'s height + 1 (the
-    /// error value), an ensure body at that height. The block scopes and
+    /// error value) with one more handler open (the ensure-only handler,
+    /// Q-14), an ensure body at that height. The block scopes and
     /// handlers a frame has open are tracked the same way, so a frame never
     /// pops what its caller pushed and a <c>TailCall</c> leaves nothing open
     /// (beyond the list in 10.3: the VM relies on both). Only instructions reachable
@@ -191,10 +192,12 @@ namespace WarScript.Bytecode
                         Reach(end + ReadU16(code, at + 1), next, sc, hd, at);
                         break;
                     case OpCode.PushHandler:
-                        // The VM enters both with the handler removed and the
-                        // stack and scopes as they were at the PushHandler.
-                        Reach(ReadU16(code, at + 1), h + 1, sc, hd, at); // rescue: the error value
-                        Reach(ReadU16(code, at + 3), h, sc, hd, at);     // ensure
+                        // The VM enters both with the stack and scopes as they
+                        // were at the PushHandler; the ensure block with the
+                        // handler removed, the rescue body with it replaced by
+                        // an ensure-only handler that its end removes (Q-14).
+                        Reach(ReadU16(code, at + 1), h + 1, sc, hd + 1, at); // rescue: the error value
+                        Reach(ReadU16(code, at + 3), h, sc, hd, at);         // ensure
                         hd++;
                         break;
                 }

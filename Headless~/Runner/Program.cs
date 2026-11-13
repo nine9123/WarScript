@@ -63,7 +63,7 @@ namespace WarScript.Runner
             catch (System.Exception e) when (e is ArgumentException || e is FormatException || e is OverflowException)
             {
                 Console.Error.WriteLine(e.Message);
-                Console.Error.WriteLine("usage: WarScript.Runner <file.ws> [--mode source|bytecode] [--budget n] " +
+                Console.Error.WriteLine("usage: WarScript.Runner <file.ws|file.wsbc> [--mode source|bytecode] [--budget n] " +
                                         "[--memory-budget n] [--culture name|invariant]");
                 return 1;
             }

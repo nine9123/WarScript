@@ -836,8 +836,9 @@ namespace WarScript.Bytecode
         /// <summary>
         /// Emits what leaving the body of <paramref name="loop"/> takes: for
         /// every begin block opened inside the loop, innermost first, pop its
-        /// scopes and locals, then remove its handler (from the begin body) or
-        /// discard its pending re-raise or return (from the ensure body), and
+        /// scopes and locals, then remove its handler (from the begin body, or
+        /// the ensure-only one from the rescue body, Q-14) or discard its
+        /// pending re-raise or return (from the ensure body), and
         /// run its ensure block unless already in it (Q-12, CRASH-8); finally
         /// pop the scopes and locals opened since the loop started.
         /// Changes the compile-time state; see <see cref="SaveBlockState"/>.
@@ -852,6 +853,9 @@ namespace WarScript.Bytecode
                 switch (t.Region)
                 {
                     case TryRegion.Begin:
+                    case TryRegion.Rescue:
+                        // The begin body's handler, or the ensure-only
+                        // handler the rescue body runs under (Q-14).
                         Chunk.EmitOp(OpCode.PopHandler, line);
                         break;
                     case TryRegion.Ensure:
@@ -941,10 +945,15 @@ namespace WarScript.Bytecode
             }
             else
             {
-                // No rescue block — pop the error value the VM pushes
+                // No rescue block: never entered (the VM goes straight to the
+                // ensure block), but kept valid for the verifier.
                 Chunk.EmitOp(OpCode.Pop, line);
             }
-            // After rescue, fall through to ensure (no jump needed)
+            // The VM runs the rescue body under an ensure-only handler, so
+            // that leaving it by return, raise or an error runs the ensure
+            // block (Q-14, SEM-13); its normal end removes that handler and
+            // falls through to the ensure block.
+            Chunk.EmitOp(OpCode.PopHandler, line);
 
             // ── Ensure body ──
             int ensureIP = Chunk.Count;

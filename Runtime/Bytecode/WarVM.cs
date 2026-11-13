@@ -2041,6 +2041,10 @@ namespace WarScript.Bytecode
                 // handler's begin body: what they were going to re-raise or
                 // return is superseded by this error (CRASH-7).
                 DropPendingAbove(_handlerCount);
+                // An ensure-only handler without an ensure block (a rescue
+                // body's, Q-14) has nothing to run: look further out.
+                if (!handler.HasRescue && handler.EnsureIP == handler.EndIP)
+                    continue;
                 var errorVal = _script.ExceptionContext.Exception?.Value ?? WarValue.Null;
                 _sp = handler.SavedSP;
 
@@ -2055,8 +2059,14 @@ namespace WarScript.Bytecode
                 if (handler.HasRescue)
                 {
                     // Has rescue: clear exception, push error, jump to rescue.
-                    // Rescue code falls through to ensure.
+                    // The rescue body runs under the same handler without
+                    // its rescue, so leaving it by return, raise or an error
+                    // still runs the ensure block (Q-14, SEM-13); the
+                    // compiler's PopHandler at its end removes it, and the
+                    // code falls through to the ensure block.
                     _script.ExceptionContext.RescueException();
+                    handler.HasRescue = false;
+                    _handlers[_handlerCount++] = handler;
                     Push(errorVal);
                     _frames[fi].IP = handler.RescueIP;
                     return true;

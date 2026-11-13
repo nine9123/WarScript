@@ -88,7 +88,7 @@ namespace Tests
         [Test]
         public void Load_RejectsAnotherVersion()
         {
-            foreach (byte version in new byte[] { 1, 2, 4 })
+            foreach (byte version in new byte[] { 1, 2, 3, 5 })
             {
                 var bytes = SavedBytecode();
                 bytes[4] = version;
@@ -295,6 +295,22 @@ namespace Tests
             RejectedBody(new byte[] { (byte)OpCode.PushHandler, 0, 13, 0, 14, 0, 14, 1, (byte)OpCode.TailCall, 0, 0, 0,
                 Null_, (byte)OpCode.Pop, Null_, Ret }, "TailCall inside a block scope or handler",
                 constants: new[] { WarValue.FromText("f") });
+        }
+
+        [Test]
+        public void Verifier_EntersARescueBodyWithItsEnsureOnlyHandlerOpen()
+        {
+            // The VM runs a rescue body under an ensure-only handler that the
+            // body's end removes (Q-14). A version 3 rescue body, without
+            // that PopHandler, would reach the ensure block with a handler
+            // left open. PushHandler rescue=12 ensure=end=13; PopHandler;
+            // Jump +1; rescue: Pop; ensure: Null, Return.
+            RejectedBody(new byte[] { (byte)OpCode.PushHandler, 0, 12, 0, 13, 0, 13, 1, (byte)OpCode.PopHandler,
+                (byte)OpCode.Jump, 0, 1, (byte)OpCode.Pop, Null_, Ret }, "open scopes or handlers");
+            // Version 4: the rescue body ends with PopHandler (ensure=end=14, Jump +2).
+            var current = Function("f", 0, new byte[] { (byte)OpCode.PushHandler, 0, 12, 0, 14, 0, 14, 1, (byte)OpCode.PopHandler,
+                (byte)OpCode.Jump, 0, 2, (byte)OpCode.Pop, (byte)OpCode.PopHandler, Null_, Ret });
+            Assert.DoesNotThrow(() => BytecodeVerifier.Verify(current, atLoad: true));
         }
 
         [Test]
