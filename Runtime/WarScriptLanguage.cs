@@ -81,7 +81,7 @@ namespace WarScript
 
         public readonly string ScriptName;
 
-        private List<Token.Token> _tokens;
+        private IReadOnlyList<Token.Token> _tokens;
 
         private CompositeStatement? _cachedStatement;
         private CompiledFunction? _cachedCompiled;

@@ -44,6 +44,7 @@ WarScript/
 │   │   └── TokenStack.cs        # Peekable token stream with Back() support
 │   ├── Parser/
 │   │   ├── LexicalParser.cs     # Hand-written lexer/scanner
+│   │   ├── TokenCache.cs        # T1.9: bounded, locked LRU of token lists (the lexer cache)
 │   │   └── StatementParser.cs   # Recursive descent → AST + desugar logic (const/enum/defaults)
 │   ├── Expression/
 │   │   ├── IExpression.cs       # All expressions implement this
@@ -123,7 +124,7 @@ WarScript/
 ## Execution Pipeline
 
 ```
-Source string → LexicalParser.Parse() → List<Token>
+Source string → LexicalParser.Parse() → IReadOnlyList<Token>
                                             ↓
                           StatementParser.Parse() → AST (with desugared defaults/const/enum)
                                             ↓
@@ -298,7 +299,8 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 - **`break`/`next` out of `begin` (Q-12, CRASH-8 fixed).** The compiler tracks the `begin` blocks it is inside (`Compiler.TryCtx`: begin, rescue or ensure body). A `break`/`next` leaves each block opened inside its loop, innermost first: pops scopes/locals to the block's entry, then `PopHandler` (from the begin body) or `DropPending` (from the ensure body: discards its pending re-raise/return), then inlines the ensure body unless already in it. Afterwards it restores the compiler's locals/scope depth/`begin` stack, since the unreachable code after it still compiles inside the block (SEM-12).
 - **Pending `ensure` work** is a stack in `WarVM` (`PendingEnsure`): an ensure block entered with an error to re-raise or a value to return. A `return` from the frame, an error caught by a handler outside the block, or unwinding the frame discards the record (so `raise`/`return` inside `ensure` replaces what was pending, CRASH-7). A rescue body runs under an ensure-only handler when its block has an ensure block (Q-14), so its error or `return` enters the ensure block like a begin body's.
 - **Compiler limits (T1.8).** What the format can't encode is a `CompileError` (a `SyntaxException` with `Reason`, `ScriptName`, `Line`), never a truncated operand: code, jumps and handler addresses past 65,535 bytes ("function too large (bytecode exceeds 65,535 bytes)"), a U16 operand past 65,535, a 65,536th constant, more than 255 arguments in a call or `new`, more than 255 parameters, an array literal of more than 65,535 elements. `Chunk` raises them with line 0; `Compiler.CompileStatement` fills in the statement's line. Emit a count byte through `EmitArgCount`, pops through `Chunk.EmitPops` (splits `PopN` at 255), handler addresses through `Chunk.PatchAddress` — never `(byte)` or hand-written U16 patches.
-- **Lexer caches globally** by source string. Call `LexicalParser.ClearCache()` for hot reload.
+- **Lexer caches globally** by source string (T1.9): `TokenCache`, a locked LRU of `LexicalParser.CacheCapacity` (64) entries, shared by every instance and thread; `Parse` returns a read-only `IReadOnlyList<Token>`. Call `LexicalParser.ClearCache()` for hot reload.
+- **No static mutable state in `Runtime/` (R1, T1.9).** A static field must be `readonly` or `const`, and a `readonly` static array or collection must be on the allow-list in `Tests/StaticStateTests.cs` with its reason (initialized once and only read, synchronized, or thread-static). Per-instance state goes on `WarScriptLanguage`.
 
 ## Testing Conventions
 

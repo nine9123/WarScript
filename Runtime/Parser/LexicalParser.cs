@@ -12,32 +12,42 @@ namespace WarScript
     /// </summary>
     public class LexicalParser
     {
-        // TODO: Track age of cached tokens.
-        // TODO: Have maximum amount of cached tokens.
-        // TODO: Throw out oldest token list when limit is reached.
+        /// <summary>Entries the token cache holds before evicting the least recently used one.</summary>
+        public const int CacheCapacity = 64;
+
         /// <summary>
-        /// Cache tokens generated from source code
+        /// Cache of tokens generated from source code (T1.9, DEC-19): bounded,
+        /// synchronized, shared by every instance.
         /// </summary>
-        private static readonly Dictionary<string, List<Token.Token>> Cache = new();
+        private static readonly TokenCache Cache = new TokenCache(CacheCapacity);
 
         private readonly string _source;
         private readonly List<Token.Token> _tokens;
         private int _pos;
         private int _row;
 
-        public static List<Token.Token> Parse(string sourceCode)
+        /// <summary>
+        /// The tokens of <paramref name="sourceCode"/>, from the cache when the
+        /// same source was lexed recently. The list is shared and read-only.
+        /// Safe to call from several threads.
+        /// </summary>
+        public static IReadOnlyList<Token.Token> Parse(string sourceCode)
         {
-            if (Cache.TryGetValue(sourceCode, out var cached))
+            if (Cache.TryGet(sourceCode, out var cached))
                 return cached;
 
+            // Lex outside the lock: a SyntaxException caches nothing, and
+            // threads lexing different sources don't wait for each other.
             var parser = new LexicalParser(sourceCode);
             parser.Scan();
 
-            Cache[sourceCode] = parser._tokens;
-            return parser._tokens;
+            return Cache.Add(sourceCode, parser._tokens.AsReadOnly());
         }
 
         public static void ClearCache() => Cache.Clear();
+
+        /// <summary>Number of sources in the token cache (tests).</summary>
+        internal static int CachedCount => Cache.Count;
 
         private LexicalParser(string source)
         {

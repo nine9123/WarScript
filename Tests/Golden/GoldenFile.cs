@@ -81,7 +81,7 @@ namespace Tests.Golden
         /// </summary>
         private static IEnumerable<(string text, int row, bool afterCode)> Comments(string source)
         {
-            List<Token> tokens = null;
+            IReadOnlyList<Token> tokens = null;
             try { tokens = LexicalParser.Parse(source); }
             catch (SyntaxException) { }
 

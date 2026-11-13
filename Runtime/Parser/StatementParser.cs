@@ -46,7 +46,7 @@ namespace WarScript
             }
         }
 
-        public static void Parse(WarScriptLanguage script, List<Token.Token> tokens, CompositeStatement compositeStatement)
+        public static void Parse(WarScriptLanguage script, IReadOnlyList<Token.Token> tokens, CompositeStatement compositeStatement)
         {
             var parser = new StatementParser(script, new TokensStack(tokens), compositeStatement);
             while (parser.HasNextStatement())

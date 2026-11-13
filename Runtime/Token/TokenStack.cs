@@ -5,7 +5,7 @@ namespace WarScript.Token
 {
     public class TokensStack
     {
-        private readonly List<Token> _tokens;
+        private readonly IReadOnlyList<Token> _tokens;
         private int _position;
 
         /// <summary>
@@ -22,7 +22,7 @@ namespace WarScript.Token
         private static bool IsEmptyToken(TokenType type) =>
             type == TokenType.LineBreak || type == TokenType.Comment;
 
-        public TokensStack(List<Token> tokens)
+        public TokensStack(IReadOnlyList<Token> tokens)
         {
             _tokens = tokens;
         }
