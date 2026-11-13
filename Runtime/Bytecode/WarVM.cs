@@ -1891,7 +1891,7 @@ namespace WarScript.Bytecode
             for (int i = 0; i < localCount; i++)
             {
                 var name = i < func.LocalNames.Length ? func.LocalNames[i] : null;
-                if (name == null || name.StartsWith("$")) continue;
+                if (name == null || name.StartsWith("$", System.StringComparison.Ordinal)) continue;
                 locals[name] = _stack[stackBase + i];
             }
 

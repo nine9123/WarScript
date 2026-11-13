@@ -40,7 +40,7 @@ namespace WarScript.Expression.Operator.Extensions
                 return op;
 
             var trimmed = value.Trim();
-            if (trimmed == ":: new" || (trimmed.StartsWith("::") && trimmed.EndsWith("new")))
+            if (trimmed == ":: new" || (trimmed.StartsWith("::", System.StringComparison.Ordinal) && trimmed.EndsWith("new", System.StringComparison.Ordinal)))
                 return Operator.NestedClassInstance;
 
             throw new System.Exception($"Cannot parse '{value}' to an operator");

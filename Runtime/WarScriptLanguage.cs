@@ -214,7 +214,10 @@ namespace WarScript
         /// through <c>double</c> (DET-3). <c>F64Vec3</c> and function values
         /// have built-in formats that a registration does not change. The
         /// formatter must be deterministic; it is kept across
-        /// <see cref="Reload"/>.
+        /// <see cref="Reload"/>. It is host code, not a native function: a
+        /// <see cref="Exception.ScriptErrorException"/> it throws raises a
+        /// script error that <c>begin/rescue</c> can catch, any other
+        /// exception is a host fault that stops the entry.
         /// </summary>
         public void RegisterNativeFormatter<T>(Func<T, string> formatter) =>
             NativeFormatters.Register(formatter);

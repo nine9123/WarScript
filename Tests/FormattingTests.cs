@@ -215,6 +215,43 @@ print {t, other []}",
         }
 
         [Test]
+        public void FormatterThrowingScriptError_RaisesARescuableError()
+        {
+            var (_, output) = RunWithThings(@"
+t = thing []
+begin
+    print ""t="" + t
+rescue e
+    print ""rescued: "" + e
+end",
+                s => s.RegisterNativeFormatter<HostThing>(h =>
+                    throw new WarScript.Exception.ScriptErrorException(
+                        WarScript.Exception.ScriptErrorKind.NativeError, "cannot format")));
+            Assert.AreEqual(1, output.Count, string.Join(" | ", output));
+            StringAssert.StartsWith("rescued: ", output[0]);
+            StringAssert.Contains("cannot format", output[0]);
+        }
+
+        [Test]
+        public void FormatterThrowingAnythingElse_IsAHostFault()
+        {
+            // A formatter is host code, not a native function (6.9): any other
+            // exception it throws is a failure of the host and stops the entry.
+            var (script, output) = RunWithThings(@"
+t = thing []
+begin
+    print ""t="" + t
+rescue e
+    print ""rescued""
+end
+print ""not reached""",
+                s => s.RegisterNativeFormatter<HostThing>(h => throw new InvalidOperationException("formatter failed")));
+            Assert.IsInstanceOf<InvalidOperationException>(script.LastHostFault);
+            Assert.AreEqual(1, output.Count, string.Join(" | ", output));
+            StringAssert.StartsWith("[WarScript] Host fault in 't': System.InvalidOperationException: formatter failed", output[0]);
+        }
+
+        [Test]
         public void F64Vec3_UsesTheNumberFormat_EvenWithAFormatterRegistered()
         {
             var (_, output) = RunWithThings(@"
@@ -307,6 +344,35 @@ print ""f: "" + double");
             Assert.IsEmpty(problems,
                 "ToString() calls that may format a number in the current culture (T1.6, DET-1); " +
                 "pass CultureInfo.InvariantCulture, or list a non-number in NonNumericToString:\n" +
+                string.Join("\n", problems));
+        }
+
+        /// <summary>
+        /// String operations whose string-argument overloads compare by the
+        /// current culture (R1): <c>StartsWith</c>, <c>EndsWith</c>,
+        /// <c>IndexOf</c> and <c>LastIndexOf</c> with a text argument,
+        /// <c>string.Compare</c>, <c>ToUpper()</c>/<c>ToLower()</c>. Each call in
+        /// <c>Runtime/</c> must name an ordinal or invariant comparison.
+        /// </summary>
+        [Test]
+        public void Runtime_HasNoCultureSensitiveStringOperations()
+        {
+            var pattern = new Regex(
+                @"\.(StartsWith|EndsWith|IndexOf|LastIndexOf)\(\s*""|[Ss]tring\.Compare\(|\.(ToUpper|ToLower)\(\s*\)");
+            var problems = new List<string>();
+            foreach (var path in Directory.GetFiles(RuntimeRoot(), "*.cs", SearchOption.AllDirectories))
+            {
+                var lines = File.ReadAllLines(path);
+                for (int n = 0; n < lines.Length; n++)
+                {
+                    var line = lines[n];
+                    if (line.TrimStart().StartsWith("//", StringComparison.Ordinal)) continue;
+                    if (pattern.IsMatch(line) && !line.Contains("Ordinal") && !line.Contains("Invariant"))
+                        problems.Add($"{Path.GetFileName(path)}:{n + 1}: {line.Trim()}");
+                }
+            }
+            Assert.IsEmpty(problems,
+                "culture-sensitive string operations in Runtime/ (R1); pass StringComparison.Ordinal:\n" +
                 string.Join("\n", problems));
         }
 
