@@ -306,6 +306,24 @@ namespace Tests
         }
 
         [Test]
+        public void Loader_RejectsAnArityOnTheScriptBodyOrAConstructor()
+        {
+            // The VM enters both frames with no arguments, so the verifier's
+            // start height (the arity) would not hold: here Pop would run
+            // below the frame's stack base.
+            var underflow = new byte[] { (byte)OpCode.Pop, Null_, Ret };
+            RejectedBody(underflow, "script body has arity 1", arity: 1);
+
+            var host = new WarScriptLanguage("t", "class P []\n    x = 1\nend\np = new P []", null, null);
+            var (body, definitions) = host.CompileWithoutRunning();
+            definitions.ClassDefinitions.Single().CompiledConstructor = Function("P#ctor", 1, underflow);
+            var ms = new MemoryStream();
+            using (var w = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
+                BytecodeSerializer.Save(w, body, definitions);
+            Rejected(ms.ToArray(), "constructor of class 'P' has arity 1");
+        }
+
+        [Test]
         public void Loader_RejectsInvalidUtf8()
         {
             var bytes = File_(Function("<script>", 0, new[] { Null_, Ret }));
@@ -383,7 +401,7 @@ namespace Tests
         public void MutatedBytecode_IsRejectedOrRunsWithoutHostFault(string relativePath)
         {
             var path = Path.Combine(GoldenRoot(), relativePath);
-                        var source = new WarScriptLanguage("t", File.ReadAllText(path), null, null);
+            var source = new WarScriptLanguage("t", File.ReadAllText(path), null, null);
             var ms = new MemoryStream();
             source.SaveBytecode(ms);
             var original = ms.ToArray();

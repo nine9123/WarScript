@@ -206,6 +206,7 @@ namespace WarScript.Bytecode
 
                 // Top-level script body
                 var topLevel = ReadCompiledFunction(reader, 0);
+                RequireNoArity(topLevel, "script body");
 
                 // Rebuild DefinitionScope
                 var scope = new DefinitionScope(script, parentScope);
@@ -313,7 +314,10 @@ namespace WarScript.Bytecode
             var hasCtor = r.U8();
             if (hasCtor > 1) throw new InvalidDataException("Invalid constructor flag in class '" + name + "'");
             if (hasCtor != 0)
+            {
                 compiledCtor = ReadCompiledFunction(r, depth);
+                RequireNoArity(compiledCtor, "constructor of class '" + name + "'");
+            }
 
             // Build the class's own DefinitionScope (for methods + nested classes)
             var classScope = new DefinitionScope(script, parentScope);
@@ -323,6 +327,20 @@ namespace WarScript.Bytecode
             var classDef = new ClassDefinition(classDetails, baseTypes, null!, classScope);
             classDef.CompiledConstructor = compiledCtor;
             return classDef;
+        }
+
+        /// <summary>
+        /// The VM enters the script body and constructor frames without
+        /// arguments, while the verifier starts every function at height =
+        /// arity: a nonzero arity there would let code pop below the frame's
+        /// stack base (or read a slot nothing wrote). The compiler always
+        /// gives both arity 0.
+        /// </summary>
+        private static void RequireNoArity(CompiledFunction function, string what)
+        {
+            if (function.Arity != 0)
+                throw new InvalidDataException(System.FormattableString.Invariant(
+                    $"Bytecode {what} has arity {function.Arity}; it takes no arguments"));
         }
 
         private static CompiledFunction ReadCompiledFunction(BoundedReader r, int depth)

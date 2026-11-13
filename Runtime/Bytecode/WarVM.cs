@@ -19,7 +19,7 @@ namespace WarScript.Bytecode
     /// </summary>
     public class WarVM
     {
-        private const int StackMax = 1024;
+        private const int StackMax = BytecodeVerifier.StackLimit; // 1,024: the verifier bounds loaded functions by it
         private const int FramesMax = 128;
         private const int HandlersMax = 32;
 
