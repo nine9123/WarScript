@@ -93,15 +93,18 @@ namespace WarScript
         public MemoryScope UserMemoryScope => _memoryScope;
 
         /// <summary>
-        /// Maximum number of bytecode instructions a single Run() or Call()
-        /// invocation may execute before the VM raises an exception and stops.
-        /// 
+        /// Maximum number of bytecode instructions an outermost Run() or Call()
+        /// invocation (or a coroutine resume by TickCoroutines) may execute,
+        /// including everything nested inside it: constructors, imports, and
+        /// callbacks a native makes into this instance (v2 plan T1.5, PROP-2).
+        ///
         /// Set to 0 (default) to disable budgeting (unlimited execution).
         /// Recommended values: 100,000 for tick functions, 1,000,000 for Run().
         ///
-        /// When the budget is exhausted, the VM raises "Instruction budget exceeded"
-        /// which can be caught by begin/rescue like any other exception. If uncaught,
-        /// the script stops cleanly and the game continues.
+        /// When the budget is exhausted, the VM raises "Instruction budget exceeded".
+        /// The budget then stays exhausted until the next outermost entry: every
+        /// further instruction raises it again, so no rescue or ensure body runs
+        /// and the entry ends with the error logged (BUDGET-2). The game continues.
         /// </summary>
         public int InstructionBudget { get; set; }
 
@@ -163,8 +166,9 @@ namespace WarScript
         internal bool HasBreakpoint(int line) => _breakpoints.Contains(line);
 
         /// <summary>
-        /// Maximum bytes of heap allocation a single Run() or Call() invocation
-        /// may perform before the VM raises an exception and stops.
+        /// Maximum bytes of heap allocation an outermost Run() or Call()
+        /// invocation may perform, shared with everything nested inside it
+        /// like <see cref="InstructionBudget"/>, before the VM raises an exception.
         ///
         /// Set to 0 (default) to disable memory budgeting (unlimited).
         /// Recommended values: 1_000_000 (1MB) for tick functions,

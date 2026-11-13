@@ -53,14 +53,11 @@ end
             // 'make [n]' with n instances runs a few instructions per
             // constructor body; with one VM per constructor (v1) only the
             // loop in 'make' was charged.
-            var (_, output) = TestHelper.Run("t", Source + @"
-begin
-    make [2000]
-    print ""done""
-rescue e
-    print e
-end", (s, _) => s.InstructionBudget = 10_000);
-            CollectionAssert.AreEqual(new[] { "Instruction budget exceeded" }, output);
+            var (script, output) = TestHelper.Run("t", Source + @"
+make [2000]
+print ""done""", (s, _) => s.InstructionBudget = 10_000);
+            CollectionAssert.DoesNotContain(output, "done");
+            Assert.AreEqual("Instruction budget exceeded", script.ExceptionContext.LastUnhandled?.Value.ToString());
         }
 
         [Test]

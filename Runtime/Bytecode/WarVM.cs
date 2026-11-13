@@ -379,8 +379,11 @@ namespace WarScript.Bytecode
                 // ── Instruction budget (shared by the instance's VMs, T1.5) ──
                 if (--budget.InstructionsLeft < 0)
                 {
-                    // v1: an exhausted budget is disarmed (BUDGET-2).
-                    budget.InstructionsLeft = long.MaxValue;
+                    // The budget stays exhausted until the next outermost
+                    // entry (BUDGET-2, Q-11): every further instruction raises
+                    // again, so rescue and ensure bodies cannot run and the
+                    // error ends the entry whatever the script rescues.
+                    budget.InstructionsLeft = -1;
                     RuntimeError("Instruction budget exceeded");
                     if (DoHandleException(ref fi, ref code, ref constants))
                         continue;

@@ -375,8 +375,11 @@ namespace WarScript.Fuzz
         {
             // Thrown while parsing or compiling (the site is a frontend method), not while running.
             (new Regex(@"^host-fault: \w*Exception: .*\(in WarScript\.(Parser\.|Expression\.ExpressionReader\.|Expression\.Operator\.Extensions\.|Bytecode\.Compiler\.)[\w.]+\)$"), "CRASH-6"),
-            // The only hang found so far; any other cause looks the same, so check a timeout's case.
-            (new Regex(@"^crash: timed out"), "BUDGET-2?"),
+            // Since BUDGET-2 was fixed (T1.5) the only hang seen is the state hash
+            // walking shared arrays a mutated A.27 leaves in globals (BUDGET-3,
+            // state hash part, Q-13); any other cause looks the same, so check a
+            // timeout's case.
+            (new Regex(@"^crash: timed out"), "BUDGET-3?"),
         };
 
         public static string Match(string signature)

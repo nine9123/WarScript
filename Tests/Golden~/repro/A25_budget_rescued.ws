@@ -1,4 +1,3 @@
-# known-failing: BUDGET-2
 # budget: 1000
 # Plan A.25 (found by the fuzzer, T0.7): v1 disarms the instruction budget
 # once it runs out (a budget of 0 means unlimited), so after a rescue the

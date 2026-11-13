@@ -187,9 +187,13 @@ print ""done""", null, (w, m) => output.Add(m));
 
             Assert.IsNull(Invariants.Violation(s, before));
             // The coroutine runs out of budget and ends with the error logged
-            // (v1 behaviour for a coroutine's own error); the script then
-            // continues on v1's disarmed budget (BUDGET-2).
-            CollectionAssert.AreEqual(new[] { "done" }, Printed(s, output));
+            // (v1 behaviour for a coroutine's own error); the budget stays
+            // exhausted (BUDGET-2), so the script's next instruction raises
+            // the error again and the run ends too.
+            CollectionAssert.DoesNotContain(output, "work done");
+            CollectionAssert.DoesNotContain(output, "done");
+            Assert.AreEqual(2, output.FindAll(o => o.StartsWith("Instruction budget exceeded")).Count,
+                string.Join(" | ", output));
             Assert.AreEqual("Instruction budget exceeded", Unhandled(s));
         }
 

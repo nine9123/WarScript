@@ -275,7 +275,11 @@ end
             script.InstructionBudget = 100000;
             script.Run();
 
-            Assert.AreEqual("caught: Instruction budget exceeded", output[0]);
+            // The exhausted budget cannot be rescued (BUDGET-2): neither
+            // "finished" nor "caught" is printed.
+            Assert.AreEqual("Instruction budget exceeded", script.ExceptionContext.LastUnhandled?.Value.ToString());
+            CollectionAssert.DoesNotContain(output, "finished");
+            Assert.IsFalse(output.Exists(o => o.StartsWith("caught")));
         }
 
         // ────────────────────────────────────────────────
