@@ -1,5 +1,4 @@
 # isolate
-# known-failing: CRASH-1
 # Plan A.1 (T1.2): v1 aborts the process with a stack overflow in WarValue.ToString().
 a = {1}
 a << a

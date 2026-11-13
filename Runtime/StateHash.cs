@@ -38,8 +38,8 @@ namespace WarScript
         public const byte CycleMarker = 0xFE;
         public const byte DepthMarker = 0xFD;
 
-        /// <summary>Plan PROP-5. Becomes the instance-wide limit in T1.2.</summary>
-        public const int MaxValueDepth = 256;
+        /// <summary>Plan PROP-5; the same limit as equality and formatting.</summary>
+        public const int MaxValueDepth = WarValue.MaxValueDepth;
 
         /// <summary>Continues <paramref name="hash"/> with one printed line.</summary>
         public static ulong AppendLine(ulong hash, string line)

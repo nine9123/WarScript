@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using FixMath;
+using WarScript.Exception;
 
 namespace WarScript.Expression.Value
 {
@@ -142,7 +143,33 @@ namespace WarScript.Expression.Value
 
         // ── Equality ──
 
-        public bool Equals(WarValue other)
+        /// <summary>
+        /// How deep arrays and instances may nest inside one another for
+        /// equality, hashing of state and formatting (plan PROP-5, T1.2).
+        /// Equality beyond it raises LimitExceeded "Value nested too deeply";
+        /// formatting prints <c>[...]</c>. Cyclic arrays reach it, so this is
+        /// also how they are handled.
+        /// </summary>
+        public const int MaxValueDepth = 256;
+
+        /// <summary>Message of the LimitExceeded error raised by equality beyond <see cref="MaxValueDepth"/>.</summary>
+        internal const string ValueTooDeepMessage = "Value nested too deeply";
+
+        // GetHashCode looks at most this many elements (or properties) of an
+        // array (or instance), and this many levels deep. Equal values still
+        // hash equal: Equals compares the counts and every element.
+        private const int HashElements = 8;
+        private const int HashDepth = 3;
+
+        public bool Equals(WarValue other) => Equals(other, 0);
+
+        /// <summary>
+        /// Equality of a value nested <paramref name="depth"/> arrays or
+        /// instances deep. Throws <see cref="WarScriptLimitException"/>, which
+        /// the VM raises as a script error, when arrays or instances nest
+        /// deeper than <see cref="MaxValueDepth"/> (CRASH-1).
+        /// </summary>
+        internal bool Equals(in WarValue other, int depth)
         {
             if (Tag != other.Tag) return false;
             switch (Tag)
@@ -152,14 +179,18 @@ namespace WarScript.Expression.Value
                 case ValueTag.Logical: return Numeric == other.Numeric;
                 case ValueTag.Text: return (string)Ref! == (string)other.Ref!;
                 case ValueTag.Array:
+                    if (depth >= MaxValueDepth)
+                        throw new WarScriptLimitException(ValueTooDeepMessage);
                     var a = ArrayValue;
                     var b = other.ArrayValue;
                     if (a.Count != b.Count) return false;
                     for (int i = 0; i < a.Count; i++)
-                        if (!a[i].Equals(b[i])) return false;
+                        if (!a[i].Equals(b[i], depth + 1)) return false;
                     return true;
                 case ValueTag.Class:
-                    return ClassValue.StructuralEquals(other.ClassValue);
+                    if (depth >= MaxValueDepth)
+                        throw new WarScriptLimitException(ValueTooDeepMessage);
+                    return ClassValue.StructuralEquals(other.ClassValue, depth);
                 case ValueTag.NativeObject:
                     return Ref != null && Ref.Equals(other.Ref);
                 default: return false;
@@ -169,7 +200,15 @@ namespace WarScript.Expression.Value
         public override bool Equals(object? obj) =>
             obj is WarValue other && Equals(other);
 
-        public override int GetHashCode()
+        public override int GetHashCode() => GetHashCode(0);
+
+        /// <summary>
+        /// Hash of a value nested <paramref name="depth"/> arrays or
+        /// instances deep: at most the first 8 elements of an array, and
+        /// nothing below 3 levels, so cyclic and deeply nested values hash in
+        /// bounded time.
+        /// </summary>
+        internal int GetHashCode(int depth)
         {
             switch (Tag)
             {
@@ -178,10 +217,14 @@ namespace WarScript.Expression.Value
                 case ValueTag.Logical: return LogicalValue.GetHashCode();
                 case ValueTag.Text: return TextValue.GetHashCode();
                 case ValueTag.Array:
-                    var hash = 17;
-                    foreach (var v in ArrayValue) hash = hash * 31 + v.GetHashCode();
+                    var list = ArrayValue;
+                    var hash = 17 * 31 + list.Count;
+                    if (depth >= HashDepth) return hash;
+                    var n = Math.Min(list.Count, HashElements);
+                    for (int i = 0; i < n; i++) hash = hash * 31 + list[i].GetHashCode(depth + 1);
                     return hash;
-                case ValueTag.Class: return ClassValue.StructuralHashCode();
+                case ValueTag.Class:
+                    return depth >= HashDepth ? 17 : ClassValue.StructuralHashCode(depth);
                 case ValueTag.NativeObject: return Ref?.GetHashCode() ?? 0;
                 default: return 0;
             }
@@ -202,14 +245,8 @@ namespace WarScript.Expression.Value
                 case ValueTag.Logical: return LogicalValue ? "True" : "False";
                 case ValueTag.Text: return TextValue;
                 case ValueTag.Array:
-                    var sb = new StringBuilder("[");
-                    var vals = ArrayValue;
-                    for (int i = 0; i < vals.Count; i++)
-                    {
-                        if (i > 0) sb.Append(", ");
-                        sb.Append(vals[i].ToString());
-                    }
-                    sb.Append(']');
+                    var sb = new StringBuilder();
+                    AppendArray(sb, ArrayValue, 0, new List<List<WarValue>>());
                     return sb.ToString();
                 case ValueTag.Class:
                     return ClassValue.Definition.ClassDetails.Name;
@@ -217,6 +254,42 @@ namespace WarScript.Expression.Value
                     return Ref?.ToString() ?? "null";
                 default: return "";
             }
+        }
+
+        /// <summary>
+        /// Formats an array nested <paramref name="depth"/> arrays deep.
+        /// <paramref name="inProgress"/> holds the arrays being formatted
+        /// around it; an array already among them, or one nested deeper than
+        /// <see cref="MaxValueDepth"/>, prints as <c>[...]</c> (CRASH-1).
+        /// </summary>
+        private static void AppendArray(StringBuilder sb, List<WarValue> vals, int depth,
+            List<List<WarValue>> inProgress)
+        {
+            if (depth >= MaxValueDepth || ContainsReference(inProgress, vals))
+            {
+                sb.Append("[...]");
+                return;
+            }
+            inProgress.Add(vals);
+            sb.Append('[');
+            for (int i = 0; i < vals.Count; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                var v = vals[i];
+                if (v.Tag == ValueTag.Array)
+                    AppendArray(sb, v.ArrayValue, depth + 1, inProgress);
+                else
+                    sb.Append(v.ToString());
+            }
+            sb.Append(']');
+            inProgress.RemoveAt(inProgress.Count - 1);
+        }
+
+        private static bool ContainsReference(List<List<WarValue>> lists, List<WarValue> list)
+        {
+            for (int i = 0; i < lists.Count; i++)
+                if (ReferenceEquals(lists[i], list)) return true;
+            return false;
         }
 
         private static readonly long[] Pow10 =

@@ -1,5 +1,4 @@
 # isolate
-# known-failing: CRASH-1
 # Plan A.2 (T1.2): v1 aborts the process in WarValue.Equals; v2 raises LimitExceeded.
 a = {1}
 a << a
