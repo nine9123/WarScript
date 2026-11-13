@@ -99,6 +99,36 @@ fun nested []
     end
 end
 print nested []
+# Without an ensure block the rescue body runs under no handler of its
+# block, so recursing from it is not limited by the 32 handler slots.
+fun retry [n]
+    begin
+        raise "a"
+    rescue e
+        if n > 0
+            return retry [n - 1]
+        end
+        return "retried"
+    end
+end
+print retry [60]
+# 'next' and 'break' out of such a rescue body leave the enclosing
+# handler in place.
+begin
+    loop i in 0..3
+        begin
+            raise "a"
+        rescue e
+            if i == 0
+                next
+            end
+            break
+        end
+    end
+    raise "still handled"
+rescue e
+    print "outer " + e
+end
 # expect: ensure after return
 # expect: returned
 # expect: ensure after raise
@@ -114,3 +144,5 @@ print nested []
 # expect: inner ensure
 # expect: outer ensure
 # expect: nested returned
+# expect: retried
+# expect: outer still handled

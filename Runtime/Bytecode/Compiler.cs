@@ -853,10 +853,13 @@ namespace WarScript.Bytecode
                 switch (t.Region)
                 {
                     case TryRegion.Begin:
-                    case TryRegion.Rescue:
-                        // The begin body's handler, or the ensure-only
-                        // handler the rescue body runs under (Q-14).
                         Chunk.EmitOp(OpCode.PopHandler, line);
+                        break;
+                    case TryRegion.Rescue:
+                        // The ensure-only handler the rescue body runs under
+                        // when the block has an ensure block (Q-14).
+                        if (t.Ensure != null)
+                            Chunk.EmitOp(OpCode.PopHandler, line);
                         break;
                     case TryRegion.Ensure:
                         Chunk.EmitOp(OpCode.DropPending, line);
@@ -949,11 +952,13 @@ namespace WarScript.Bytecode
                 // ensure block), but kept valid for the verifier.
                 Chunk.EmitOp(OpCode.Pop, line);
             }
-            // The VM runs the rescue body under an ensure-only handler, so
-            // that leaving it by return, raise or an error runs the ensure
-            // block (Q-14, SEM-13); its normal end removes that handler and
-            // falls through to the ensure block.
-            Chunk.EmitOp(OpCode.PopHandler, line);
+            // With an ensure block, the VM runs the rescue body under an
+            // ensure-only handler, so that leaving it by return, raise or an
+            // error runs the ensure block (Q-14, SEM-13); its normal end
+            // removes that handler and falls through to the ensure block.
+            // Without one there is no such handler (BytecodeVerifier).
+            if (stmt.EnsureStatement != null)
+                Chunk.EmitOp(OpCode.PopHandler, line);
 
             // ── Ensure body ──
             int ensureIP = Chunk.Count;
