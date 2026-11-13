@@ -227,9 +227,17 @@ namespace WarScript
         /// entry must then return without running anything (the error stays
         /// raised for the native that made the call). Pair a true result
         /// with <see cref="EndEntry"/> in a finally block.
+        ///
+        /// A nested entry also returns false, running nothing, while an
+        /// earlier callback's error is still raised: that error belongs to
+        /// the calling script (PROP-1), and the new entry's VM would otherwise
+        /// take it for its own and could rescue it, letting the native
+        /// suppress a callback error (6.5).
         /// </summary>
         internal bool BeginEntry()
         {
+            if (EntryDepth > 0 && ExceptionContext.IsRaised())
+                return false;
             if (EntryDepth > MaxHostNesting)
             {
                 ExceptionContext.RaiseException("Host nesting limit exceeded");

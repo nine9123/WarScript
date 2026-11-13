@@ -297,5 +297,42 @@ end", null, (w, m) => output.Add(m));
             Assert.IsNull(s.LastHostFault);
             Assert.AreEqual(0, s.EntryDepth);
         }
+
+        [Test]
+        public void SecondCallbackAfterAFailedOne_DoesNotRescueTheFirstError()
+        {
+            var output = new List<string>();
+            WarScriptLanguage s = null;
+            s = new WarScriptLanguage("t", @"fun fails []
+    raise ""first""
+end
+fun guarded []
+    begin
+        print ""guarded ran""
+    rescue e
+        print ""guarded rescued "" + e
+    end
+end
+begin
+    fire []
+    print ""after fire""
+rescue e
+    print ""outer rescued "" + e
+end", null, (w, m) => output.Add(m));
+            AddNative(s, "fire", _ =>
+            {
+                s.Call(s.GetFunction("fails", 0));
+                s.Call(s.GetFunction("guarded", 0));
+                return WarValue.Null;
+            });
+            var before = Invariants.Capture(s);
+            s.Run();
+            Assert.IsNull(Invariants.Violation(s, before));
+            // The pending "first" is not the second callback's to rescue:
+            // that callback does not run, and the error continues from the
+            // native call site (PROP-1, 6.5).
+            CollectionAssert.AreEqual(new[] { "outer rescued first" }, output);
+            Assert.AreEqual(0, s.EntryDepth);
+        }
     }
 }
