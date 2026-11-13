@@ -160,8 +160,6 @@ namespace WarScript
                 if (_script.ExceptionContext.IsRaised())
                     _script.ExceptionContext.PrintStackTrace();
                 _script.EndEntry();
-
-                _script.HaltFlags = WarScriptLanguage.HaltFlag.None;
             }
 
             // Determine next state

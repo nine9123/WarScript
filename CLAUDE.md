@@ -92,7 +92,6 @@ WarScript/
 │   │   └── ...
 │   ├── Coroutine/
 │   │   ├── ICoroutine.cs        # Interface: Id, IsComplete, IsReady(dt), Resume()
-│   │   ├── Coroutine.cs         # Tree-walk coroutine (legacy)
 │   │   └── BytecodeCoroutine.cs # VM-backed coroutine — owns its own WarVM
 │   ├── Native/
 │   │   ├── NativeHelper.cs      # Arg extraction (NumericArg→F64, IntArg→truncated int, TextArg, etc.)
@@ -282,7 +281,7 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 - **`{` and `}` are array delimiters**, not block delimiters. Blocks end with `end`. Array indexing is `arr{i}`. Function args use `[`, `]`.
 - **`::` is the property access operator** — `obj :: name`, `this :: x`, `DamageType :: PHYSICAL`.
 - **Text literals come in three forms**: `"..."` and `$"..."` (identical — interpolation + escapes) and `"""..."""` (raw: no escapes, no interpolation, multi-line, drops the line breaks adjoining the delimiters). A raw literal closes on the *last* three quotes of a run, so its content may end in `"` but may not contain `"""`. `$"""` is rejected.
-- **AST is discarded after compilation.** Bytecode is the source of truth.
+- **AST is discarded after compilation.** Bytecode is the source of truth. AST nodes are plain data (T2.1): no `Execute()`/`Evaluate()`, no tree-walk interpreter, no `HaltFlags`; `Call` on a function without bytecode (a native) logs `Cannot call ...: it has no bytecode` and does nothing, `StartCoroutine` on one returns -1 with an error raised.
 - **`WarValue` is a struct.** Passed by value. Lambda function values stored as `NativeObject(CompiledFunction)`.
 - **Default parameters**: `null` triggers the default (deliberate design — no way to pass "missing" vs "null").
 - **Lambda limitations**: No closures (params + globals only). No postfix call syntax (`arr{0}[args]` — use temp variable). TCO disabled for local lambda calls.

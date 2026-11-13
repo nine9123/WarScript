@@ -15,7 +15,5 @@ namespace WarScript.Expression.Value
         {
             _value = value;
         }
-
-        public WarValue Evaluate() => _value;
     }
 }

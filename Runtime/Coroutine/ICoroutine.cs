@@ -3,7 +3,7 @@ using FixMath;
 namespace WarScript
 {
     /// <summary>
-    /// Common interface for tree-walk and bytecode coroutines.
+    /// Common interface of coroutines (implemented by <see cref="BytecodeCoroutine"/>).
     /// </summary>
     public interface ICoroutine
     {

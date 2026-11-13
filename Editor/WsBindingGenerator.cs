@@ -332,13 +332,17 @@ namespace WarScript.Editor
                 sb.AppendLine($"{indent}                new WarScript.Expression.Value.ConstantExpression(WarValue.FromText(\"unknown\"))));");
                 sb.AppendLine();
 
-                // Create the instance and set it as a global + constant
-                sb.AppendLine($"{indent}            var __inst = new WarScript.Expression.ClassExpression(__script, \"{Esc(e.WsName)}\", new List<WarScript.Expression.IExpression>());");
+                // Create the instance and set it as a global + constant. The
+                // enum class has no fields, base classes or constructor body,
+                // so the instance is only its ClassData (the AST is not
+                // executable since plan T2.1).
                 sb.AppendLine($"{indent}            __script.DefinitionContext.PushScope(__scope);");
                 sb.AppendLine($"{indent}            __script.MemoryContext.PushScope(__script.GlobalMemoryScope);");
                 sb.AppendLine($"{indent}            try");
                 sb.AppendLine($"{indent}            {{");
-                sb.AppendLine($"{indent}                var __val = __inst.Evaluate();");
+                sb.AppendLine($"{indent}                var __data = new ClassData(__enumDef, new WarScript.Context.MemoryScope(__script, null, false), new Dictionary<string, ClassData>());");
+                sb.AppendLine($"{indent}                __data.Relations[\"{Esc(e.WsName)}\"] = __data;");
+                sb.AppendLine($"{indent}                var __val = WarValue.FromClass(__data);");
 
                 // Set member values on the instance
                 foreach (var (name, value) in e.Members)

@@ -12,7 +12,5 @@ namespace WarScript.Statement
             RowNumber = rowNumber;
             BlockName = blockName;
         }
-        
-        public abstract void Execute();
     }
 }

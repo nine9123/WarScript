@@ -55,7 +55,7 @@ namespace Tests
             f = script.GetFunction("format", 1);
             script.Call(f, WarValue.FromNumeric(42));
 
-            // format was called but returns via ReturnContext, not print
+            // format was called; Call() does not return its value (until T2.3)
             // Just verify no exception was raised
             Assert.IsFalse(script.ExceptionContext.IsRaised());
         }

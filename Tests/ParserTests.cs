@@ -58,7 +58,7 @@ namespace Tests
             var printStatement = (PrintStatement)statements[0];
 
             Assert.IsInstanceOf<ConstantExpression>(printStatement.Expression);
-            var textValue = ((ConstantExpression)printStatement.Expression).Evaluate();
+            var textValue = ((ConstantExpression)printStatement.Expression).Value;
 
             Assert.AreEqual("Hello World", textValue.TextValue);
         }
@@ -94,11 +94,11 @@ namespace Tests
             var addOperator = (AdditionOperator)assignOperator.Right;
 
             Assert.IsInstanceOf<ConstantExpression>(addOperator.Left);
-            var left = ((ConstantExpression)addOperator.Left).Evaluate();
+            var left = ((ConstantExpression)addOperator.Left).Value;
             Assert.AreEqual(F64.FromInt(2), left.Numeric);
 
             Assert.IsInstanceOf<ConstantExpression>(addOperator.Right);
-            var right = ((ConstantExpression)addOperator.Right).Evaluate();
+            var right = ((ConstantExpression)addOperator.Right).Value;
             Assert.AreEqual(F64.FromInt(5), right.Numeric);
         }
 
@@ -147,13 +147,13 @@ namespace Tests
             Assert.AreEqual("a", ((VariableExpression)gtOp.Left).Name);
 
             Assert.IsInstanceOf<ConstantExpression>(gtOp.Right);
-            Assert.AreEqual(F64.FromInt(5), ((ConstantExpression)gtOp.Right).Evaluate().Numeric);
+            Assert.AreEqual(F64.FromInt(5), ((ConstantExpression)gtOp.Right).Value.Numeric);
 
             Assert.AreEqual(1, ifBody.StatementsToExecute.Count);
             Assert.IsInstanceOf<PrintStatement>(ifBody.StatementsToExecute[0]);
             var ifPrint = (PrintStatement)ifBody.StatementsToExecute[0];
             Assert.IsInstanceOf<ConstantExpression>(ifPrint.Expression);
-            Assert.AreEqual("a is greater than 5", ((ConstantExpression)ifPrint.Expression).Evaluate().TextValue);
+            Assert.AreEqual("a is greater than 5", ((ConstantExpression)ifPrint.Expression).Value.TextValue);
 
             // elif case
             var elifCondition = cases[1].Key;
@@ -166,26 +166,26 @@ namespace Tests
             Assert.AreEqual("a", ((VariableExpression)gteOp.Left).Name);
 
             Assert.IsInstanceOf<ConstantExpression>(gteOp.Right);
-            Assert.AreEqual(F64.FromInt(1), ((ConstantExpression)gteOp.Right).Evaluate().Numeric);
+            Assert.AreEqual(F64.FromInt(1), ((ConstantExpression)gteOp.Right).Value.Numeric);
 
             Assert.AreEqual(1, elifBody.StatementsToExecute.Count);
             Assert.IsInstanceOf<PrintStatement>(elifBody.StatementsToExecute[0]);
             var elifPrint = (PrintStatement)elifBody.StatementsToExecute[0];
             Assert.IsInstanceOf<ConstantExpression>(elifPrint.Expression);
-            Assert.AreEqual("a is greater than or equal to 1", ((ConstantExpression)elifPrint.Expression).Evaluate().TextValue);
+            Assert.AreEqual("a is greater than or equal to 1", ((ConstantExpression)elifPrint.Expression).Value.TextValue);
 
             // else case
             var elseCondition = cases[2].Key;
             var elseBody = cases[2].Value;
 
-            Assert.IsTrue(elseCondition is ConstantExpression ce && ce.Evaluate().IsLogical);
-            Assert.IsTrue(((ConstantExpression)elseCondition).Evaluate().LogicalValue);
+            Assert.IsTrue(elseCondition is ConstantExpression ce && ce.Value.IsLogical);
+            Assert.IsTrue(((ConstantExpression)elseCondition).Value.LogicalValue);
 
             Assert.AreEqual(1, elseBody.StatementsToExecute.Count);
             Assert.IsInstanceOf<PrintStatement>(elseBody.StatementsToExecute[0]);
             var elsePrint = (PrintStatement)elseBody.StatementsToExecute[0];
             Assert.IsInstanceOf<ConstantExpression>(elsePrint.Expression);
-            Assert.AreEqual("a is less than 1", ((ConstantExpression)elsePrint.Expression).Evaluate().TextValue);
+            Assert.AreEqual("a is less than 1", ((ConstantExpression)elsePrint.Expression).Value.TextValue);
         }
 
         [Test]
@@ -293,7 +293,7 @@ namespace Tests
             Assert.AreEqual("a", variableExpression.Name);
 
             Assert.IsInstanceOf<ConstantExpression>(assignStatement.Right);
-            var numericValue = ((ConstantExpression)assignStatement.Right).Evaluate();
+            var numericValue = ((ConstantExpression)assignStatement.Right).Value;
 
             Assert.AreEqual(F64.FromInt(5), numericValue.Numeric);
         }

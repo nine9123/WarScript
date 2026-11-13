@@ -1,5 +1,3 @@
-using WarScript.Expression.Value;
-
 namespace WarScript.Expression
 {
     public abstract class UnaryOperatorExpression : IOperatorExpression
@@ -12,7 +10,5 @@ namespace WarScript.Expression
             _script = script;
             Value = value;
         }
-
-        public abstract WarValue Evaluate();
     }
 }

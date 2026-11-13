@@ -275,13 +275,6 @@ namespace WarScript.Bytecode
         //  Lambda compilation
         // ────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Public entry point for compiling a lambda expression.
-        /// Used by LambdaExpression.Evaluate() for the tree-walk path.
-        /// </summary>
-        public static CompiledFunction CompileLambda(WarScriptLanguage script, LambdaExpression lambda)
-            => CompileLambda(script, lambda, null);
-
         private static CompiledFunction CompileLambda(WarScriptLanguage script, LambdaExpression lambda, string? source)
         {
             CheckParameterCount(lambda.Parameters.Count, source, lambda.Line);

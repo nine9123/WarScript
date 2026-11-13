@@ -1,5 +1,3 @@
-using WarScript.Expression.Value;
-
 namespace WarScript.Expression
 {
     public abstract class BinaryOperatorExpression : IOperatorExpression
@@ -14,7 +12,5 @@ namespace WarScript.Expression
             Left = left;
             Right = right;
         }
-
-        public abstract WarValue Evaluate();
     }
 }

@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using WarScript.Expression.Value;
 
 namespace WarScript.Context
@@ -16,9 +15,8 @@ namespace WarScript.Context
 
         public WarValue RaiseException(in WarValue value)
         {
-            Exception = new Exception.Exception(value, new List<Statement.Statement>());
+            Exception = new Exception.Exception(value);
             _state = State.Raised;
-            _script.HaltFlags |= WarScriptLanguage.HaltFlag.Exception;
             return default;
         }
 
@@ -31,18 +29,11 @@ namespace WarScript.Context
         {
             Exception = null;
             _state = State.None;
-            _script.HaltFlags &= ~WarScriptLanguage.HaltFlag.Exception;
         }
 
         public void Disable() { _state = State.Disabled; }
         public void Enable() { _state = State.Raised; }
         public bool IsRaised() { return _state == State.Raised; }
-
-        public void AddTracedStatement(Statement.Statement statement)
-        {
-            if (IsRaised())
-                Exception.StackTrace.Add(statement);
-        }
 
         public void PrintStackTrace()
         {

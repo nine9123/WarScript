@@ -3,6 +3,8 @@ using FixMath;
 using NUnit.Framework;
 using WarScript;
 using WarScript.Bytecode;
+using WarScript.Context.Definition;
+using WarScript.Expression.Value;
 
 namespace Tests
 {
@@ -197,6 +199,53 @@ end
 
             Assert.AreEqual(-1, id);
             Assert.IsTrue(script.ExceptionContext.IsRaised());
+            script.ExceptionContext.RescueException();
+        }
+
+        // ────────────────────────────────────────────────
+        //  Functions without bytecode (T2.1: no AST interpreter)
+        // ────────────────────────────────────────────────
+
+        private static (WarScriptLanguage script, List<string> output, System.Func<bool> called) ScriptWithHostFunction()
+        {
+            var output = new List<string>();
+            var called = false;
+            var script = new WarScriptLanguage("no_bytecode", "fun co []\n    yield\nend\n", null, (s, msg) => output.Add(msg));
+            script.GlobalDefinitionScope.AddFunction(new NativeFunctionDefinition(
+                new FunctionDetails("host_fn", new List<string>()),
+                args => { called = true; return WarValue.Null; }, "", ""));
+            script.Run();
+            return (script, output, () => called);
+        }
+
+        [Test]
+        public void Call_OnAFunctionWithoutBytecode_LogsAndDoesNothing()
+        {
+            var (script, output, called) = ScriptWithHostFunction();
+            var function = script.GetFunction("host_fn", 0);
+            Assert.IsNotNull(function);
+            Assert.IsNull(function.Compiled);
+
+            script.Call(function);
+
+            Assert.IsFalse(called(), "the host function is not run through Call");
+            Assert.AreEqual(1, output.Count);
+            StringAssert.Contains("Cannot call 'host_fn' in 'no_bytecode': it has no bytecode", output[0]);
+            Assert.IsFalse(script.ExceptionContext.IsRaised());
+        }
+
+        [Test]
+        public void StartCoroutine_OnAFunctionWithoutBytecode_ReturnsMinusOneAndRaises()
+        {
+            var (script, _, called) = ScriptWithHostFunction();
+
+            var id = script.StartCoroutine("host_fn", null);
+
+            Assert.AreEqual(-1, id);
+            Assert.IsFalse(called());
+            Assert.AreEqual(0, script.ActiveCoroutineCount);
+            Assert.IsTrue(script.ExceptionContext.IsRaised());
+            StringAssert.Contains("has no bytecode", script.ExceptionContext.Exception.Value.TextValue);
             script.ExceptionContext.RescueException();
         }
 

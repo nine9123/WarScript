@@ -21,25 +21,9 @@ namespace WarScript
         public readonly ConstantExpression FalseExpr;
         public readonly ThisExpression ThisExpr;
 
-        // ── Consolidated halt flags for fast abort checking ──
-        [Flags]
-        public enum HaltFlag
-        {
-            None      = 0,
-            Exception = 1,
-            Return    = 2,
-            Break     = 4,
-            Next      = 8,
-            Yield     = 16,
-        }
-        public HaltFlag HaltFlags;
-
         public readonly DefinitionContext DefinitionContext;
         public readonly MemoryContext MemoryContext;
         public readonly ExceptionContext ExceptionContext;
-        public readonly ReturnContext ReturnContext;
-        public readonly NextContext NextContext;
-        public readonly BreakContext BreakContext;
         public readonly ClassInstanceContext ClassInstanceContext;
         public readonly IExpression DefaultStep;
 
@@ -136,7 +120,6 @@ namespace WarScript
         /// writing a global, ...). Null (the default) disables auditing; the
         /// cost is then one null check on those paths. Collect events with an
         /// <see cref="Audit.AuditReport"/>: <c>script.AuditSink = report.Add</c>.
-        /// Only bytecode execution is audited, not the legacy tree-walker.
         /// </summary>
         public Action<Audit.AuditEvent>? AuditSink { get; set; }
 
@@ -294,9 +277,7 @@ namespace WarScript
         /// </summary>
         internal readonly StringInterner Strings = new();
 
-        // ── Coroutine support ──
-        // Uses BytecodeCoroutine (VM suspend/resume) when the function has
-        // bytecode, falls back to tree-walk Coroutine otherwise.
+        // ── Coroutine support (BytecodeCoroutine: VM suspend/resume) ──
         private readonly List<ICoroutine> _coroutines = new();
         private int _nextCoroutineId = 1;
 
@@ -324,9 +305,6 @@ namespace WarScript
             DefinitionContext = new DefinitionContext(this);
             MemoryContext = new MemoryContext(this);
             ExceptionContext = new ExceptionContext(this);
-            ReturnContext = new ReturnContext();
-            NextContext = new NextContext();
-            BreakContext = new BreakContext();
             ClassInstanceContext = new ClassInstanceContext();
             DefaultStep = new ConstantExpression(WarValue.FromNumeric(1));
 
@@ -472,10 +450,9 @@ namespace WarScript
             ImportCache.Clear();
             ConstantNames.Clear();
 
-            // 4. Clear any lingering exception/halt state
+            // 4. Clear any lingering exception state
             if (ExceptionContext.IsRaised())
                 ExceptionContext.RescueException();
-            HaltFlags = HaltFlag.None;
 
             // 5. Re-lex from new source
             _tokens = LexicalParser.Parse(newSourceCode);
@@ -577,7 +554,6 @@ namespace WarScript
 
             if (ExceptionContext.IsRaised())
                 ExceptionContext.RescueException();
-            HaltFlags = HaltFlag.None;
 
             // Merge loaded definitions into _definitionScope
             scope.CopyLocalDefinitionsTo(_definitionScope);
@@ -663,8 +639,6 @@ namespace WarScript
                 DefinitionContext.EndScope();
                 MemoryContext.EndScope();
                 EndEntry();
-
-                HaltFlags = HaltFlag.None;
             }
         }
 
@@ -674,8 +648,12 @@ namespace WarScript
 
         /// <summary>
         /// Call a WarScript function from the host (C#/Unity).
-        /// Uses bytecode when available (always after Run() has been called).
         /// This is the hot path for game integration — tick loops, event handlers.
+        /// Every script function of the instance has bytecode once the script
+        /// is compiled (<see cref="Run"/>, <see cref="Reload"/>,
+        /// <see cref="LoadBytecode"/>). A function without bytecode (a native
+        /// function) cannot be called this way: the call is logged and does
+        /// nothing — there is no AST interpreter to run it (plan T2.1).
         /// </summary>
         public void Call(FunctionDefinition function, params WarValue[] arguments)
         {
@@ -685,9 +663,8 @@ namespace WarScript
                 return;
             }
 
-            // Fallback: tree-walk for functions not yet compiled
-            // (e.g. Call() before Run(), or native function wrappers)
-            CallTreeWalk(function, arguments);
+            Logger?.Invoke(this,
+                $"[WarScript] Cannot call '{function.Details.Name}' in '{ScriptName}': it has no bytecode");
         }
 
         private void CallBytecode(FunctionDefinition function, WarValue[] arguments)
@@ -710,44 +687,7 @@ namespace WarScript
                 MemoryContext.EndScope();  // function-local scope
                 DefinitionContext.EndScope();
                 MemoryContext.EndScope();
-                ReturnContext.Reset();
-                HaltFlags &= ~HaltFlag.Return;
                 EndEntry();
-
-                HaltFlags = HaltFlag.None;
-            }
-        }
-
-        private void CallTreeWalk(FunctionDefinition function, WarValue[] arguments)
-        {
-            DefinitionContext.PushScope(_definitionScope);
-            MemoryContext.PushScope(_memoryScope);
-            MemoryContext.PushScope(MemoryContext.NewScope());
-
-            try
-            {
-                var details = function.Details;
-                for (var i = 0; i < details.Arguments.Count; i++)
-                {
-                    MemoryContext.GetScope().SetLocal(
-                        details.Arguments[i],
-                        i < arguments.Length ? arguments[i] : WarValue.Null);
-                }
-
-                function.Statement!.Execute();
-            }
-            finally
-            {
-                MemoryContext.EndScope();
-                DefinitionContext.EndScope();
-                MemoryContext.EndScope();
-                ReturnContext.Reset();
-                HaltFlags &= ~HaltFlag.Return;
-
-                if (ExceptionContext.IsRaised())
-                    ExceptionContext.PrintStackTrace();
-
-                HaltFlags = HaltFlag.None;
             }
         }
 
@@ -822,7 +762,6 @@ namespace WarScript
         public void SetYielded(YieldType type, F64 waitDuration)
         {
             IsYielded = true;
-            HaltFlags |= HaltFlag.Yield;
             YieldedType = type;
             YieldedWaitDuration = waitDuration;
         }
@@ -830,13 +769,12 @@ namespace WarScript
         public void ClearYield()
         {
             IsYielded = false;
-            HaltFlags &= ~HaltFlag.Yield;
             YieldedType = YieldType.NextTick;
             YieldedWaitDuration = F64.Zero;
         }
 
         // ────────────────────────────────────────────────────────
-        //  Coroutine support (tree-walk — see note at field decl)
+        //  Coroutine support
         // ────────────────────────────────────────────────────────
 
         public int StartCoroutine(string functionName, WarValue[] args, bool loop = false)
@@ -849,26 +787,22 @@ namespace WarScript
                     System.FormattableString.Invariant($"Coroutine function '{functionName}' with {argCount} arguments is not defined"));
                 return -1;
             }
+            if (function.Compiled == null)
+            {
+                // A native function: only script functions can be suspended.
+                ExceptionContext.RaiseException(
+                    System.FormattableString.Invariant($"Coroutine function '{functionName}' with {argCount} arguments has no bytecode"));
+                return -1;
+            }
 
             var id = _nextCoroutineId++;
             var safeArgs = args ?? Array.Empty<WarValue>();
 
-            if (function.Compiled != null)
-            {
-                var bco = new BytecodeCoroutine(
-                    this, function.Compiled, _definitionScope, _memoryScope,
-                    safeArgs, loop, id);
-                _coroutines.Add(bco);
-                bco.Resume();
-            }
-            else
-            {
-                var coroutine = new Coroutine(
-                    this, function, _definitionScope, _memoryScope,
-                    safeArgs, loop, id);
-                _coroutines.Add(coroutine);
-                coroutine.Resume();
-            }
+            var bco = new BytecodeCoroutine(
+                this, function.Compiled, _definitionScope, _memoryScope,
+                safeArgs, loop, id);
+            _coroutines.Add(bco);
+            bco.Resume();
 
             return id;
         }

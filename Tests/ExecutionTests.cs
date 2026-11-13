@@ -546,7 +546,7 @@ namespace Tests
             var getSum = script.GetFunction("get_sum", 0);
             script.Call(getSum);
 
-            // get_sum returns via ReturnContext, not print — 
+            // get_sum returns its value, which Call() does not hand back (until T2.3) —
             // check that no exceptions were raised and the script is healthy
             Assert.IsFalse(script.ExceptionContext.IsRaised());
         }
