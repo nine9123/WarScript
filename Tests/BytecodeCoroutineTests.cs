@@ -404,6 +404,39 @@ namespace Tests
         }
 
         [Test]
+        public void YieldInsideConstructorSuspendsTheCaller()
+        {
+            // T1.1: constructor bodies are frames of the coroutine's VM, so a
+            // 'yield' in a base constructor suspends the whole 'new' and the
+            // derived constructor runs on the next tick, in its own context.
+            var (script, output) = TestHelper.Run("test", @"
+                class Base [hp]
+                    print ""base "" + hp
+                    yield
+                    hp = hp + 1
+                end
+                class Unit [hp] : Base [hp]
+                    print ""unit "" + hp
+                end
+                fun spawn []
+                    label = ""spawned""
+                    u = new Unit [10]
+                    print label + "" "" + u :: hp
+                end
+            ");
+
+            var before = Invariants.Capture(script);
+            script.StartCoroutine("spawn", System.Array.Empty<WarValue>());
+            Assert.AreEqual(new[] { "base 10" }, output);
+            Assert.AreEqual(1, script.ActiveCoroutineCount);
+
+            script.TickCoroutines(F64.FromDouble(0.016));
+            Assert.AreEqual(new[] { "base 10", "unit 11", "spawned 11" }, output);
+            Assert.AreEqual(0, script.ActiveCoroutineCount);
+            Invariants.Check(script, before);
+        }
+
+        [Test]
         public void YieldInsideCalledFunctionDoesNotLeakIntoHostCalls()
         {
             var (script, output) = TestHelper.Run("test", @"
