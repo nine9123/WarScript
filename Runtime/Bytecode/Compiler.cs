@@ -1286,7 +1286,7 @@ namespace WarScript.Bytecode
                 case ClassCastOperator cast:
                 {
                     CompileExpression(cast.Left);
-                    var typeName = ((VariableExpression)cast.Right).Name;
+                    var typeName = TypeNameOperand(cast.Right, "as");
                     var nameIdx = Chunk.AddConstant(WarValue.FromText(typeName));
                     Chunk.EmitOp(OpCode.CastAs, 0);
                     Chunk.EmitU16(nameIdx, 0);
@@ -1296,7 +1296,7 @@ namespace WarScript.Bytecode
                 case ClassInstanceOfOperator iof:
                 {
                     CompileExpression(iof.Left);
-                    var typeName = ((VariableExpression)iof.Right).Name;
+                    var typeName = TypeNameOperand(iof.Right, "is");
                     var nameIdx = Chunk.AddConstant(WarValue.FromText(typeName));
                     Chunk.EmitOp(OpCode.InstanceOf, 0);
                     Chunk.EmitU16(nameIdx, 0);
@@ -1363,6 +1363,17 @@ namespace WarScript.Bytecode
             Chunk.EmitOp(OpCode.NewInstance, 0);
             Chunk.EmitU16(nameIdx, 0);
             EmitArgCount(ce.PropertiesExpressions.Count, 0);
+        }
+
+        /// <summary>
+        /// The class name on the right of <c>as</c> / <c>is</c>: anything
+        /// but a plain name is a <see cref="CompileError"/> (CRASH-6), not
+        /// an <c>InvalidCastException</c>.
+        /// </summary>
+        private string TypeNameOperand(IExpression right, string keyword)
+        {
+            if (right is VariableExpression type) return type.Name;
+            throw new CompileError("'" + keyword + "' must be followed by a class name", _source, 0);
         }
 
         // ── Class property access: obj::prop, obj::method[args], obj::arr{i} ──

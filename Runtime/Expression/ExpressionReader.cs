@@ -205,7 +205,13 @@ namespace WarScript.Expression
             }
 
             while (_operators.Count > 0)
+            {
+                // A '(' still open when the expression ends (`x = (1]`) is
+                // not an operator to apply (CRASH-6).
+                if (_operators.Peek() == Operator.Operator.LeftParen)
+                    throw new SyntaxException("Unbalanced '(': missing ')'");
                 ApplyTopOperator();
+            }
 
             return _operands.Count == 0 ? _script.NullExpr : _operands.Pop();
         }

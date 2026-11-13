@@ -231,7 +231,7 @@ namespace WarScript.Fuzz
                 }
                 catch (System.Exception)
                 {
-                    // A compile error (the file's golden checks it) or a known compiler crash (CRASH-6).
+                    // A compile error (the file's golden checks it).
                 }
             }
             return result;
@@ -462,8 +462,6 @@ namespace WarScript.Fuzz
     {
         private static readonly (Regex pattern, string id)[] Table =
         {
-            // Thrown while parsing or compiling (the site is a frontend method), not while running.
-            (new Regex(@"^host-fault: \w*Exception: .*\(in WarScript\.(Parser\.|Expression\.ExpressionReader\.|Expression\.Operator\.Extensions\.|Bytecode\.Compiler\.)[\w.]+\)$"), "CRASH-6"),
             // Since BUDGET-2 was fixed (T1.5) the only hang seen is the state hash
             // walking shared arrays a mutated A.27 leaves in globals (BUDGET-3,
             // state hash part, Q-13); any other cause looks the same, so check a
