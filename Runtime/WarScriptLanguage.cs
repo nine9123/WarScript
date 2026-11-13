@@ -194,6 +194,62 @@ namespace WarScript
         /// </summary>
         public int MaxArrayLength { get; set; } = 1_048_576;
 
+        // ── Host entries and instance budgets (v2 plan T1.5, 6.5) ──
+
+        /// <summary>
+        /// Most host entries (<see cref="Run"/>, <see cref="Call"/>, a
+        /// coroutine start or resume) that may be nested inside the outermost
+        /// one: a native that calls back into the instance which calls the
+        /// native again, and so on. A deeper entry does not run; it raises
+        /// "Host nesting limit exceeded" (LimitExceeded) for the caller
+        /// (PROP-5).
+        /// </summary>
+        public const int MaxHostNesting = 32;
+
+        /// <summary>
+        /// The instruction and memory budgets every VM of this instance
+        /// charges. <see cref="InstructionBudget"/> and <see cref="MemoryBudget"/>
+        /// are copied into it when an outermost entry starts (PROP-2).
+        /// </summary>
+        internal readonly ExecutionBudget Budget = new();
+
+        /// <summary>Host entries currently executing; 0 when the instance is idle.</summary>
+        internal int EntryDepth { get; private set; }
+
+        /// <summary>
+        /// Starts a host entry. The outermost one resets the budgets; one
+        /// nested deeper than <see cref="MaxHostNesting"/> raises
+        /// "Host nesting limit exceeded" instead and returns false, and the
+        /// entry must then return without running anything (the error stays
+        /// raised for the native that made the call). Pair a true result
+        /// with <see cref="EndEntry"/> in a finally block.
+        /// </summary>
+        internal bool BeginEntry()
+        {
+            if (EntryDepth > MaxHostNesting)
+            {
+                ExceptionContext.RaiseException("Host nesting limit exceeded");
+                return false;
+            }
+            if (EntryDepth == 0)
+                Budget.Reset(InstructionBudget, MemoryBudget);
+            EntryDepth++;
+            return true;
+        }
+
+        /// <summary>
+        /// Ends a host entry. An error the entry left unhandled is logged and
+        /// cleared at the outermost entry; a nested entry leaves it raised,
+        /// so it continues in the calling script from the native call site,
+        /// where begin/rescue can catch it (PROP-1).
+        /// </summary>
+        internal void EndEntry()
+        {
+            EntryDepth--;
+            if (EntryDepth == 0 && ExceptionContext.IsRaised())
+                ExceptionContext.PrintStackTrace();
+        }
+
         /// <summary>
         /// String interner for reducing GC pressure. Short strings created by
         /// the VM (concatenation results, ToString() conversions) are deduplicated
@@ -316,6 +372,18 @@ namespace WarScript
         private WarVM EnsureVM()
         {
             return _cachedVM ??= new WarVM(this);
+        }
+
+        /// <summary>
+        /// The VM a host entry runs on: the cached one, or a new one when the
+        /// cached VM is busy because this entry is nested inside another
+        /// (a native calling back into the instance). A busy VM is never
+        /// reset (T1.5, DEC-16; pooling is F-VM-2).
+        /// </summary>
+        private WarVM AcquireVM()
+        {
+            var vm = EnsureVM();
+            return vm.IsRunning ? new WarVM(this) : vm;
         }
 
         /// <summary>
@@ -528,13 +596,14 @@ namespace WarScript
         /// </summary>
         public void Run()
         {
+            if (!BeginEntry()) return;
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
 
             try
             {
                 EnsureCompiled();
-                var vm = EnsureVM();
+                var vm = AcquireVM();
                 try { vm.Run(_cachedCompiled!); }
                 catch (System.Exception e) when (!(e is Exception.SyntaxException)) { ReportHostFault(e); }
             }
@@ -542,9 +611,7 @@ namespace WarScript
             {
                 DefinitionContext.EndScope();
                 MemoryContext.EndScope();
-
-                if (ExceptionContext.IsRaised())
-                    ExceptionContext.PrintStackTrace();
+                EndEntry();
 
                 HaltFlags = HaltFlag.None;
             }
@@ -574,6 +641,7 @@ namespace WarScript
 
         private void CallBytecode(FunctionDefinition function, WarValue[] arguments)
         {
+            if (!BeginEntry()) return;
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
             // Push a scope for function-local variables accessed via SetGlobal.
@@ -582,7 +650,7 @@ namespace WarScript
 
             try
             {
-                var vm = EnsureVM();
+                var vm = AcquireVM();
                 try { vm.RunFunction(function.Compiled!, arguments); }
                 catch (System.Exception e) when (!(e is Exception.SyntaxException)) { ReportHostFault(e); }
             }
@@ -593,9 +661,7 @@ namespace WarScript
                 MemoryContext.EndScope();
                 ReturnContext.Reset();
                 HaltFlags &= ~HaltFlag.Return;
-
-                if (ExceptionContext.IsRaised())
-                    ExceptionContext.PrintStackTrace();
+                EndEntry();
 
                 HaltFlags = HaltFlag.None;
             }

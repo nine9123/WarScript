@@ -82,6 +82,13 @@ namespace WarScript
         public void Resume()
         {
             if (IsComplete) return;
+            // Resumed from inside itself (a native it called ticked the
+            // coroutines): its VM is busy and must not be reset (T1.5).
+            if (_vm.IsRunning) return;
+            // A host entry (T1.5): the outermost one resets the instance's
+            // budgets. Too deeply nested, it does not run and the error
+            // stays raised for the native that started or ticked it.
+            if (!_script.BeginEntry()) return;
 
             // Push scopes so the VM's SetGlobal writes to our coroutine scope
             _script.DefinitionContext.PushScope(_definitionScope);
@@ -147,8 +154,12 @@ namespace WarScript
                 _script.MemoryContext.EndScope();  // user memory scope
                 _script.DefinitionContext.EndScope();
 
+                // The coroutine's own unhandled error ends it and is logged,
+                // even when the coroutine was started or ticked by a native
+                // (v1; not propagated to the caller like a nested Call's).
                 if (_script.ExceptionContext.IsRaised())
                     _script.ExceptionContext.PrintStackTrace();
+                _script.EndEntry();
 
                 _script.HaltFlags = WarScriptLanguage.HaltFlag.None;
             }

@@ -23,12 +23,12 @@ namespace Tests
     [TestFixture]
     public class ReproTests
     {
-        // ── A.6 Re-entrant host call (CRASH-4, T1.5) ─────────────────────
+        // ── A.6 Re-entrant host call (CRASH-4, fixed by T1.5) ────────────
 
         [Test]
         public void A06_ReentrantHostCall()
         {
-            KnownFailing("CRASH-4", Reentrant(@"
+            var failure = Reentrant(@"
 fun on_event [x]
     return x
 end
@@ -39,14 +39,15 @@ fun main []
     return 0
 end
 main []
-print ""top done""", "after fire, a=1 b=7", "top done"));
+print ""top done""", "after fire, a=1 b=7", "top done");
+            Assert.IsNull(failure, failure);
         }
 
         [Test]
         public void A06_ReentrantCallbackErrorIsRescuedAtTheNativeCallSite()
         {
             // PROP-1: the callback's error continues from the native call site.
-            KnownFailing("CRASH-4", Reentrant(@"
+            var failure = Reentrant(@"
 fun on_event [x]
     return x / 0
 end
@@ -60,13 +61,14 @@ fun main []
     return 0
 end
 main []
-print ""top done""", "rescued Division by zero", "top done"));
+print ""top done""", "rescued Division by zero", "top done");
+            Assert.IsNull(failure, failure);
         }
 
         [Test]
         public void A06_ReentrantCallbackErrorEndsTheOuterCall()
         {
-            KnownFailing("CRASH-4", ReentrantError(@"
+            var failure = ReentrantError(@"
 fun on_event [x]
     return x / 0
 end
@@ -76,15 +78,18 @@ fun main []
     return 0
 end
 main []
-print ""top done""", "Division by zero"));
+print ""top done""", "Division by zero");
+            Assert.IsNull(failure, failure);
         }
 
         [Test]
         public void A06_NativeAndScriptRecursionStopsAtMaxHostNesting()
         {
-            // PROP-5: MaxHostNesting = 32. The test caps the recursion itself
-            // at 64 levels so v1 cannot overflow the C# stack of the test host.
-            const int maxHostNesting = 32, testCap = 64;
+            // PROP-5: MaxHostNesting = 32 nested entries inside the outermost
+            // one. The test caps the recursion itself at 64 levels so a
+            // missing limit cannot overflow the C# stack of the test host.
+            const int maxHostNesting = WarScriptLanguage.MaxHostNesting, testCap = 64;
+            Assert.AreEqual(32, maxHostNesting);
             var depth = 0;
             var deepest = 0;
             WarScriptLanguage s = null;
@@ -118,9 +123,13 @@ print ""not reached""", null, (w, m) => output.Add(m));
                 failure = $"the native was entered {deepest} levels deep; MaxHostNesting is {maxHostNesting}";
             if (failure == null && unhandled == null)
                 failure = "the run completed; expected LimitExceeded. Output: " + string.Join(" | ", output);
+            if (failure == null && unhandled.Value.ToString() != "Host nesting limit exceeded")
+                failure = "expected 'Host nesting limit exceeded', got: " + unhandled.Value;
+            if (failure == null && deepest != maxHostNesting + 1)
+                failure = $"the native was entered {deepest} levels deep, expected {maxHostNesting + 1} (one per entry)";
             if (failure == null && output.Contains("not reached"))
                 failure = "the script continued after the nesting limit";
-            KnownFailing("CRASH-4", failure);
+            Assert.IsNull(failure, failure);
         }
 
         /// <summary>

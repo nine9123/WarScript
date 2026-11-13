@@ -416,7 +416,7 @@ namespace Tests.Golden
             if (message == "Stack overflow" || message == "Value stack overflow" ||
                 message.StartsWith("Exception handler stack overflow") ||
                 message == "Text too long" || message == "Array too long" ||
-                message == "Value nested too deeply")
+                message == "Value nested too deeply" || message == "Host nesting limit exceeded")
                 return "LimitExceeded";
             return null;
         }

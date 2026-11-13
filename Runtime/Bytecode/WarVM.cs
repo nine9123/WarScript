@@ -55,22 +55,20 @@ namespace WarScript.Bytecode
         // TryHandler saves it so DoHandleException can restore on unwind.
         private int _scopeDepth;
 
-        // Instruction budgeting: decremented on every dispatch.
-        // When it hits 0, the VM raises an exception and stops.
-        // A value of 0 after Reset() means unlimited (no budgeting).
-        private int _budget;
+        // Instruction and memory budgets: shared by every VM of the instance
+        // and reset only when an outermost host entry starts (T1.5, PROP-2).
+        private readonly ExecutionBudget _budget;
+
+        // True while Execute() runs. A busy VM is never reset: a host entry
+        // that arrives meanwhile (a native calling back into the instance)
+        // runs on another VM (T1.5, DEC-16).
+        private bool _running;
 
         // ── Debugger state ──
         // Only accessed when _script.DebugHook != null (zero cost otherwise).
         private StepMode _stepMode;
         private int _stepFrameDepth;
         private int _lastDebugLine;
-
-        // ── Memory budgeting ──
-        // Tracks heap allocations (strings, arrays, class instances).
-        // 0 = unlimited. Raises "Memory budget exceeded" when hit.
-        private long _memoryUsed;
-        private long _memoryBudget;
 
         // ── Coroutine support ──
         // When the VM is used as a coroutine executor, yield opcodes
@@ -99,6 +97,9 @@ namespace WarScript.Bytecode
         /// </summary>
         internal bool IsIdle => _frameCount == 0 && _sp == 0 && _handlerCount == 0
                                 && _pendingCount == 0 && !_yielded;
+
+        /// <summary>True while the VM is executing (see <c>_running</c>).</summary>
+        internal bool IsRunning => _running;
 
         private struct TryHandler
         {
@@ -136,31 +137,32 @@ namespace WarScript.Bytecode
         {
             _script = script;
             _interner = script.Strings;
+            _budget = script.Budget;
         }
 
         private readonly StringInterner _interner;
 
         /// <summary>
         /// Reset all VM state for reuse. Avoids re-allocating the stack,
-        /// frame, and handler arrays on every Call() invocation.
+        /// frame, and handler arrays on every Call() invocation. The budgets
+        /// belong to the instance and are not touched (T1.5).
         /// </summary>
         private void Reset()
         {
+            if (_running)
+                throw new System.InvalidOperationException("WarVM reset while it is executing");
             _sp = 0;
             _frameCount = 0;
             _handlerCount = 0;
             _topLevelResult = default;
             ClearPending(0);
             _scopeDepth = 0;
-            _budget = _script.InstructionBudget;
             _yielded = false;
             _yieldType = YieldType.NextTick;
             _yieldWaitDuration = F64.Zero;
             _stepMode = StepMode.Continue;
             _stepFrameDepth = 0;
             _lastDebugLine = -1;
-            _memoryUsed = 0;
-            _memoryBudget = _script.MemoryBudget;
         }
 
         public void Run(CompiledFunction main)
@@ -241,9 +243,6 @@ namespace WarScript.Bytecode
             _yielded = false;
             _yieldType = YieldType.NextTick;
             _yieldWaitDuration = F64.Zero;
-            _budget = _script.InstructionBudget;
-            _memoryUsed = 0;
-            _memoryBudget = _script.MemoryBudget;
             Execute();
         }
 
@@ -279,6 +278,15 @@ namespace WarScript.Bytecode
         /// </summary>
         private void Execute()
         {
+            if (_running)
+                throw new System.InvalidOperationException("WarVM entered while it is executing");
+            _running = true;
+            try { ExecuteGuarded(); }
+            finally { _running = false; }
+        }
+
+        private void ExecuteGuarded()
+        {
             while (true)
             {
                 try
@@ -302,6 +310,7 @@ namespace WarScript.Bytecode
                     // Also a SyntaxException from compiling an import: it
                     // propagates to the host as in v1 (imports become
                     // compile-time in Phase 3), after the same cleanup.
+                    _running = false; // so the cleanup may reset the VM
                     AbortAfterHostFault();
                     throw;
                 }
@@ -363,12 +372,15 @@ namespace WarScript.Bytecode
             int fi = _frameCount - 1;
             List<byte> code = _frames[fi].Function.Chunk.Code;
             List<WarValue> constants = _frames[fi].Function.Chunk.Constants;
+            var budget = _budget;
 
             while (true)
             {
-                // ── Instruction budget ──
-                if (_budget > 0 && --_budget == 0)
+                // ── Instruction budget (shared by the instance's VMs, T1.5) ──
+                if (--budget.InstructionsLeft < 0)
                 {
+                    // v1: an exhausted budget is disarmed (BUDGET-2).
+                    budget.InstructionsLeft = long.MaxValue;
                     RuntimeError("Instruction budget exceeded");
                     if (DoHandleException(ref fi, ref code, ref constants))
                         continue;
@@ -1939,9 +1951,10 @@ namespace WarScript.Bytecode
         /// </summary>
         private bool TrackAlloc(long bytes)
         {
-            if (_memoryBudget <= 0) return true;
-            _memoryUsed += bytes;
-            if (_memoryUsed <= _memoryBudget) return true;
+            var budget = _budget;
+            if (budget.MemoryLimit <= 0) return true;
+            budget.MemoryUsed += bytes;
+            if (budget.MemoryUsed <= budget.MemoryLimit) return true;
             RuntimeError("Memory budget exceeded");
             return false;
         }

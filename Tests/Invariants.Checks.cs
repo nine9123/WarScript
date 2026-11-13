@@ -46,6 +46,9 @@ namespace Tests
             if (script.ClassInstanceContext.Depth != 0)
                 return $"ClassInstanceContextEmpty: {script.ClassInstanceContext.Depth} instance(s) left pushed";
 
+            if (script.EntryDepth != 0)
+                return $"EntryDepth: {script.EntryDepth} host entr(y/ies) still counted as running";
+
             if (!script.IsYielded && !script.IsVMIdle)
                 return "VMIdle: frames, stack values, handlers or a pending return/exception left behind";
 
