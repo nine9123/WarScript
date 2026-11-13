@@ -392,11 +392,10 @@ namespace WarScript.Bytecode
                 // When enabled: fires only on source-line changes.
                 if (_script.DebugHook != null)
                 {
-                    var lines = _frames[fi].Function.Chunk.Lines;
                     var ip = _frames[fi].IP;
-                    if (ip < lines.Count)
+                    if (ip < code.Count)
                     {
-                        var currentLine = lines[ip];
+                        var currentLine = _frames[fi].Function.Chunk.Lines.GetLine(ip);
                         if (currentLine != _lastDebugLine && currentLine > 0)
                         {
                             var shouldBreak = false;
@@ -1663,8 +1662,8 @@ namespace WarScript.Bytecode
                     {
                         if (!IsTruthy(Pop()))
                         {
-                            var line = _frames[fi].IP > 0 && _frames[fi].IP - 1 < _frames[fi].Function.Chunk.Lines.Count
-                                ? _frames[fi].Function.Chunk.Lines[_frames[fi].IP - 1] : 0;
+                            var line = _frames[fi].IP > 0 && _frames[fi].IP - 1 < code.Count
+                                ? _frames[fi].Function.Chunk.Lines.GetLine(_frames[fi].IP - 1) : 0;
                             RuntimeError(System.FormattableString.Invariant($"Assertion error at line {line}"));
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
@@ -1868,8 +1867,8 @@ namespace WarScript.Bytecode
             {
                 var frame = _frames[i];
                 var frameIP = frame.IP > 0 ? frame.IP - 1 : 0;
-                var frameLine = frameIP < frame.Function.Chunk.Lines.Count
-                    ? frame.Function.Chunk.Lines[frameIP] : 0;
+                var frameLine = frameIP < frame.Function.Chunk.Code.Count
+                    ? frame.Function.Chunk.Lines.GetLine(frameIP) : 0;
                 callStack.Add(new DebugContext.StackEntry(frame.Function.Name, frameLine));
             }
             // Update the current frame's line to the accurate one
@@ -2398,7 +2397,7 @@ namespace WarScript.Bytecode
             var sink = _script.AuditSink;
             if (sink == null) return;
             var function = _frames[fi].Function;
-            var line = AuditLine(function.Chunk.Lines, _frames[fi].IP - 1);
+            var line = AuditLine(function.Chunk, _frames[fi].IP - 1);
             sink(new AuditEvent(kind, function.Chunk.Source ?? _script.ScriptName, line, function.Name, detail));
         }
 
@@ -2409,13 +2408,16 @@ namespace WarScript.Bytecode
         /// expression belongs to (its opcode comes after its operands), and
         /// then to the previous one.
         /// </summary>
-        private static int AuditLine(List<int> lines, int ip)
+        private static int AuditLine(Chunk chunk, int ip)
         {
-            if (ip < 0 || ip >= lines.Count) return 0;
-            for (var i = ip; i < lines.Count; i++)
-                if (lines[i] > 0) return lines[i];
-            for (var i = ip - 1; i >= 0; i--)
-                if (lines[i] > 0) return lines[i];
+            if (ip < 0 || ip >= chunk.Code.Count) return 0;
+            var lines = chunk.Lines;
+            int at = lines.EntryIndex(ip);
+            if (at < 0) return 0;
+            for (var i = at; i < lines.EntryCount; i++)
+                if (lines.LineAt(i) > 0) return lines.LineAt(i);
+            for (var i = at - 1; i >= 0; i--)
+                if (lines.LineAt(i) > 0) return lines.LineAt(i);
             return 0;
         }
 

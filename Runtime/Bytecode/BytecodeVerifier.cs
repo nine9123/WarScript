@@ -54,8 +54,8 @@ namespace WarScript.Bytecode
             if (length > MaxCodeLength) throw Reject(name, 0, "code is longer than 65,535 bytes");
             // A call carries at most 255 arguments (u8); the VM pads up to the arity with a byte count.
             if (atLoad && function.Arity > MaxArity) throw Reject(name, 0, "arity is above 255");
-            if (chunk.Lines.Count != length)
-                throw Reject(name, 0, "line table does not match the code length");
+            var lineProblem = chunk.Lines.Problem(length);
+            if (lineProblem != null) throw Reject(name, 0, lineProblem);
 
             var isStart = Decode(name, code);
 

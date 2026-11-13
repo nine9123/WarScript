@@ -15,7 +15,8 @@ namespace WarScript.Bytecode
     {
         public readonly List<byte> Code = new();
         public readonly List<WarValue> Constants = new();
-        public readonly List<int> Lines = new();
+        /// <summary>The source line of every code byte, run-length encoded (T1.7, 10.2).</summary>
+        public readonly LineTable Lines = new();
 
         /// <summary>
         /// The script the code was compiled from (the instance's script name or
@@ -101,22 +102,21 @@ namespace WarScript.Bytecode
         public void EmitOp(OpCode op, int line)
         {
             LastOpOffset = Code.Count;
+            Lines.Mark(Code.Count, line);
             Code.Add((byte)op);
-            Lines.Add(line);
         }
 
         public void EmitByte(byte b, int line)
         {
+            Lines.Mark(Code.Count, line);
             Code.Add(b);
-            Lines.Add(line);
         }
 
         public void EmitU16(int value, int line)
         {
+            Lines.Mark(Code.Count, line);
             Code.Add((byte)((value >> 8) & 0xFF));
-            Lines.Add(line);
             Code.Add((byte)(value & 0xFF));
-            Lines.Add(line);
         }
 
         public int EmitConstant(in WarValue value, int line)
@@ -187,12 +187,12 @@ namespace WarScript.Bytecode
         private int DisassembleInstruction(StringBuilder sb, int offset)
         {
             sb.Append(offset.ToString("D4", CultureInfo.InvariantCulture)).Append(' ');
-            if (offset > 0 && offset < Lines.Count && Lines[offset] == Lines[offset - 1])
-                sb.Append("   | ");
-            else if (offset < Lines.Count)
-                sb.Append(Lines[offset].ToString(CultureInfo.InvariantCulture).PadLeft(4)).Append(' ');
-            else
+            if (Lines.EntryCount == 0 || offset < Lines.OffsetAt(0))
                 sb.Append("   ? ");
+            else if (offset > Lines.OffsetAt(0) && Lines.GetLine(offset) == Lines.GetLine(offset - 1))
+                sb.Append("   | ");
+            else
+                sb.Append(Lines.GetLine(offset).ToString(CultureInfo.InvariantCulture).PadLeft(4)).Append(' ');
 
             var info = OpInfo.Get(Code[offset]);
             if (info == null)
@@ -254,6 +254,90 @@ namespace WarScript.Bytecode
         private int ReadU16(int offset)
         {
             return (Code[offset] << 8) | Code[offset + 1];
+        }
+    }
+
+    /// <summary>
+    /// The source line of each code byte, run-length encoded (v2 plan 10.2,
+    /// T1.7, DX-3): one entry, a code offset and a line, for each point where
+    /// the line changes, so a run of instructions on one line costs one
+    /// entry instead of one <c>int</c> per byte. The entry covering an offset
+    /// is the last one starting at or before it. A well-formed table
+    /// (<see cref="Problem"/>) starts at offset 0 and its offsets increase
+    /// strictly and stay below the code length.
+    /// </summary>
+    public sealed class LineTable
+    {
+        private readonly List<int> _offsets = new();
+        private readonly List<int> _lines = new();
+
+        /// <summary>The number of (offset, line) entries.</summary>
+        public int EntryCount => _offsets.Count;
+
+        /// <summary>The code offset where entry <paramref name="index"/> starts.</summary>
+        public int OffsetAt(int index) => _offsets[index];
+
+        /// <summary>The line of entry <paramref name="index"/>.</summary>
+        public int LineAt(int index) => _lines[index];
+
+        /// <summary>
+        /// Records that the code byte at <paramref name="offset"/>, appended
+        /// after every byte marked before it, is on <paramref name="line"/>:
+        /// adds an entry only when the line changes.
+        /// </summary>
+        public void Mark(int offset, int line)
+        {
+            int n = _lines.Count;
+            if (n > 0 && _lines[n - 1] == line) return;
+            _offsets.Add(offset);
+            _lines.Add(line);
+        }
+
+        /// <summary>Appends an entry as read from a file; <see cref="Problem"/> checks the result.</summary>
+        internal void AddEntry(int offset, int line)
+        {
+            _offsets.Add(offset);
+            _lines.Add(line);
+        }
+
+        /// <summary>
+        /// The index of the entry covering <paramref name="offset"/>, or -1
+        /// when none does (an empty table, or an offset before the first entry).
+        /// </summary>
+        public int EntryIndex(int offset)
+        {
+            int lo = 0, hi = _offsets.Count - 1, found = -1;
+            while (lo <= hi)
+            {
+                int mid = lo + ((hi - lo) >> 1);
+                if (_offsets[mid] <= offset) { found = mid; lo = mid + 1; }
+                else hi = mid - 1;
+            }
+            return found;
+        }
+
+        /// <summary>The line of the code byte at <paramref name="offset"/>, or 0 when no entry covers it.</summary>
+        public int GetLine(int offset)
+        {
+            int index = EntryIndex(offset);
+            return index < 0 ? 0 : _lines[index];
+        }
+
+        /// <summary>
+        /// Null when the table is well formed for code of
+        /// <paramref name="codeLength"/> bytes: no entries for empty code,
+        /// otherwise a first entry at offset 0 and strictly increasing
+        /// offsets below the length. Otherwise what is wrong.
+        /// </summary>
+        public string? Problem(int codeLength)
+        {
+            int n = _offsets.Count;
+            if (codeLength == 0) return n == 0 ? null : "line table has entries for empty code";
+            if (n == 0 || _offsets[0] != 0) return "line table does not start at offset 0";
+            for (int i = 1; i < n; i++)
+                if (_offsets[i] <= _offsets[i - 1]) return "line table offsets do not increase";
+            if (_offsets[n - 1] >= codeLength) return "line table runs past the code";
+            return null;
         }
     }
 

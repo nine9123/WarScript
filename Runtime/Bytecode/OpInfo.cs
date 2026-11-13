@@ -240,22 +240,22 @@ namespace WarScript.Bytecode
         /// <summary>
         /// Bumped by every change to the opcode table, an operand layout or
         /// the file layout (version 1 was the v1 format, whose opcode values
-        /// were implicit).
+        /// were implicit; version 2 stored one line per code byte).
         /// </summary>
-        public const byte Version = 2;
+        public const byte Version = 3;
 
         /// <summary>
         /// Names the file layout for the hash. Change it (and the version)
         /// with any change to what <see cref="BytecodeSerializer"/> writes.
         /// </summary>
         public const string Layout =
-            "WSBC magic|version u8|hash u32; v1 function, constant and definition records; one i32 line per code byte";
+            "WSBC magic|version u8|hash u32; v1 function, constant and definition records; line table u32 count of (u16 offset, i32 line) where the line changes";
 
         /// <summary>
         /// <see cref="ComputeHash"/> for the current table, version and
         /// layout. <c>BytecodeFormatTests</c> recomputes it.
         /// </summary>
-        public const uint Hash = 0x8FB72A94;
+        public const uint Hash = 0x04773E0B;
 
         /// <summary>
         /// FNV-1a (32-bit) over, for each <see cref="OpInfo"/> entry: its

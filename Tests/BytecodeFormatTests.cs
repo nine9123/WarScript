@@ -88,7 +88,7 @@ namespace Tests
         [Test]
         public void Load_RejectsAnotherVersion()
         {
-            foreach (byte version in new byte[] { 1, 3 })
+            foreach (byte version in new byte[] { 1, 2, 4 })
             {
                 var bytes = SavedBytecode();
                 bytes[4] = version;
@@ -120,13 +120,13 @@ namespace Tests
         private const byte Null_ = (byte)OpCode.Null;
         private const byte Ret = (byte)OpCode.Return;
 
-        /// <summary>A function with the given code, one line per byte.</summary>
+        /// <summary>A function with the given code, all on line 1.</summary>
         private static CompiledFunction Function(string name, int arity, byte[] code,
             WarValue[] constants = null, int caches = 0)
         {
             var f = new CompiledFunction(name, arity);
             f.Chunk.Code.AddRange(code);
-            for (int i = 0; i < code.Length; i++) f.Chunk.Lines.Add(1);
+            if (code.Length > 0) f.Chunk.Lines.Mark(0, 1);
             if (constants != null) f.Chunk.Constants.AddRange(constants);
             f.Chunk.PropertyCaches = new InlineCache[caches];
             return f;
@@ -321,6 +321,71 @@ namespace Tests
             using (var w = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
                 BytecodeSerializer.Save(w, body, definitions);
             Rejected(ms.ToArray(), "constructor of class 'P' has arity 1");
+        }
+
+        // ── Line table (10.2, DX-3) ─────────────────────────────────────
+
+        [Test]
+        public void LineTable_KeepsOneEntryPerChangeOfLine()
+        {
+            var lines = new LineTable();
+            int[] perByte = { 3, 3, 3, 4, 4, 0, 0, 3 };
+            for (int i = 0; i < perByte.Length; i++) lines.Mark(i, perByte[i]);
+            Assert.AreEqual(4, lines.EntryCount);
+            for (int i = 0; i < perByte.Length; i++) Assert.AreEqual(perByte[i], lines.GetLine(i), "offset " + i);
+            Assert.AreEqual(0, new LineTable().GetLine(0));
+            Assert.AreEqual(-1, lines.EntryIndex(-1));
+            Assert.IsNull(lines.Problem(perByte.Length));
+            StringAssert.Contains("runs past", lines.Problem(7));
+            Assert.IsNull(new LineTable().Problem(0));
+        }
+
+        [Test]
+        public void LineTable_RoundTripsThroughAFile_ForEveryByte()
+        {
+            var source = "x = 1\nfun f [a]\n    if a > 0\n        return a * 2\n    end\n    return 0\nend\n\nprint f [x]\nprint f [0]";
+            var (body, definitions) = new WarScriptLanguage("t", source, null, null).CompileWithoutRunning();
+            var ms = new MemoryStream();
+            using (var w = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
+                BytecodeSerializer.Save(w, body, definitions);
+            ms.Position = 0;
+            CompiledFunction loadedBody;
+            DefinitionScope loaded;
+            using (var r = new BinaryReader(ms))
+                (loadedBody, loaded) = BytecodeSerializer.Load(r, new WarScriptLanguage("u", "", null, null), null);
+
+            void Same(CompiledFunction a, CompiledFunction b)
+            {
+                Assert.AreEqual(a.Chunk.Lines.EntryCount, b.Chunk.Lines.EntryCount, a.Name);
+                Assert.Less(a.Chunk.Lines.EntryCount, a.Chunk.Code.Count, a.Name + ": runs share entries");
+                for (int i = 0; i < a.Chunk.Code.Count; i++)
+                    Assert.AreEqual(a.Chunk.Lines.GetLine(i), b.Chunk.Lines.GetLine(i), a.Name + " offset " + i);
+            }
+            Same(body, loadedBody);
+            Same(definitions.GetFunction("f", 1).Compiled, loaded.GetFunction("f", 1).Compiled);
+            // The first return statement is on line 4 (expression opcodes may still be line 0, T1.10).
+            var loadedF = loaded.GetFunction("f", 1).Compiled.Chunk;
+            Assert.AreEqual(4, loadedF.Lines.GetLine(loadedF.Code.IndexOf((byte)OpCode.Return)));
+        }
+
+        private static CompiledFunction WithLines(byte[] code, params (int offset, int line)[] entries)
+        {
+            var f = new CompiledFunction("<script>", 0);
+            f.Chunk.Code.AddRange(code);
+            foreach (var (offset, line) in entries) f.Chunk.Lines.AddEntry(offset, line);
+            return f;
+        }
+
+        [Test]
+        public void Loader_RejectsAMalformedLineTable()
+        {
+            var code = new byte[] { Null_, (byte)OpCode.Pop, Null_, Ret };
+            Rejected(File_(WithLines(code)), "line table does not start at offset 0");
+            Rejected(File_(WithLines(code, (1, 1))), "line table does not start at offset 0");
+            Rejected(File_(WithLines(code, (0, 1), (2, 2), (2, 3))), "line table offsets do not increase");
+            Rejected(File_(WithLines(code, (0, 1), (4, 2))), "line table runs past the code");
+            Rejected(File_(WithLines(code, (0, 1), (1, 2), (2, 3), (3, 4), (5, 5))), "more line entries than code bytes");
+            Assert.DoesNotThrow(() => Load(File_(WithLines(code, (0, 1), (3, 2)))));
         }
 
         [Test]
@@ -547,7 +612,8 @@ end", null, null);
         private static string CheckAgainstTable(string name, Chunk chunk)
         {
             var code = chunk.Code;
-            if (chunk.Lines.Count != code.Count) return $"{name}: {chunk.Lines.Count} lines for {code.Count} code bytes";
+            var lineProblem = chunk.Lines.Problem(code.Count);
+            if (lineProblem != null) return name + ": " + lineProblem;
             var starts = new HashSet<int>(chunk.InstructionStarts());
             bool IsTarget(int t) => t == code.Count || starts.Contains(t);
             int at = 0;
