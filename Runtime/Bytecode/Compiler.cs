@@ -147,6 +147,7 @@ namespace WarScript.Bytecode
             if (funcDef.Compiled != null) return;
             if (funcDef.Statement == null) return; // native function
 
+            CheckParameterCount(funcDef.Details.Arguments.Count, _source, Line(funcDef.Statement));
             var child = new Compiler(_script, functionDepth: 1);
             child._source = _source;
             child._current = new CompiledFunction(funcDef.Details.Name, funcDef.Details.Arguments.Count);
@@ -222,11 +223,42 @@ namespace WarScript.Bytecode
         /// </summary>
         private static void VerifyOutput(CompiledFunction function)
         {
+            // The limits nothing caught while emitting (T1.8): straight-line
+            // code past 65,535 bytes, or more local slots than the file
+            // records.
+            var chunk = function.Chunk;
+            if (chunk.Count > BytecodeVerifier.MaxCodeLength)
+                throw new CompileError(Chunk.FunctionTooLarge, chunk.Source, LineNear(chunk, BytecodeVerifier.MaxCodeLength));
+            if (function.LocalCount > 0xFFFF)
+                throw new CompileError("too many local variables in one function (more than 65,535)", chunk.Source, LineNear(chunk, chunk.Count - 1));
             try { BytecodeVerifier.Verify(function, atLoad: false); }
             catch (System.IO.InvalidDataException e)
             {
                 throw new System.InvalidOperationException("Compiler produced bytecode the verifier rejects: " + e.Message, e);
             }
+        }
+
+        /// <summary>
+        /// The source line of the code at <paramref name="offset"/>, or of the
+        /// nearest code before it that has one (expressions are emitted
+        /// with line 0 until T1.10); 0 when none does.
+        /// </summary>
+        private static int LineNear(Chunk chunk, int offset)
+        {
+            for (int i = chunk.Lines.EntryIndex(offset); i >= 0; i--)
+                if (chunk.Lines.LineAt(i) > 0) return chunk.Lines.LineAt(i);
+            return 0;
+        }
+
+        /// <summary>
+        /// Raises a <see cref="CompileError"/> for a function or lambda with
+        /// more parameters than a call can pass (T1.8; the loader rejects an
+        /// arity above 255 too).
+        /// </summary>
+        private static void CheckParameterCount(int count, string? source, int line)
+        {
+            if (count > BytecodeVerifier.MaxArity)
+                throw new CompileError("more than 255 parameters", source, line);
         }
 
         // ────────────────────────────────────────────────────────
@@ -242,6 +274,7 @@ namespace WarScript.Bytecode
 
         private static CompiledFunction CompileLambda(WarScriptLanguage script, LambdaExpression lambda, string? source)
         {
+            CheckParameterCount(lambda.Parameters.Count, source, 0);
             var compiler = new Compiler(script, functionDepth: 1);
             compiler._source = source;
             compiler._current = new CompiledFunction("<lambda>", lambda.Parameters.Count);
@@ -306,8 +339,18 @@ namespace WarScript.Bytecode
                 _locals.RemoveAt(_locals.Count - 1);
                 popCount++;
             }
-            if (popCount == 1) Chunk.EmitOp(OpCode.Pop, line);
-            else if (popCount > 1) { Chunk.EmitOp(OpCode.PopN, line); Chunk.EmitByte((byte)popCount, line); }
+            Chunk.EmitPops(popCount, line);
+        }
+
+        /// <summary>
+        /// The argument count operand of a call or <c>new</c>: raises a
+        /// <see cref="CompileError"/> above 255 (T1.8).
+        /// </summary>
+        private void EmitArgCount(int count, int line)
+        {
+            if (count > BytecodeVerifier.MaxArity)
+                throw Chunk.LimitError("more than 255 arguments in a call");
+            Chunk.EmitByte((byte)count, line);
         }
 
         private void EmitReturn(int line)
@@ -347,6 +390,17 @@ namespace WarScript.Bytecode
         // ────────────────────────────────────────────────────────
 
         private void CompileStatement(Statement.Statement stmt)
+        {
+            try { CompileStatementBody(stmt); }
+            catch (CompileError e) when (e.Line == 0 && Line(stmt) > 0)
+            {
+                // A limit found while emitting (T1.8) carries no line: report
+                // the innermost statement that has one.
+                throw new CompileError(e.Reason, e.ScriptName, Line(stmt));
+            }
+        }
+
+        private void CompileStatementBody(Statement.Statement stmt)
         {
             switch (stmt)
             {
@@ -523,7 +577,7 @@ namespace WarScript.Bytecode
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(tailCall.Name));
                 Chunk.EmitOp(OpCode.TailCall, line);
                 Chunk.EmitU16(nameIdx, line);
-                Chunk.EmitByte((byte)tailCall.ArgumentExpression.Count, line);
+                EmitArgCount(tailCall.ArgumentExpression.Count, line);
                 return;
             }
 
@@ -881,8 +935,7 @@ namespace WarScript.Bytecode
             var popCount = _locals.Count - localCount;
             if (popCount > 0)
             {
-                Chunk.EmitOp(OpCode.PopN, line);
-                Chunk.EmitByte((byte)popCount, line);
+                Chunk.EmitPops(popCount, line);
                 _locals.RemoveRange(localCount, popCount);
             }
         }
@@ -970,18 +1023,12 @@ namespace WarScript.Bytecode
             int endIP = Chunk.Count;
             _tries.RemoveAt(_tries.Count - 1);
             foreach (var at in tryCtx.DropPendingPatches)
-            {
-                Chunk.Code[at]     = (byte)((endIP >> 8) & 0xFF);
-                Chunk.Code[at + 1] = (byte)(endIP & 0xFF);
-            }
+                Chunk.PatchAddress(at, endIP);
 
             // Patch the PushHandler operands (absolute IPs)
-            Chunk.Code[patchBase]     = (byte)((rescueIP >> 8) & 0xFF);
-            Chunk.Code[patchBase + 1] = (byte)(rescueIP & 0xFF);
-            Chunk.Code[patchBase + 2] = (byte)((ensureIP >> 8) & 0xFF);
-            Chunk.Code[patchBase + 3] = (byte)(ensureIP & 0xFF);
-            Chunk.Code[patchBase + 4] = (byte)((endIP >> 8) & 0xFF);
-            Chunk.Code[patchBase + 5] = (byte)(endIP & 0xFF);
+            Chunk.PatchAddress(patchBase, rescueIP);
+            Chunk.PatchAddress(patchBase + 2, ensureIP);
+            Chunk.PatchAddress(patchBase + 4, endIP);
 
             _tryDepth--;
         }
@@ -1200,6 +1247,10 @@ namespace WarScript.Bytecode
 
                 // ── Arrays ──
                 case ArrayExpression arr:
+                    // Checked first: the elements alone would already make
+                    // most such functions too large.
+                    if (arr.Values.Count > 0xFFFF)
+                        throw Chunk.LimitError("array literal too large; build it with <<");
                     foreach (var elem in arr.Values)
                         CompileExpression(elem);
                     Chunk.EmitOp(OpCode.NewArray, 0);
@@ -1262,7 +1313,7 @@ namespace WarScript.Bytecode
                         var nameIdx = Chunk.AddConstant(WarValue.FromText(nestedCe.ClassName));
                         Chunk.EmitOp(OpCode.NewNestedInstance, 0);
                         Chunk.EmitU16(nameIdx, 0);
-                        Chunk.EmitByte((byte)nestedCe.PropertiesExpressions.Count, 0);
+                        EmitArgCount(nestedCe.PropertiesExpressions.Count, 0);
                     }
                     break;
 
@@ -1289,7 +1340,7 @@ namespace WarScript.Bytecode
                 foreach (var arg in call.ArgumentExpression)
                     CompileExpression(arg);
                 Chunk.EmitOp(OpCode.CallValue, 0);
-                Chunk.EmitByte((byte)call.ArgumentExpression.Count, 0);
+                EmitArgCount(call.ArgumentExpression.Count, 0);
             }
             else
             {
@@ -1298,7 +1349,7 @@ namespace WarScript.Bytecode
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(call.Name));
                 Chunk.EmitOp(OpCode.Call, 0);
                 Chunk.EmitU16(nameIdx, 0);
-                Chunk.EmitByte((byte)call.ArgumentExpression.Count, 0);
+                EmitArgCount(call.ArgumentExpression.Count, 0);
             }
         }
 
@@ -1311,7 +1362,7 @@ namespace WarScript.Bytecode
             var nameIdx = Chunk.AddConstant(WarValue.FromText(ce.ClassName));
             Chunk.EmitOp(OpCode.NewInstance, 0);
             Chunk.EmitU16(nameIdx, 0);
-            Chunk.EmitByte((byte)ce.PropertiesExpressions.Count, 0);
+            EmitArgCount(ce.PropertiesExpressions.Count, 0);
         }
 
         // ── Class property access: obj::prop, obj::method[args], obj::arr{i} ──
@@ -1356,7 +1407,7 @@ namespace WarScript.Bytecode
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(funcExpr.Name));
                 Chunk.EmitOp(OpCode.CallMethod, 0);
                 Chunk.EmitU16(nameIdx, 0);
-                Chunk.EmitByte((byte)funcExpr.ArgumentExpression.Count, 0);
+                EmitArgCount(funcExpr.ArgumentExpression.Count, 0);
             }
             else if (cp.Right is ArrayValueOperator arrayOp && arrayOp.Left is VariableExpression arrayVar)
             {

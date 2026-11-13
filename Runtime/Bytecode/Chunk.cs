@@ -3,6 +3,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using WarScript.Exception;
 using WarScript.Expression.Value;
 
 namespace WarScript.Bytecode
@@ -47,6 +48,21 @@ namespace WarScript.Bytecode
         public int Count => Code.Count;
 
         /// <summary>
+        /// At most this many constants per function (T1.8): adding the
+        /// 65,536th raises a <see cref="CompileError"/>.
+        /// </summary>
+        public const int MaxConstants = 65535;
+
+        /// <summary>The message for code, a jump or an address past 16 bits (T1.8).</summary>
+        internal const string FunctionTooLarge = "function too large (bytecode exceeds 65,535 bytes)";
+
+        /// <summary>
+        /// A <see cref="CompileError"/> for this chunk's script. The line is
+        /// left 0: the compiler fills in the statement being compiled.
+        /// </summary>
+        internal CompileError LimitError(string reason) => new CompileError(reason, Source, 0);
+
+        /// <summary>
         /// Byte offset of the last opcode emitted (not operand bytes).
         /// Used by the peephole optimizer to safely identify the last instruction.
         /// </summary>
@@ -62,6 +78,8 @@ namespace WarScript.Bytecode
 
         public int AddConstant(in WarValue value)
         {
+            // Raises before a new slot is added; a constant already in the
+            // pool is still found below.
             // Deduplicate identical constants so repeated literals and identifiers
             // (e.g. a function name emitted at every call site) share one pool slot.
             // A hash index makes this O(1) amortized.
@@ -75,6 +93,7 @@ namespace WarScript.Bytecode
                     _numericConstantIndex ??= new Dictionary<long, int>();
                     if (_numericConstantIndex.TryGetValue(key, out var existing))
                         return existing;
+                    CheckConstantRoom();
                     var idx = Constants.Count;
                     Constants.Add(value);
                     _numericConstantIndex[key] = idx;
@@ -86,15 +105,23 @@ namespace WarScript.Bytecode
                     _textConstantIndex ??= new Dictionary<string, int>(System.StringComparer.Ordinal);
                     if (_textConstantIndex.TryGetValue(key, out var existing))
                         return existing;
+                    CheckConstantRoom();
                     var idx = Constants.Count;
                     Constants.Add(value);
                     _textConstantIndex[key] = idx;
                     return idx;
                 }
                 default:
+                    CheckConstantRoom();
                     Constants.Add(value);
                     return Constants.Count - 1;
             }
+        }
+
+        private void CheckConstantRoom()
+        {
+            if (Constants.Count >= MaxConstants)
+                throw LimitError("too many constants in one function (more than 65,535)");
         }
 
         // ── Emit helpers ──
@@ -114,9 +141,28 @@ namespace WarScript.Bytecode
 
         public void EmitU16(int value, int line)
         {
+            if (value < 0 || value > 0xFFFF)
+                throw LimitError("function too large (an operand exceeds 65,535)");
             Lines.Mark(Code.Count, line);
             Code.Add((byte)((value >> 8) & 0xFF));
             Code.Add((byte)(value & 0xFF));
+        }
+
+        /// <summary>
+        /// Pops <paramref name="count"/> values: one <c>Pop</c>, or <c>PopN</c>
+        /// instructions of at most 255 each (T1.8; a <c>PopN</c> operand is
+        /// one byte).
+        /// </summary>
+        public void EmitPops(int count, int line)
+        {
+            if (count == 1) { EmitOp(OpCode.Pop, line); return; }
+            while (count > 0)
+            {
+                var n = count > 255 ? 255 : count;
+                EmitOp(OpCode.PopN, line);
+                EmitByte((byte)n, line);
+                count -= n;
+            }
         }
 
         public int EmitConstant(in WarValue value, int line)
@@ -138,6 +184,7 @@ namespace WarScript.Bytecode
         public void PatchJump(int offset)
         {
             var jump = Code.Count - offset - 2;
+            if (jump > 0xFFFF) throw LimitError(FunctionTooLarge);
             Code[offset]     = (byte)((jump >> 8) & 0xFF);
             Code[offset + 1] = (byte)(jump & 0xFF);
         }
@@ -146,7 +193,19 @@ namespace WarScript.Bytecode
         {
             EmitOp(OpCode.Loop, line);
             var offset = Code.Count - loopStart + 2;
+            if (offset > 0xFFFF) throw LimitError(FunctionTooLarge);
             EmitU16(offset, line);
+        }
+
+        /// <summary>
+        /// Writes the absolute code address <paramref name="address"/> into
+        /// the U16 operand at <paramref name="at"/> (handler addresses).
+        /// </summary>
+        public void PatchAddress(int at, int address)
+        {
+            if (address > 0xFFFF) throw LimitError(FunctionTooLarge);
+            Code[at]     = (byte)((address >> 8) & 0xFF);
+            Code[at + 1] = (byte)(address & 0xFF);
         }
 
         // ── Disassembly (debug) ──
