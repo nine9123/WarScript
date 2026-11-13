@@ -98,8 +98,11 @@ script.TickCoroutines(F64.Ratio(1, 60));
 ulong stateHash = script.ComputeStateHash();
 ```
 
-There is **no separate compile step to opt into** — `Run()` always compiles the script to bytecode,
-and every language feature (including `yield`) runs on the bytecode VM. Saving/loading bytecode
+`Run()` compiles the script to bytecode if it has not been compiled yet. To find compile errors
+without running anything, call `Compile()` first: it returns a `CompileResult` (`Success` and
+`Diagnostics`, each with a severity, message, script name and line) instead of throwing, and later
+calls return the same result. An entry point (`Run`, `Call`, `StartCoroutine`) on a script that does
+not compile throws its `SyntaxException`. Every language feature (including `yield`) runs on the bytecode VM. Saving/loading bytecode
 files is an optional build-time optimisation, not a requirement. See
 [Bytecode serialization](#bytecode-serialization).
 
@@ -852,7 +855,19 @@ script.Call(fn, WarValue.FromNumeric(dt));
 ```
 
 `Run()` compiles on first use and caches; calling it again re-executes the top-level statements. The
-AST is discarded after compilation — the bytecode is the source of truth.
+AST is discarded after compilation — the bytecode is the source of truth. `Compile()` does the
+compile step on its own and reports errors as diagnostics:
+
+```csharp
+var compiled = script.Compile();         // lex + parse + compile; runs nothing; idempotent
+if (!compiled.Success)
+    foreach (var d in compiled.Diagnostics)
+        Debug.LogError(d);               // "example:4:0: error: more than 255 arguments in a call"
+```
+
+The constructor no longer lexes, so a malformed source shows up in `Compile()` (or as the
+`SyntaxException` thrown by `Run()`), not in `new WarScriptLanguage(...)`. Register natives and
+`[WsConst]`/`[WsEnum]` bindings before compiling: assignments to constants are checked at parse time.
 
 ### Passing values in and out
 

@@ -65,9 +65,14 @@ namespace WarScript
 
         public readonly string ScriptName;
 
-        private IReadOnlyList<Token.Token> _tokens;
+        // The source Compile() lexes, parses and compiles (plan T2.2): set by
+        // the constructor and Reload, not lexed until then.
+        private string _sourceCode;
 
-        private CompositeStatement? _cachedStatement;
+        // Compile()'s cached answer (null: not compiled yet) and, for a
+        // failed compile, the error the v1 entry points still throw.
+        private CompileResult? _compileResult;
+        private Exception.SyntaxException? _compileError;
         private CompiledFunction? _cachedCompiled;
         private WarVM? _cachedVM;
 
@@ -308,7 +313,7 @@ namespace WarScript
             ClassInstanceContext = new ClassInstanceContext();
             DefaultStep = new ConstantExpression(WarValue.FromNumeric(1));
 
-            _tokens = LexicalParser.Parse(sourceCode);
+            _sourceCode = sourceCode;
 
             var nativeDefinitionScope = DefinitionContext.NewScope();
             var nativeMemoryScope = MemoryContext.NewScope(MemoryScopeKind.Native);
@@ -329,21 +334,35 @@ namespace WarScript
         }
 
         // ────────────────────────────────────────────────────────
-        //  Parse + compile (lazy, cached)
+        //  Compile — lex, parse and compile once (plan T2.2)
         // ────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Ensure the script has been parsed and compiled to bytecode.
-        /// Called automatically by Run() and Call(). Safe to call multiple
-        /// times — parsing and compilation are cached.
-        /// Must be called with _definitionScope pushed on DefinitionContext.
+        /// Lex, parse and compile the script to bytecode without running any
+        /// of it. Idempotent: the first call does the work and every later call
+        /// returns the same result, success or failure, until
+        /// <see cref="Reload"/> replaces the source (after
+        /// <see cref="LoadBytecode"/> the script is compiled). A script error
+        /// is reported as an error diagnostic, not thrown; when the script does
+        /// not compile, the instance holds none of its definitions.
+        /// <see cref="Run"/>, <see cref="Call"/> and <see cref="StartCoroutine"/>
+        /// call it when needed. Register natives, <c>[WsConst]</c> and
+        /// <c>[WsEnum]</c> values first: the parser checks assignments against
+        /// the constants known when it runs. Not a host entry: it runs no
+        /// script code and uses no budget. Errors in imported files are found
+        /// when the import runs (until Phase 3 resolves imports here).
         /// </summary>
-        private void EnsureCompiled()
+        public CompileResult Compile()
         {
-            if (_cachedStatement == null && _cachedCompiled == null)
+            if (_compileResult != null) return _compileResult;
+
+            DefinitionContext.PushScope(_definitionScope);
+            MemoryContext.PushScope(_memoryScope);
+            try
             {
+                var tokens = LexicalParser.Parse(_sourceCode);
                 var statement = new CompositeStatement(this, null, ScriptName);
-                StatementParser.Parse(this, _tokens, statement);
+                StatementParser.Parse(this, tokens, statement);
                 _cachedCompiled = Compiler.CompileScript(this, statement, _definitionScope);
 
                 // Discard the AST — bytecode is the source of truth.
@@ -351,13 +370,42 @@ namespace WarScript
                 // keeping the DefinitionScope tree (function names, class
                 // details, compiled bytecode) intact.
                 DiscardAST(_definitionScope);
+                _compileResult = CompileResult.Succeeded;
             }
-            else if (_cachedCompiled == null && _cachedStatement != null)
+            catch (Exception.SyntaxException e)
             {
-                _cachedCompiled = Compiler.CompileScript(this, _cachedStatement, _definitionScope);
-                _cachedStatement = null;
-                DiscardAST(_definitionScope);
+                // Whatever the parser had added stays out of reach: a
+                // definition without bytecode cannot be called.
+                _definitionScope.Clear();
+                _cachedCompiled = null;
+                _compileError = e;
+                _compileResult = new CompileResult(false, new[] { Diagnose(e) });
             }
+            finally
+            {
+                DefinitionContext.EndScope();
+                MemoryContext.EndScope();
+            }
+            return _compileResult;
+        }
+
+        private CompileDiagnostic Diagnose(Exception.SyntaxException e)
+        {
+            if (e is Exception.CompileError limit)
+                return new CompileDiagnostic(DiagnosticSeverity.Error, limit.Reason,
+                    limit.ScriptName ?? ScriptName, limit.Line, 0);
+            return new CompileDiagnostic(DiagnosticSeverity.Error, e.Message, ScriptName, 0, 0);
+        }
+
+        /// <summary>
+        /// Compile when needed; when the script does not compile, throw its
+        /// error. Until result types (T2.3) turn it into an <c>Error</c>
+        /// result, a compile error leaves every entry point as the
+        /// <see cref="Exception.SyntaxException"/> v1 threw from <c>Run()</c>.
+        /// </summary>
+        private void EnsureCompiled()
+        {
+            if (!Compile().Success) throw _compileError!;
         }
 
         /// <summary>
@@ -444,7 +492,8 @@ namespace WarScript
             _definitionScope.Clear();
 
             // 3. Clear all caches
-            _cachedStatement = null;
+            _compileResult = null;
+            _compileError = null;
             _cachedCompiled = null;
             _cachedVM = null;
             ImportCache.Clear();
@@ -454,22 +503,10 @@ namespace WarScript
             if (ExceptionContext.IsRaised())
                 ExceptionContext.RescueException();
 
-            // 5. Re-lex from new source
-            _tokens = LexicalParser.Parse(newSourceCode);
-
-            // 6. Re-parse and re-compile (but do NOT execute top-level code)
-            DefinitionContext.PushScope(_definitionScope);
-            MemoryContext.PushScope(_memoryScope);
-
-            try
-            {
-                EnsureCompiled();
-            }
-            finally
-            {
-                DefinitionContext.EndScope();
-                MemoryContext.EndScope();
-            }
+            // 5. Re-lex, re-parse and re-compile (but do NOT execute
+            //    top-level code). A compile error is thrown, as in v1.
+            _sourceCode = newSourceCode;
+            EnsureCompiled();
         }
 
         // ────────────────────────────────────────────────────────
@@ -505,14 +542,7 @@ namespace WarScript
         /// </summary>
         internal (CompiledFunction script, DefinitionScope definitions) CompileWithoutRunning()
         {
-            DefinitionContext.PushScope(_definitionScope);
-            MemoryContext.PushScope(_memoryScope);
-            try { EnsureCompiled(); }
-            finally
-            {
-                DefinitionContext.EndScope();
-                MemoryContext.EndScope();
-            }
+            EnsureCompiled();
             return (_cachedCompiled!, _definitionScope);
         }
 
@@ -546,7 +576,6 @@ namespace WarScript
 
             // Clear old definitions and caches
             _definitionScope.Clear();
-            _cachedStatement = null;
             _cachedCompiled = null;
             _cachedVM = null;
             ImportCache.Clear();
@@ -558,6 +587,8 @@ namespace WarScript
             // Merge loaded definitions into _definitionScope
             scope.CopyLocalDefinitionsTo(_definitionScope);
             _cachedCompiled = topLevel;
+            _compileResult = CompileResult.Succeeded;
+            _compileError = null;
         }
 
         /// <summary>
@@ -617,19 +648,20 @@ namespace WarScript
         // ────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Parse, compile, and execute the script. On first call this
-        /// parses the source and compiles all functions to bytecode.
-        /// Subsequent calls reuse the cached bytecode.
+        /// Compile the script if needed (<see cref="Compile"/>), then execute
+        /// its top-level code. A compile error is thrown as the
+        /// <see cref="Exception.SyntaxException"/> it was, before anything runs
+        /// (until T2.3 returns it as an <c>Error</c> result).
         /// </summary>
         public void Run()
         {
+            EnsureCompiled();
             if (!BeginEntry()) return;
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
 
             try
             {
-                EnsureCompiled();
                 var vm = AcquireVM();
                 try { vm.Run(_cachedCompiled!); }
                 catch (System.Exception e) when (!(e is Exception.SyntaxException)) { ReportHostFault(e); }
@@ -654,9 +686,12 @@ namespace WarScript
         /// <see cref="LoadBytecode"/>). A function without bytecode (a native
         /// function) cannot be called this way: the call is logged and does
         /// nothing — there is no AST interpreter to run it (plan T2.1).
+        /// When the script did not compile, the compile error is thrown, as
+        /// from <see cref="Run"/> (plan T2.2).
         /// </summary>
         public void Call(FunctionDefinition function, params WarValue[] arguments)
         {
+            EnsureCompiled();
             if (function.Compiled != null)
             {
                 CallBytecode(function, arguments);
@@ -777,8 +812,16 @@ namespace WarScript
         //  Coroutine support
         // ────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Start a coroutine on a script function and run it to its first
+        /// yield. Returns its id, or -1 with an error raised when there is no
+        /// such script function. Compiles the script if needed, so it can be
+        /// called before <see cref="Run"/> (the top-level code has then not
+        /// run); a compile error is thrown, as from <see cref="Run"/>.
+        /// </summary>
         public int StartCoroutine(string functionName, WarValue[] args, bool loop = false)
         {
+            EnsureCompiled();
             var argCount = args?.Length ?? 0;
             var function = _definitionScope.GetFunction(functionName, argCount);
             if (function == null)

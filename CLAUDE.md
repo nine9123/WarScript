@@ -36,6 +36,7 @@ WarScript/
 │   └── WsBindingGenerator.cs   # Source generator: scans attributes → Register() methods
 ├── Runtime/
 │   ├── WarScriptLanguage.cs     # Public API — the main entry point
+│   ├── CompileResult.cs         # T2.2: Compile() result — CompileResult, CompileDiagnostic, DiagnosticSeverity
 │   ├── StateHash.cs             # ComputeStateHash() encoding (FNV-1a over prints + user globals, plan §9.7)
 │   ├── Audit/                   # T0.8 audit mode (temporary): AuditEvent/AuditKind, AuditReport; sink = WarScriptLanguage.AuditSink
 │   ├── Token/
@@ -123,6 +124,7 @@ WarScript/
 ## Execution Pipeline
 
 ```
+(WarScriptLanguage.Compile(): idempotent, cached CompileResult, never throws for script errors — T2.2)
 Source string → LexicalParser.Parse() → IReadOnlyList<Token>
                                             ↓
                           StatementParser.Parse() → AST (with desugared defaults/const/enum)
@@ -281,6 +283,7 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 - **`{` and `}` are array delimiters**, not block delimiters. Blocks end with `end`. Array indexing is `arr{i}`. Function args use `[`, `]`.
 - **`::` is the property access operator** — `obj :: name`, `this :: x`, `DamageType :: PHYSICAL`.
 - **Text literals come in three forms**: `"..."` and `$"..."` (identical — interpolation + escapes) and `"""..."""` (raw: no escapes, no interpolation, multi-line, drops the line breaks adjoining the delimiters). A raw literal closes on the *last* three quotes of a run, so its content may end in `"` but may not contain `"""`. `$"""` is rejected.
+- **Explicit compile step (T2.2).** `Compile()` lexes (the constructor no longer does), parses and compiles, and caches its `CompileResult` (`Success` + `CompileDiagnostic`s: severity, message, script name, line — `CompileError.Line`, else 0 — column 0) until `Reload` replaces the source; `LoadBytecode` sets it to success. A `SyntaxException` becomes an error diagnostic and the definitions the parser had added are cleared. `Run`, `Call`, `StartCoroutine`, `Reload`, `SaveBytecode` and `CompileWithoutRunning` go through `EnsureCompiled`, which throws the cached `SyntaxException` when the compile failed (v1 behaviour until T2.3/T2.4 make it an `Error` result that halts the instance); `Run` throws it before `BeginEntry`. `StartCoroutine` before `Run` works (the top-level code has not run).
 - **AST is discarded after compilation.** Bytecode is the source of truth. AST nodes are plain data (T2.1): no `Execute()`/`Evaluate()`, no tree-walk interpreter, no `HaltFlags`; `Call` on a function without bytecode (a native) logs `Cannot call ...: it has no bytecode` and does nothing, `StartCoroutine` on one returns -1 with an error raised.
 - **`WarValue` is a struct.** Passed by value. Lambda function values stored as `NativeObject(CompiledFunction)`.
 - **Default parameters**: `null` triggers the default (deliberate design — no way to pass "missing" vs "null").
