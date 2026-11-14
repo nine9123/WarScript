@@ -6,7 +6,12 @@
 # ──────────────────────────────────────────────────────
 
 # ── Variables should initialize fresh each run ──
-assert undefined_var == null
+begin
+    v = undefined_var
+    assert false
+rescue e
+    assert e == "undefined variable 'undefined_var'"
+end
 x = 10
 assert x == 10
 

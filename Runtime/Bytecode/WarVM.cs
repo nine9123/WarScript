@@ -477,8 +477,16 @@ namespace WarScript.Bytecode
                     {
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
                         var name = constants[nameIdx].TextValue;
-                        var global = NameScope(fi).Get(name);
-                        if (_script.AuditSink != null) AuditGlobalRead(name, global.IsNull, fi);
+                        // DEC-5, 5.6: reading a name that is neither a local
+                        // nor defined at runtime (a field for a constructor
+                        // frame, a global, a host global) raises NameError.
+                        if (!NameScope(fi).TryGet(name, out var global))
+                        {
+                            if (_script.AuditSink != null) Audit(AuditKind.UndefinedRead, fi, name);
+                            RuntimeError(ScriptErrorKind.NameError, UndefinedVariableMessage(name));
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         Push(global);
                         break;
                     }
@@ -1232,7 +1240,13 @@ namespace WarScript.Bytecode
                         var name = constants[nameIdx].TextValue;
                         var value = Pop(); var index = Pop();
                         var nameScope = NameScope(fi);
-                        var target = nameScope.Get(name);
+                        if (!nameScope.TryGet(name, out var target))
+                        {
+                            if (_script.AuditSink != null) Audit(AuditKind.UndefinedRead, fi, name);
+                            RuntimeError(ScriptErrorKind.NameError, UndefinedVariableMessage(name));
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         if (_script.AuditSink != null) AuditIndexWrite(target, index, textWriteBack: true, fi);
                         if (target.IsArray && index.IsNumeric)
                             target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
@@ -2169,6 +2183,9 @@ namespace WarScript.Bytecode
         /// the field of that name of a <paramref name="className"/> instance
         /// is already bound to. Shared by the compiler and the VM.
         /// </summary>
+        /// <summary>The NameError message for reading a name that is not defined (5.6).</summary>
+        internal static string UndefinedVariableMessage(string name) => "undefined variable '" + name + "'";
+
         internal static string BoundTwiceMessage(string name, string className, string baseClass) =>
             $"'{name}' is bound twice in class '{className}': base class '{baseClass}' binds its parameter '{name}' to a different argument";
 
@@ -2533,22 +2550,6 @@ namespace WarScript.Bytecode
             if (_frames[fi].Function.Name.EndsWith("#ctor", StringComparison.Ordinal)) return;
             Audit(AuditKind.DynamicPropertyCreated, fi,
                   cd.Definition.ClassDetails.Name + " :: " + name + ": not a field of the class");
-        }
-
-        /// <summary>
-        /// A global read of null: is the name undefined? Since T3.4/T3.5 a
-        /// method cannot read a field by its bare name nor have a global
-        /// hidden from it, and a function cannot write a global it did not
-        /// declare, so <see cref="AuditKind.FieldAccessViaBareName"/>,
-        /// <see cref="AuditKind.GlobalShadowedInClass"/> and
-        /// <see cref="AuditKind.GlobalWriteFromFunction"/> are no longer
-        /// reported from here.
-        /// </summary>
-        private void AuditGlobalRead(string name, bool readNull, int fi)
-        {
-            if (!readNull) return;
-            if (NameScope(fi).Resolve(name) == null)
-                Audit(AuditKind.UndefinedRead, fi, name);
         }
 
         // ── Import ──

@@ -455,7 +455,11 @@ namespace Tests
                     print keep
                 end
                 fun probe []
-                    print ""probe {keep}""
+                    begin
+                        print ""probe {keep}""
+                    rescue e
+                        print ""probe: "" + e
+                    end
                 end
             ");
 
@@ -465,7 +469,7 @@ namespace Tests
             script.TickCoroutines(F64.FromDouble(0.016));
             script.Call(script.GetFunction("probe", 0));
 
-            Assert.AreEqual(new[] { "probe null", "co", "probe null" }, output);
+            Assert.AreEqual(new[] { "probe: undefined variable 'keep'", "co", "probe: undefined variable 'keep'" }, output);
         }
 
         [Test]

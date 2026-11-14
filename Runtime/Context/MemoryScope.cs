@@ -77,6 +77,24 @@ namespace WarScript.Context
             return WarValue.Null;
         }
 
+        /// <summary>
+        /// Looks <paramref name="name"/> up in this scope and its parents.
+        /// False when no scope holds it (a name that holds null is found).
+        /// </summary>
+        public bool TryGet(string name, out WarValue value)
+        {
+            for (var scope = this; scope != null; scope = scope._parent)
+            {
+                if (scope._variables.TryGetValue(name, out var variable))
+                {
+                    value = variable.Value;
+                    return true;
+                }
+            }
+            value = WarValue.Null;
+            return false;
+        }
+
         public WarValue GetLocal(string name)
         {
             if (_variables.TryGetValue(name, out var variable))

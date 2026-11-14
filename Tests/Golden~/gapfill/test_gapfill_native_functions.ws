@@ -11,8 +11,13 @@
 # ── Literal null ──
 assert is_null[null] == true
 
-# ── Default (uninitialized) variable ──
-assert is_null[undefined_xyz] == true
+# ── An undefined variable is a NameError, not null (DEC-5) ──
+begin
+    v = is_null[undefined_xyz]
+    assert false
+rescue e
+    assert e == "undefined variable 'undefined_xyz'"
+end
 
 # ── Non-null primitives ──
 assert is_null[0] == false

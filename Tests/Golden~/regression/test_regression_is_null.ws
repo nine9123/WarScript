@@ -8,8 +8,17 @@
 # ── Literal null should be detected ──
 assert is_null[null] == true
 
-# ── Uninitialized variable defaults to null ──
-assert is_null[undefined_var] == true
+# ── A variable assigned null ──
+assigned_null = null
+assert is_null[assigned_null] == true
+
+# ── An undefined variable is a NameError, not null (DEC-5) ──
+begin
+    v = is_null[undefined_var]
+    assert false
+rescue e
+    assert e == "undefined variable 'undefined_var'"
+end
 
 # ── Non-null values should return false ──
 assert is_null[0] == false

@@ -21,8 +21,13 @@ assert 0 != null
 assert false != null
 assert "" != null
 
-# ── Uninitialized is null ──
-assert unset_variable == null
+# ── Reading a name never assigned is a NameError, not null (DEC-5) ──
+begin
+    v = unset_variable
+    assert false
+rescue e
+    assert e == "undefined variable 'unset_variable'"
+end
 
 # ── Null assignment ──
 a = 42

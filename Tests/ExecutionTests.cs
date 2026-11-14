@@ -88,10 +88,19 @@ namespace Tests
         }
 
         [Test]
-        public void NullDefault()
+        public void UndefinedVariable_RaisesNameError()
         {
-            var (_, output) = TestHelper.Run("test", "print x");
-            Assert.AreEqual(new[] { "null" }, output);
+            // DEC-5, 5.6: a name that was never assigned is not null.
+            var (_, output) = TestHelper.Run("test", @"
+                begin
+                    print x
+                rescue e
+                    print e
+                end
+                x = null
+                print x
+            ");
+            Assert.AreEqual(new[] { "undefined variable 'x'", "null" }, output);
         }
 
         // Conditions

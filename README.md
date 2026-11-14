@@ -1386,7 +1386,8 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 
 **Semantics**
 
-- Reading an undefined variable, or an out-of-range array index, yields `null` silently.
+- Reading a variable that was never assigned raises a `NameError` (`undefined variable 'x'`);
+  a variable assigned `null` reads as `null`. An out-of-range array index still yields `null` silently.
 - Lambdas have no closures — their own parameters and locals, and globals; reading a local of the
   code around one is a compile error.
 - Default parameters cannot distinguish an omitted argument from an explicit `null`.

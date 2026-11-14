@@ -35,8 +35,13 @@ assert c == 14
 d = c > 10
 assert d == true
 
-# ── Uninitialized variables are null ──
-assert uninitialized_var == null
+# ── Reading an unassigned variable is a NameError (DEC-5) ──
+begin
+    v = uninitialized_var
+    assert false
+rescue e
+    assert e == "undefined variable 'uninitialized_var'"
+end
 
 # ── Variables persist across if blocks (if pre-declared) ──
 value = 1
