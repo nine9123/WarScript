@@ -262,7 +262,7 @@ fun f [arr, i]
     return arr
 end", null, (w, m) => { });
             Assert.IsNull(RunChecked(s, out _));
-            var chunk = s.GetFunction("f", 2).Compiled.Chunk;
+            var chunk = s.GetFunction("f", 2).Definition.Compiled.Chunk;
             string text = null;
             Assert.DoesNotThrow(() => text = chunk.Disassemble("f"));
             // One line per instruction, at the offsets the verifier decodes.
@@ -272,7 +272,7 @@ end", null, (w, m) => { });
                         System.Globalization.CultureInfo.InvariantCulture, out var offset))
                     offsets.Add(offset);
             CollectionAssert.AreEqual(chunk.InstructionStarts(), offsets);
-            CollectionAssert.AreEqual(BytecodeVerifier.InstructionStarts(s.GetFunction("f", 2).Compiled), offsets);
+            CollectionAssert.AreEqual(BytecodeVerifier.InstructionStarts(s.GetFunction("f", 2).Definition.Compiled), offsets);
         }
 
         // ── A.21 A native method that throws (CRASH-3, fixed by T1.3) ────

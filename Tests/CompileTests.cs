@@ -41,7 +41,7 @@ namespace Tests
             Assert.AreEqual(0, output.Count, "Compile runs no top-level code");
             var f = script.GetFunction("f", 1);
             Assert.IsNotNull(f);
-            Assert.IsNotNull(f.Compiled);
+            Assert.IsNotNull(f.Definition.Compiled);
         }
 
         [Test]
@@ -49,13 +49,13 @@ namespace Tests
         {
             var (script, output) = Script(Valid);
             var first = script.Compile();
-            var compiled = script.GetFunction("f", 1).Compiled;
+            var compiled = script.GetFunction("f", 1).Definition.Compiled;
 
             Assert.AreSame(first, script.Compile());
             script.Run();
 
             Assert.AreSame(first, script.Compile());
-            Assert.AreSame(compiled, script.GetFunction("f", 1).Compiled, "Run does not compile again");
+            Assert.AreSame(compiled, script.GetFunction("f", 1).Definition.Compiled, "Run does not compile again");
             CollectionAssert.AreEqual(new[] { "top" }, output);
         }
 

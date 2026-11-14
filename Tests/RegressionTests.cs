@@ -35,7 +35,7 @@ namespace Tests
             var isNullFn = script.GetFunction("is_null", 1);
             Assert.IsNotNull(isNullFn, "is_null function should be registered");
 
-            var nativeFn = (NativeFunctionDefinition)isNullFn;
+            var nativeFn = (NativeFunctionDefinition)isNullFn.Definition;
             var resultNull = nativeFn.NativeBody(new List<WarValue> { WarValue.Null });
             Assert.IsTrue(resultNull.IsLogical);
             Assert.IsTrue(resultNull.LogicalValue, "is_null[null] should return true");

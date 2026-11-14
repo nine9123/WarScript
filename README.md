@@ -855,6 +855,14 @@ var fn = script.GetFunction("tick", 1);  // lookup is by (name, argument count)
 script.Call(fn, WarValue.FromNumeric(dt));
 ```
 
+`GetFunction` returns a `FunctionHandle` (`Name`, `Arity`, `Instance`, `IsDefined`), or null when the
+instance defines no such function yet — compile first (`Run()` or `Compile()`). The handle names the
+function rather than holding its bytecode: every `Call` runs what the instance defines under that name
+and arity at that moment, so a handle obtained once keeps working after `Reload()` and
+`LoadBytecode()`. Calling a handle whose function the new source removed returns an `Error` result of
+kind `NameError` (and, from the host, halts the instance like any other error). A handle belongs to
+the instance that returned it; passing it to another instance throws `ArgumentException`.
+
 `Run()` compiles on first use and caches; calling it again re-executes the top-level statements. The
 AST is discarded after compilation — the bytecode is the source of truth. `Compile()` does the
 compile step on its own and reports errors as diagnostics:
@@ -983,7 +991,7 @@ public class WarScriptHost : MonoBehaviour
     private static readonly F64 Dt = F64.Ratio(1, 60);   // exact 1/60, no float involved
 
     private WarScriptLanguage _script;
-    private FunctionDefinition _tick;
+    private FunctionHandle _tick;
 
     void Awake()
     {
@@ -1128,7 +1136,7 @@ current frames as `FunctionName:Line` entries.
 ```csharp
 LexicalParser.ClearCache();       // the lexer caches globally by source string
 script.Reload(newSource);
-tickFunc = script.GetFunction("tick", 1);   // old handles are stale — re-acquire
+script.Call(tickFunc, dt);                 // handles survive: this runs the new tick
 ```
 
 Global variables survive; function and class definitions are replaced; **all coroutines are
@@ -1266,8 +1274,8 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 - `Call()` returns `void` — pass results back through a global.
 - Register libraries and bindings **before** `Run()`.
 - `LexicalParser` caches globally by source string; call `LexicalParser.ClearCache()` for hot reload.
-- `Reload()` and `LoadBytecode()` stop all coroutines and invalidate previously obtained
-  `FunctionDefinition` handles.
+- `Reload()` and `LoadBytecode()` stop all coroutines. `FunctionHandle`s survive them and call the
+  new definitions; a handle whose function is gone returns a `NameError` result.
 - `MemoryBudget` is not reliably catchable from script (see [Safety budgets](#safety-budgets)).
 
 ## License

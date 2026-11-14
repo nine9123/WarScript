@@ -63,6 +63,17 @@ namespace WarScript
         private readonly DefinitionScope _definitionScope;
         private readonly MemoryScope _memoryScope;
 
+        /// <summary>
+        /// Incremented whenever a function is added to a definition scope of
+        /// this instance or a scope is cleared (<see cref="Reload"/>,
+        /// <see cref="LoadBytecode"/>, imports, <c>AddFunction</c>), so a
+        /// <see cref="FunctionHandle"/> knows when to look its function up
+        /// again (plan T2.6).
+        /// </summary>
+        internal int DefinitionsVersion { get; private set; }
+
+        internal void DefinitionsChanged() => DefinitionsVersion = unchecked(DefinitionsVersion + 1);
+
         public readonly string ScriptName;
 
         // The source Compile() lexes, parses and compiles (plan T2.2): set by
@@ -635,15 +646,16 @@ namespace WarScript
         /// - Existing class instances keep their old definition. New instances
         ///   created after reload use the new class definition.
         /// - All active coroutines are stopped (they reference old bytecode).
-        /// - Function handles obtained via GetFunction() before reload are stale.
-        ///   Call GetFunction() again to get the new handle.
+        /// - Function handles obtained via GetFunction() call the new
+        ///   definition (plan T2.6); a handle whose function the new source
+        ///   no longer defines returns an Error result (NameError).
         ///
         /// Typical usage during development:
         /// <code>
         ///   // File watcher detects a change
         ///   var newSource = File.ReadAllText("patrol.ws");
         ///   script.Reload(newSource);
-        ///   tickFunc = script.GetFunction("tick", 1);  // re-acquire handle
+        ///   script.Call(tickFunc, dt);  // the same handle runs the new tick
         /// </code>
         /// </summary>
         public void Reload(string newSourceCode)
@@ -862,6 +874,11 @@ namespace WarScript
         /// <summary>
         /// Call a WarScript function from the host (C#/Unity).
         /// This is the hot path for game integration — tick loops, event handlers.
+        /// The handle calls the function its name and arity resolve to now
+        /// (plan T2.6), so it survives <see cref="Reload"/>; when the
+        /// instance no longer defines one, the result is an <c>Error</c>
+        /// (NameError), like any refused entry. A handle of another instance
+        /// is a host error (<see cref="ArgumentException"/>).
         /// Every script function of the instance has bytecode once the script
         /// is compiled (<see cref="Run"/>, <see cref="Reload"/>,
         /// <see cref="LoadBytecode"/>). A function without bytecode (a native
@@ -876,15 +893,24 @@ namespace WarScript
         /// error halts the instance (plan 6.4), and a halted instance returns
         /// <c>Halted</c>.
         /// </summary>
-        public ScriptResult Call(FunctionDefinition function, params WarValue[] arguments)
+        public ScriptResult Call(FunctionHandle function, params WarValue[] arguments)
         {
+            if (function == null) throw new ArgumentNullException(nameof(function));
+            if (!ReferenceEquals(function.Instance, this))
+                throw new ArgumentException(System.FormattableString.Invariant(
+                    $"The handle of '{function}' belongs to the instance '{function.Instance.ScriptName}', not '{ScriptName}'"),
+                    nameof(function));
             var refused = RefuseBeforeRunning();
             if (refused != null) return refused.Value;
-            if (function.Compiled != null)
-                return CallBytecode(function, arguments ?? Array.Empty<WarValue>());
+            var definition = function.Definition;
+            if (definition == null)
+                return RefuseEntry(ScriptErrorKind.NameError, System.FormattableString.Invariant(
+                    $"Function '{function.Name}' with {function.Arity} args is not defined"));
+            if (definition.Compiled != null)
+                return CallBytecode(definition, arguments ?? Array.Empty<WarValue>());
 
             return RefuseEntry(ScriptErrorKind.TypeError, System.FormattableString.Invariant(
-                $"Cannot call '{function.Details.Name}' in '{ScriptName}': it has no bytecode"));
+                $"Cannot call '{definition.Details.Name}' in '{ScriptName}': it has no bytecode"));
         }
 
         private ScriptResult CallBytecode(FunctionDefinition function, WarValue[] arguments)
@@ -973,10 +999,23 @@ namespace WarScript
         //  Function lookup
         // ────────────────────────────────────────────────────────
 
-        public FunctionDefinition? GetFunction(string functionName, int arguments)
+        /// <summary>
+        /// A handle to the function of this name and arity (plan T2.6), or
+        /// null when the instance does not define one now (before the script
+        /// is compiled, only natives are defined). The handle stays valid
+        /// across <see cref="Reload"/> and <see cref="LoadBytecode"/>: it
+        /// calls whatever the instance defines under that name and arity at
+        /// the time of the call.
+        /// </summary>
+        public FunctionHandle? GetFunction(string functionName, int arguments)
         {
-            return _definitionScope.GetFunction(functionName, arguments);
+            var definition = _definitionScope.GetFunction(functionName, arguments);
+            return definition == null ? null : new FunctionHandle(this, functionName, arguments, definition);
         }
+
+        /// <summary>The definition a name and arity resolve to now (script function or native), or null.</summary>
+        internal FunctionDefinition? FindFunction(string functionName, int arguments) =>
+            _definitionScope.GetFunction(functionName, arguments);
 
         public bool HasFunction(string functionName, int argumentsSize)
         {

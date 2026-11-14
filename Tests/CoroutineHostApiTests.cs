@@ -227,7 +227,7 @@ end
             var (script, output, called) = ScriptWithHostFunction();
             var function = script.GetFunction("host_fn", 0);
             Assert.IsNotNull(function);
-            Assert.IsNull(function.Compiled);
+            Assert.IsNull(function.Definition.Compiled);
 
             var result = script.Call(function);
 
