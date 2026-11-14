@@ -10,7 +10,7 @@ namespace WarScript.Context
     /// </summary>
     internal enum MemoryScopeKind
     {
-        /// <summary>A top-level block (<c>PushScope</c>), and anything not classified below.</summary>
+        /// <summary>A block (<c>PushScope</c>, no longer emitted since T3.4), and anything not classified below.</summary>
         Block,
         /// <summary>The host globals (<see cref="WarScriptLanguage.GlobalMemoryScope"/>).</summary>
         Native,
@@ -18,9 +18,9 @@ namespace WarScript.Context
         User,
         /// <summary>A function's or lambda's locals.</summary>
         FunctionLocal,
-        /// <summary>A class instance's fields; the class body runs in it.</summary>
+        /// <summary>A class instance part's fields; the class body runs in it. Its parent is the globals (T3.4).</summary>
         ClassInstance,
-        /// <summary>A method's locals; its parent is the instance's scope.</summary>
+        /// <summary>A method's call scope; its parent is the globals, not the instance's fields (T3.4).</summary>
         MethodLocal,
     }
 

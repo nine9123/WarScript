@@ -44,7 +44,6 @@ namespace WarScript.Bytecode
             public List<int> NextJumps;  // forward jumps patched to increment position
             public int ScopeDepth;
             public int LocalCountAtLoop;
-            public int RuntimeScopeDepth;
             public bool UsesForwardNext; // true for for/iterable loops
         }
 
@@ -95,7 +94,6 @@ namespace WarScript.Bytecode
         private sealed class TryCtx
         {
             public int LoopCount;          // _loops.Count when the block started
-            public int RuntimeScopeDepth;  // outside the block
             public int LocalCount;         // outside the block
             public TryRegion Region;
             public CompositeStatement? Ensure;
@@ -104,12 +102,6 @@ namespace WarScript.Bytecode
 
         private readonly List<TryCtx> _tries = new();
         private readonly List<string> _localNames = new();
-
-        /// <summary>
-        /// Tracks emitted PushScope/PopScope pairs at compile time.
-        /// Break/next use this to emit the right number of PopScope ops.
-        /// </summary>
-        private int _runtimeScopeDepth;
 
         /// <summary>
         /// 0 = top-level script body (variables go to globals via MemoryScope).
@@ -124,9 +116,33 @@ namespace WarScript.Bytecode
         /// True while compiling a function, method or lambda body: every
         /// name assigned in it (without <c>global</c>) is a stack slot of
         /// the whole body, and the order rules below are checked. False for
-        /// top-level code and class bodies, which keep v1's scopes for now.
+        /// top-level code (whose names are globals) and class bodies.
         /// </summary>
         private bool _resolveNames;
+
+        /// <summary>
+        /// True while compiling a class body (a constructor, T3.4, 5.7): a
+        /// bare assignment declares a field of the instance
+        /// (<c>ThisSetProperty</c>) unless the name is declared
+        /// <c>global</c>; a bare read finds a field first, then a global.
+        /// </summary>
+        private bool _classBody;
+
+        /// <summary>The names the body declares <c>global</c> (function, method, lambda or class body).</summary>
+        private HashSet<string> _declaredGlobals = new();
+
+        /// <summary>
+        /// The fields of the class whose method or body is being compiled:
+        /// constructor parameters, names assigned in the class body and the
+        /// fields of its base classes (5.7). <c>@x</c> / <c>this :: x</c> is
+        /// checked against it at compile time (DEC-6). Null outside a class,
+        /// or when a base class is not known at compile time (one from an
+        /// import, until static imports, T3.7): then nothing is checked.
+        /// </summary>
+        private HashSet<string>? _classFields;
+
+        /// <summary>The name of the class whose method or body is being compiled, for <see cref="_classFields"/> errors.</summary>
+        private string? _className;
 
         /// <summary>The body's locals assigned so far, in source order (read before assignment, PROP-9).</summary>
         private readonly HashSet<string> _assignedSoFar = new();
@@ -209,7 +225,7 @@ namespace WarScript.Bytecode
                 CompileClassDef(classDef);
         }
 
-        private void CompileFunctionDef(FunctionDefinition funcDef)
+        private void CompileFunctionDef(FunctionDefinition funcDef, string? className = null, HashSet<string>? classFields = null)
         {
             if (funcDef.Compiled != null) return;
             if (funcDef.Statement == null) return; // native function
@@ -221,6 +237,8 @@ namespace WarScript.Bytecode
             child._current.Chunk.Source = _source;
             child._line = Line(funcDef.Statement);
             child.SetColumn(funcDef.Statement.Column);
+            child._className = className;
+            child._classFields = classFields;
 
             child.BeginBody(funcDef.Details.Arguments, funcDef.Statement);
 
@@ -240,12 +258,14 @@ namespace WarScript.Bytecode
         private void CompileClassDef(ClassDefinition classDef)
         {
             var classScope = classDef.GetDefinitionScope();
+            var fields = ClassFields(classDef, new List<ClassDefinition>());
+            var className = classDef.ClassDetails.Name;
 
             // Compile all methods
             foreach (var funcDef in classScope.Functions)
             {
                 if (funcDef is NativeFunctionDefinition) continue;
-                CompileFunctionDef(funcDef);
+                CompileFunctionDef(funcDef, className, fields);
             }
 
             // Compile nested classes
@@ -253,22 +273,57 @@ namespace WarScript.Bytecode
                 CompileClassDef(nestedClass);
 
             // Compile constructor body (non-definition statements only)
-            CompileConstructorBody(classDef);
+            CompileConstructorBody(classDef, fields);
         }
 
-        private void CompileConstructorBody(ClassDefinition classDef)
+        /// <summary>
+        /// The fields of <paramref name="classDef"/> (5.7): its constructor
+        /// parameters, the names its body assigns (bare, or as <c>@x</c> /
+        /// <c>this :: x</c>) and not declared <c>global</c>, and the fields
+        /// of its base classes. Null when a class is not known here (a base
+        /// defined in an import, or one without source: registered by the
+        /// host or loaded from bytecode) or is on its own base path (a
+        /// runtime error at <c>new</c>, Q-11): nothing can be checked then.
+        /// </summary>
+        private static HashSet<string>? ClassFields(ClassDefinition classDef, List<ClassDefinition> path)
+        {
+            if (classDef.Statement == null) return null;
+            var fields = new HashSet<string>(classDef.ClassDetails.Properties);
+            fields.UnionWith(BodyNames.Collect(classDef.ClassDetails.Properties, classDef.Statement, null, classBody: true).Fields);
+            path.Add(classDef);
+            foreach (var baseType in classDef.BaseTypes)
+            {
+                var baseDef = classDef.GetDefinitionScope().GetClass(baseType.Name);
+                if (baseDef == null || path.Contains(baseDef)) return null;
+                var baseFields = ClassFields(baseDef, path);
+                if (baseFields == null) return null;
+                fields.UnionWith(baseFields);
+            }
+            path.RemoveAt(path.Count - 1);
+            return fields;
+        }
+
+        private void CompileConstructorBody(ClassDefinition classDef, HashSet<string>? fields)
         {
             var stmts = classDef.Statement.StatementsToExecute;
             if (stmts.Count == 0) return;
 
-            // Constructor runs at "depth 0" so property accesses go through
-            // GetGlobal/SetGlobal which hit the class instance's MemoryScope
+            // The class body (T3.4, 5.7): a bare read is GetGlobal, which the
+            // VM looks up in the instance part's fields and then in the
+            // globals; a bare assignment writes a field (ThisSetProperty)
+            // unless the name is declared global (SetGlobal, which the VM
+            // sends to the globals from a class body).
             var child = new Compiler(_script, functionDepth: 0);
             child._source = _source;
             child._current = new CompiledFunction(classDef.ClassDetails.Name + "#ctor", 0);
             child._current.Chunk.Source = _source;
             child._line = Line(classDef.Statement);
             child.SetColumn(classDef.Statement.Column);
+            child._classBody = true;
+            child._className = classDef.ClassDetails.Name;
+            child._classFields = fields;
+            child._constructorParameters = classDef.ClassDetails.Properties.ToArray();
+            child._declaredGlobals = BodyNames.Collect(classDef.ClassDetails.Properties, classDef.Statement, _source, classBody: true).Globals;
 
             foreach (var stmt in stmts)
                 child.CompileStatement(stmt);
@@ -383,6 +438,7 @@ namespace WarScript.Bytecode
                 AddLocal(parameter, LocalKind.Parameter);
 
             var names = BodyNames.Collect(parameters, body, _source);
+            _declaredGlobals = names.Globals;
             foreach (var name in names.Locals)
             {
                 Chunk.EmitOp(OpCode.Null, _line);
@@ -464,22 +520,10 @@ namespace WarScript.Bytecode
             return Chunk.EmitJump(OpCode.JumpIfFalse, line);
         }
 
-        // A function, method or lambda body keeps every variable in a stack
-        // slot (T3.4), so its blocks need no runtime scope: the only
-        // MemoryScope it runs in is its call's, which SetGlobal skips.
-        private void EmitPushScope(int line)
-        {
-            if (_resolveNames) return;
-            Chunk.EmitOp(OpCode.PushScope, line);
-            _runtimeScopeDepth++;
-        }
-
-        private void EmitPopScope(int line)
-        {
-            if (_resolveNames) return;
-            Chunk.EmitOp(OpCode.PopScope, line);
-            _runtimeScopeDepth--;
-        }
+        // No block emits PushScope/PopScope any more (T3.4, DEC-4): a
+        // block's loop and rescue variables are stack slots, and every other
+        // name is a local of the whole body, a field (class body) or a global
+        // (top level). T3.5 removes the opcodes.
 
         private static int Line(Statement.Statement stmt) => stmt.RowNumber ?? 0;
 
@@ -578,11 +622,23 @@ namespace WarScript.Bytecode
                         _assignedSoFar.Add(v.Name);
                     return false;
                 }
-                // Not a stack slot. In a function, method or lambda body
-                // that is a name declared `global` (T3.4): the VM writes the
-                // instance globals, creating the name if needed. At the top
-                // level and in a class body, SetGlobal still goes through the
-                // MemoryScope chain ("walk up, create if missing").
+                // In a class body a bare assignment declares (or writes) a
+                // field of the instance part, unless the name is declared
+                // global (5.7, PROP-10).
+                if (_classBody && !_declaredGlobals.Contains(v.Name))
+                {
+                    var fieldIdx = Chunk.AddConstant(WarValue.FromText(v.Name));
+                    Chunk.EmitOp(OpCode.ThisSetProperty, line);
+                    Chunk.EmitU16(fieldIdx, line);
+                    Chunk.EmitU16(Chunk.AllocCacheSlot(), line);
+                    return false;
+                }
+                // Not a stack slot or a field: a global. In a function,
+                // method, lambda or class body that is a name declared
+                // `global` (T3.4), and the VM writes the instance globals,
+                // creating the name if needed. At the top level SetGlobal
+                // writes the scope chain (the globals, then the host
+                // globals), creating the name in the globals.
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(v.Name));
                 Chunk.EmitOp(OpCode.SetGlobal, line);
                 Chunk.EmitU16(nameIdx, line);
@@ -629,6 +685,7 @@ namespace WarScript.Bytecode
                     // Superinstruction: this :: prop = val → ThisSetProperty
                     if (cp.Left is ThisExpression)
                     {
+                        CheckField(propName.Name, propName.Line, propName.Column);
                         CompileExpression(assign.Right);  // value
                         var nameIdx = Chunk.AddConstant(WarValue.FromText(propName.Name));
                         Chunk.EmitOp(OpCode.ThisSetProperty, line);
@@ -648,6 +705,7 @@ namespace WarScript.Bytecode
                 // obj::arr{i} = expr  →  IndexSetProp
                 if (cp.Right is ArrayValueOperator propArr && propArr.Left is VariableExpression arrName)
                 {
+                    if (cp.Left is ThisExpression) CheckField(arrName.Name, arrName.Line, arrName.Column);
                     CompileExpression(cp.Left);         // instance
                     CompileExpression(propArr.Right);    // index
                     CompileExpression(assign.Right);     // value
@@ -735,16 +793,10 @@ namespace WarScript.Bytecode
                     Chunk.EmitOp(OpCode.Pop, line); // pop condition (truthy path)
                 }
 
-                // Compile body in its own scope
-                // Only emit PushScope/PopScope at top-level script body.
-                // Inside functions, SetGlobal→MemoryScope handles scoping.
-                bool emitScope = _functionDepth == 0;
-                if (emitScope) EmitPushScope(line);
                 BeginScope();
                 foreach (var s in body.StatementsToExecute)
                     CompileStatement(s);
                 EndScope(line);
-                if (emitScope) EmitPopScope(line);
 
                 // After the body, jump to the very end (past all false-path Pops)
                 endJumps.Add(Chunk.EmitJump(OpCode.Jump, line));
@@ -776,8 +828,7 @@ namespace WarScript.Bytecode
                 NextJumps = new List<int>(),
                 UsesForwardNext = false,
                 ScopeDepth = _scopeDepth,
-                LocalCountAtLoop = _locals.Count,
-                RuntimeScopeDepth = _runtimeScopeDepth
+                LocalCountAtLoop = _locals.Count
             });
 
             CompileExpression(stmt.Condition);
@@ -827,8 +878,7 @@ namespace WarScript.Bytecode
                 NextJumps = new List<int>(),
                 UsesForwardNext = true,
                 ScopeDepth = _scopeDepth,
-                LocalCountAtLoop = _locals.Count,
-                RuntimeScopeDepth = _runtimeScopeDepth
+                LocalCountAtLoop = _locals.Count
             });
 
             // Condition: i < limit (fused: LessJump = Less + JumpIfFalse + Pop)
@@ -892,8 +942,7 @@ namespace WarScript.Bytecode
                 NextJumps = new List<int>(),
                 UsesForwardNext = true,
                 ScopeDepth = _scopeDepth,
-                LocalCountAtLoop = _locals.Count,
-                RuntimeScopeDepth = _runtimeScopeDepth
+                LocalCountAtLoop = _locals.Count
             });
 
             // Condition: $idx < len($items) (fused: LessJump)
@@ -983,7 +1032,6 @@ namespace WarScript.Bytecode
         private struct BlockState
         {
             public Local[] Locals;
-            public int RuntimeScopeDepth;
             public int ScopeDepth;
             public TryCtx[] Tries;
         }
@@ -994,7 +1042,6 @@ namespace WarScript.Bytecode
         private BlockState SaveBlockState() => new BlockState
         {
             Locals = _locals.ToArray(),
-            RuntimeScopeDepth = _runtimeScopeDepth,
             ScopeDepth = _scopeDepth,
             Tries = _tries.ToArray()
         };
@@ -1003,7 +1050,6 @@ namespace WarScript.Bytecode
         {
             _locals.Clear();
             _locals.AddRange(state.Locals);
-            _runtimeScopeDepth = state.RuntimeScopeDepth;
             _scopeDepth = state.ScopeDepth;
             _tries.Clear();
             _tries.AddRange(state.Tries);
@@ -1025,7 +1071,7 @@ namespace WarScript.Bytecode
             {
                 var t = _tries[_tries.Count - 1];
                 _tries.RemoveAt(_tries.Count - 1);
-                EmitUnwindTo(t.RuntimeScopeDepth, t.LocalCount, line);
+                EmitUnwindTo(t.LocalCount, line);
                 switch (t.Region)
                 {
                     case TryRegion.Begin:
@@ -1050,14 +1096,12 @@ namespace WarScript.Bytecode
                     finally { _inlinedEnsure--; }
                 }
             }
-            EmitUnwindTo(loop.RuntimeScopeDepth, loop.LocalCountAtLoop, line);
+            EmitUnwindTo(loop.LocalCountAtLoop, line);
         }
 
-        /// <summary>Pops runtime scopes and stack locals down to the given counts.</summary>
-        private void EmitUnwindTo(int runtimeScopeDepth, int localCount, int line)
+        /// <summary>Pops stack locals down to the given count.</summary>
+        private void EmitUnwindTo(int localCount, int line)
         {
-            while (_runtimeScopeDepth > runtimeScopeDepth)
-                EmitPopScope(line);
             var popCount = _locals.Count - localCount;
             if (popCount > 0)
             {
@@ -1081,7 +1125,6 @@ namespace WarScript.Bytecode
             var tryCtx = new TryCtx
             {
                 LoopCount = _loops.Count,
-                RuntimeScopeDepth = _runtimeScopeDepth,
                 LocalCount = _locals.Count,
                 Region = TryRegion.Begin,
                 Ensure = stmt.EnsureStatement
@@ -1097,12 +1140,10 @@ namespace WarScript.Bytecode
             Chunk.EmitByte((byte)(stmt.RescueStatement != null ? 1 : 0), line); // hasRescue flag
 
             // ── Try body ──
-            EmitPushScope(line);
             BeginScope();
             foreach (var s in stmt.BeginStatement.StatementsToExecute)
                 CompileStatement(s);
             EndScope(line);
-            EmitPopScope(line);
 
             // Normal exit: pop handler, fall through to ensure
             tryCtx.Region = TryRegion.Rescue;
@@ -1113,7 +1154,6 @@ namespace WarScript.Bytecode
             int rescueIP = Chunk.Count;
             if (stmt.RescueStatement != null)
             {
-                EmitPushScope(line);
                 BeginScope();
                 // The VM always pushes the error value before jumping here.
                 if (stmt.ErrorVariable != null)
@@ -1123,7 +1163,6 @@ namespace WarScript.Bytecode
                 foreach (var s in stmt.RescueStatement.StatementsToExecute)
                     CompileStatement(s);
                 EndScope(line);
-                EmitPopScope(line);
             }
             else
             {
@@ -1161,28 +1200,46 @@ namespace WarScript.Bytecode
 
         private void CompileEnsureBody(CompositeStatement ensure, int line)
         {
-            EmitPushScope(line);
             BeginScope();
             foreach (var s in ensure.StatementsToExecute)
                 CompileStatement(s);
             EndScope(line);
-            EmitPopScope(line);
         }
 
         // ── Global declaration (T3.4, PROP-10) ──
         private void CompileGlobal(GlobalStatement stmt)
         {
-            // In a class body the declaration takes effect with the class
-            // field list (T3.4, second half); until then it changes nothing.
-            if (!_resolveNames) return;
+            // The declaration itself emits nothing: the pre-pass gave the
+            // body's writes of the name their meaning (SetGlobal).
+            if (!_resolveNames && !_classBody) return;
             foreach (var name in stmt.Names)
             {
                 var slot = ResolveLocal(name);
                 if (slot != -1 && _locals[slot].Kind == LocalKind.Parameter)
                     throw new CompileError("'" + name + "' is a parameter and cannot be declared global", _source, _line, _column);
+                if (_classBody && IsConstructorParameter(name))
+                    throw new CompileError("'" + name + "' is a constructor parameter and cannot be declared global", _source, _line, _column);
                 if (_usedNames.Contains(name))
                     throw new CompileError("'global " + name + "' must come before any use of '" + name + "' in this body", _source, _line, _column);
             }
+        }
+
+        private string[]? _constructorParameters;
+
+        private bool IsConstructorParameter(string name) =>
+            _constructorParameters != null && System.Array.IndexOf(_constructorParameters, name) >= 0;
+
+        /// <summary>
+        /// <c>@x</c> / <c>this :: x</c> in a method or class body must name a
+        /// field of the class or its bases (5.7, DEC-6): a compile error
+        /// otherwise. Not checked when the fields are not known
+        /// (<see cref="_classFields"/>).
+        /// </summary>
+        private void CheckField(string name, int line, int column)
+        {
+            if (_classFields == null || _classFields.Contains(name)) return;
+            if (line <= 0 || line != _line) { line = _line; column = _column; }
+            throw new CompileError("'" + name + "' is not a field of class '" + _className + "'", _source, line, column);
         }
 
         /// <summary>
@@ -1211,7 +1268,7 @@ namespace WarScript.Bytecode
                     throw new CompileError("variable '" + name + "' is read before it is assigned", _source, line, column);
                 return;
             }
-            if (_enclosingLocals != null && _enclosingLocals.Contains(name))
+            if (_enclosingLocals != null && _enclosingLocals.Contains(name) && !_declaredGlobals.Contains(name))
                 throw new CompileError("closures are not supported: '" + name + "' is a local variable of the code around the lambda", _source, line, column);
         }
 
@@ -1572,6 +1629,7 @@ namespace WarScript.Bytecode
             // ── Superinstruction: this :: prop → ThisGetProperty ──
             if (cp.Left is ThisExpression && cp.Right is VariableExpression thisVar)
             {
+                CheckField(thisVar.Name, thisVar.Line, thisVar.Column);
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(thisVar.Name));
                 Chunk.EmitOp(OpCode.ThisGetProperty, _line);
                 Chunk.EmitU16(nameIdx, _line);
@@ -1582,6 +1640,7 @@ namespace WarScript.Bytecode
             if (cp.Left is ThisExpression && cp.Right is ArrayValueOperator thisArrOp
                 && thisArrOp.Left is VariableExpression thisArrVar)
             {
+                CheckField(thisArrVar.Name, thisArrVar.Line, thisArrVar.Column);
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(thisArrVar.Name));
                 Chunk.EmitOp(OpCode.ThisGetProperty, _line);
                 Chunk.EmitU16(nameIdx, _line);
@@ -1629,12 +1688,30 @@ namespace WarScript.Bytecode
         /// rescue variables: one may not shadow a parameter, a local, a
         /// declared global or an enclosing loop or rescue variable.
         /// Lambdas and nested definitions are bodies of their own.
+        /// For a class body (<c>classBody</c>) the assigned names are its
+        /// fields instead (<see cref="Fields"/>: also the <c>@x = ...</c>
+        /// targets), and nothing is checked.
         /// </summary>
         private sealed class BodyNames
         {
+            /// <summary>The assigned names, in order of first assignment (a class body's are fields).</summary>
             public readonly List<string> Locals = new();
             private readonly HashSet<string> _localSet = new();
             private readonly HashSet<string> _globals = new();
+            private readonly HashSet<string> _thisTargets = new();
+
+            /// <summary>The names declared <c>global</c> anywhere in the body.</summary>
+            public HashSet<string> Globals => _globals;
+
+            /// <summary>For a class body: the fields it declares (assigned names and <c>@x = ...</c> targets).</summary>
+            public IEnumerable<string> Fields
+            {
+                get
+                {
+                    foreach (var name in Locals) yield return name;
+                    foreach (var name in _thisTargets) yield return name;
+                }
+            }
             private readonly HashSet<string> _parameters;
             private readonly List<string> _blockVariables = new();
             private readonly List<(string Name, string What, int Line, int Column, bool ShadowsBlock)> _declarations = new();
@@ -1644,10 +1721,12 @@ namespace WarScript.Bytecode
                 _parameters = new HashSet<string>(parameters);
             }
 
-            public static BodyNames Collect(IReadOnlyList<string> parameters, CompositeStatement body, string? source)
+            public static BodyNames Collect(IReadOnlyList<string> parameters, CompositeStatement body, string? source,
+                bool classBody = false)
             {
                 var names = new BodyNames(parameters);
                 names.WalkBlock(body);
+                if (classBody) return names;
                 foreach (var d in names._declarations)
                 {
                     string? reason = null;
@@ -1736,7 +1815,12 @@ namespace WarScript.Bytecode
                     case AssignmentOperator a:
                         Walk(a.Right);
                         if (a.Left is VariableExpression v) Assign(v.Name);
-                        else Walk(a.Left);
+                        else
+                        {
+                            if (a.Left is ClassPropertyOperator { Left: ThisExpression, Right: VariableExpression field })
+                                _thisTargets.Add(field.Name);
+                            Walk(a.Left);
+                        }
                         break;
                     case BinaryOperatorExpression b:
                         Walk(b.Left);

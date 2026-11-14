@@ -1,7 +1,7 @@
 # T3.3/T3.4 (PROP-10): `global a, b` is a statement of a function, method,
 # lambda or class body, nested blocks included; assignments to those names
-# write the instance globals. (In a class body it changes nothing yet: the
-# class field list is the second half of T3.4.)
+# write the instance globals (in a class body too, instead of declaring a
+# field).
 count = 0
 total = 0
 

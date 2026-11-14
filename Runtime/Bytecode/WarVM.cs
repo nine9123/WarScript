@@ -512,15 +512,17 @@ namespace WarScript.Bytecode
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
                         var name = constants[nameIdx].TextValue;
                         if (_script.AuditSink != null) AuditGlobalWrite(name, fi);
-                        // In a function, method or lambda, every local is a
-                        // stack slot (T3.4): SetGlobal there is a write to a
-                        // name declared `global`, which goes to the instance
-                        // globals and creates the name there if needed. At
-                        // the top level and in a class body it still writes
-                        // the innermost scope that has the name, else the
-                        // current one.
+                        // In a function, method or lambda every local is a
+                        // stack slot, and a class body writes its fields with
+                        // ThisSetProperty (T3.4): SetGlobal there is a write
+                        // to a name declared `global`, which goes to the
+                        // instance globals and creates the name there if
+                        // needed. At the top level it writes the scope chain
+                        // (globals, then host globals), creating the name in
+                        // the globals.
                         var setScope = _script.MemoryContext.GetScope();
-                        if (setScope.Kind == MemoryScopeKind.FunctionLocal || setScope.Kind == MemoryScopeKind.MethodLocal)
+                        if (setScope.Kind == MemoryScopeKind.FunctionLocal || setScope.Kind == MemoryScopeKind.MethodLocal
+                            || setScope.Kind == MemoryScopeKind.ClassInstance)
                             setScope = _script.UserMemoryScope;
                         setScope.Set(name, Peek());
                         break;
@@ -2327,7 +2329,10 @@ namespace WarScript.Bytecode
                     valueRefs[i] = ValueReference.InstanceOf(i < args.Count ? args[i] : WarValue.Null);
             }
 
-            var classScope = new MemoryScope(_script, null, false, MemoryScopeKind.ClassInstance);
+            // The part's fields. Its parent is the instance globals, so a bare
+            // read in the class body finds a field first, then a global
+            // (T3.4, 5.7, PROP-20).
+            var classScope = new MemoryScope(_script, _script.UserMemoryScope, false, MemoryScopeKind.ClassInstance);
             var classData = new ClassData(definition, classScope, relations);
             classData.PropertyValues = valueRefs;
             relations[definition.ClassDetails.Name] = classData;
@@ -2645,7 +2650,8 @@ namespace WarScript.Bytecode
             var start = _script.MemoryContext.GetScope();
             // In a function, method or lambda SetGlobal writes a name
             // declared `global` (T3.4): v2 behavior, nothing to report.
-            if (start.Kind == MemoryScopeKind.FunctionLocal || start.Kind == MemoryScopeKind.MethodLocal) return;
+            if (start.Kind == MemoryScopeKind.FunctionLocal || start.Kind == MemoryScopeKind.MethodLocal
+                || start.Kind == MemoryScopeKind.ClassInstance) return;
             if (start.HasLocal(name)) return;
             var holder = start.Resolve(name);
             if (holder == null) return; // creates a local of the current scope

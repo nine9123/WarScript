@@ -46,15 +46,13 @@ namespace Tests
         [TestCase("fun f [t]\n  t{0} = \"z\"\nend\nf [\"abc\"]", AuditKind.TextIndexAssign, 2)]
         [TestCase("q = 3\nq :: p = 1", AuditKind.PropertyWriteOnNonInstance, 2)]
         [TestCase("class P [x]\nend\np = new P [1]\np :: z = 4", AuditKind.DynamicPropertyCreated, 4)]
-        [TestCase("class P [x]\n  fun m []\n    this :: z = 1\n  end\nend\np = new P [1]\np :: m []", AuditKind.DynamicPropertyCreated, 3)]
         [TestCase("r = undefined_thing", AuditKind.UndefinedRead, 1)]
-        // GlobalWriteFromFunction, FieldAccessViaBareName and the method case
-        // of GlobalShadowedInClass have no v1 path left since T3.4: a name a
+        // GlobalWriteFromFunction, FieldAccessViaBareName, GlobalShadowedInClass
+        // and BlockVariableEscapes have no v1 path left since T3.4: a name a
         // function or method assigns is its local, a global needs `global`,
-        // and a method reads globals (V2NameResolutionReportsNothing).
-        [TestCase("g = 1\nclass P [x]\n  y = g\nend\np = new P [1]", AuditKind.GlobalShadowedInClass, 3)]
-        [TestCase("if true\n  inner = 7\nend\nprint inner", AuditKind.BlockVariableEscapes, 4)]
-        [TestCase("begin\n  inner = 7\n  raise \"x\"\nrescue e\nend\nprint inner", AuditKind.BlockVariableEscapes, 6)]
+        // methods and class bodies read globals, top-level blocks have no
+        // scope of their own, and `this :: z = 1` in a method is a compile
+        // error unless z is a field (V2NameResolutionReportsNothing).
         [TestCase("class P [x]\nend\na = new P [1]\nb = new P [1]\nc = a == b", AuditKind.ClassStructuralEquality, 5)]
         public void EventIsReportedAtItsLine(string source, AuditKind kind, int line)
         {
@@ -70,7 +68,10 @@ namespace Tests
         {
             var events = Audit("g = 1\nfun f []\n  global g\n  g = 2\nend\nf []\n"
                 + "h = fun [] global g g = 3 end\nh []\n"
-                + "class P [x]\n  fun m []\n    print g\n    x = 2\n    print @x\n  end\nend\np = new P [1]\np :: m []");
+                + "class P [x]\n  fun m []\n    print g\n    x = 2\n    print @x\n  end\nend\np = new P [1]\np :: m []\n"
+                + "class Q [x]\n  y = g\nend\nq = new Q [1]\n"
+                + "if true\n  inner = 7\nend\nprint inner\n"
+                + "begin\n  inner2 = 7\n  raise \"x\"\nrescue e\nend\nprint inner2");
             Assert.AreEqual(0, events.Count, "events:\n" + Format(events));
         }
 

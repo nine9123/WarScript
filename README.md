@@ -396,7 +396,8 @@ different arities are distinct.
 Inside a function, method or lambda, every name the body assigns is a **local of the whole body**
 (an `if` does not start a new scope), and globals are read freely. Writing a global takes a
 `global` declaration, placed before any use of the name in that body; assigning a declared global
-creates it if it does not exist yet. At the top level every assignment writes a global.
+creates it if it does not exist yet. At the top level every assignment writes a global, inside an
+`if`, a loop or a `begin` block too (only `loop` and `rescue` variables are limited to their block).
 
 ```ruby
 count = 0
@@ -420,8 +421,8 @@ The compiler rejects what would otherwise be a silent mistake:
 - `global x` after `x` was used, or for a parameter `x`.
 
 Methods follow the same rules: a bare name in a method is a local or a global, and the instance's
-fields are reached with `@x` / `this :: x`. *(v2 in progress: class bodies still resolve names as
-v1 did, and `global` in a class body changes nothing yet; the class field list comes next.)*
+fields are reached with `@x` / `this :: x`. In a class body a bare assignment declares a field
+(unless the name is declared `global`), and a bare read finds a field first, then a global.
 
 #### Default parameters
 
@@ -584,7 +585,26 @@ constructor; a function it calls still can).
 `global` is a reserved word. `global a, b` declares, in a function, method, lambda or class body,
 that `a` and `b` are the instance's globals; at the top level it is an error (see
 [Locals and globals](#locals-and-globals)). In a method, a bare name is a local or a global, never a
-field: use `@x`. *(v2 in progress: in a class body the declaration changes nothing yet.)*
+field: use `@x`.
+
+The **fields** of a class are its constructor parameters, the names its body assigns (bare or as
+`@x = ...`) and the fields of its base classes. `@x` / `this :: x` in a method or the class body is
+checked against them when the script compiles: `'shield' is not a field of class 'Unit'`. A method
+cannot add a field. *(v2 in progress: the check is skipped when a base class comes from an import;
+and at runtime each class of an inheritance chain still keeps its own fields, so a method of the
+derived class does not see a field only the base class body assigns.)*
+
+```ruby
+g = 5
+class Unit [hp]
+    armor = 2                  # a field
+    seen = g                   # reads the global g
+    fun hit [d]
+        @hp = @hp - (d - @armor)
+        return @hp
+    end
+end
+```
 
 #### Inheritance
 

@@ -62,13 +62,12 @@ else
 end
 assert outcome == "medium"
 
-# ── 7. Variable created inside if is LOST after end ──
+# ── 7. Variable created inside if is a global, visible after end (DEC-4) ──
 before_if = "visible"
 if true
-    inside_if = "only here"
+    inside_if = "here too"
 end
-# inside_if was created in a new scope — it's null outside
-assert inside_if == null
+assert inside_if == "here too"
 
 # ── 8. But pre-existing variables are found via parent walk ──
 pre_exist = 100
@@ -174,8 +173,8 @@ rescue e
     rescue_result = "caught: " + e
 end
 assert rescue_result == "caught: test"
-# inside_begin is lost (created in begin's scope)
-assert inside_begin == null
+# inside_begin is a global: a begin block has no scope of its own (DEC-4)
+assert inside_begin == "created"
 
 # ── 18. Ensure sees pre-declared variables ──
 ensure_flag = false
