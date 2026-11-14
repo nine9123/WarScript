@@ -605,5 +605,33 @@ namespace Tests
             Assert.AreEqual(new[] { "hp: 100", "hp: 90", "hp: 60", "low hp!" }, output);
             Assert.AreEqual(0, script.ActiveCoroutineCount);
         }
+
+        [Test]
+        public void YieldInsideAMethod_KeepsThisAcrossTicks()
+        {
+            // T3.5: 'this' is part of the suspended method frame.
+            var (script, output) = TestHelper.Run("test", @"
+                class Unit [n]
+                    fun walk []
+                        print ""at {@n}""
+                        yield
+                        @n += 1
+                        print ""at {@n}""
+                    end
+                end
+                fun patrol []
+                    u = new Unit [1]
+                    u :: walk []
+                    print ""done""
+                end
+            ");
+
+            script.StartCoroutine("patrol", System.Array.Empty<WarValue>());
+            Assert.AreEqual(new[] { "at 1" }, output);
+
+            script.TickCoroutines(F64.FromDouble(0.016));
+            Assert.AreEqual(new[] { "at 1", "at 2", "done" }, output);
+            Assert.AreEqual(0, script.ActiveCoroutineCount);
+        }
     }
 }

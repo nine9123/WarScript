@@ -43,7 +43,7 @@ namespace WarScript.Bytecode
 
     /// <summary>
     /// The kind of a <see cref="CallFrame"/>: what it pushed on the context
-    /// stacks (MemoryContext, DefinitionContext, ClassInstanceContext) when
+    /// stacks (MemoryContext, DefinitionContext) when
     /// it was entered.
     /// </summary>
     public enum FrameKind : byte
@@ -52,9 +52,9 @@ namespace WarScript.Bytecode
         Script,
         /// <summary>A function or lambda call: pushes a function-local MemoryScope.</summary>
         Function,
-        /// <summary>A method call: pushes the class DefinitionScope, the instance's MemoryScope and ClassInstanceContext entry, and a method-local MemoryScope.</summary>
+        /// <summary>A method call: pushes the class DefinitionScope, the instance's MemoryScope and a method-local MemoryScope; its <see cref="CallFrame.Instance"/> is the instance part whose class defines the method.</summary>
         Method,
-        /// <summary>A constructor body (T1.1): pushes the class DefinitionScope and the instance's MemoryScope and ClassInstanceContext entry. Its return value is discarded.</summary>
+        /// <summary>A constructor body (T1.1): pushes the class DefinitionScope and the instance's MemoryScope; its <see cref="CallFrame.Instance"/> is the instance part whose body it runs. Its return value is discarded.</summary>
         Constructor
     }
 
@@ -74,8 +74,14 @@ namespace WarScript.Bytecode
         public FrameKind Kind;
 
         /// <summary>
-        /// For a <see cref="FrameKind.Constructor"/> frame: the instance (or
-        /// base-class part of one) whose constructor body it runs.
+        /// What <c>this</c> is in the frame (T3.5): for a
+        /// <see cref="FrameKind.Method"/> or <see cref="FrameKind.Constructor"/>
+        /// frame the instance part whose method or constructor body it runs;
+        /// a <see cref="FrameKind.Function"/> frame (a function, lambda or a
+        /// method called by its bare name) takes its caller's, so a method
+        /// called by bare name from another method sees the same instance; an
+        /// entry frame (script body, host call, coroutine) has none. Null
+        /// outside a class: <c>this</c> raises NameError there.
         /// </summary>
         public WarScript.Expression.Value.ClassData Instance;
     }

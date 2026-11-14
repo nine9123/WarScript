@@ -250,7 +250,7 @@ p = new Point [3, 4]
 
 Stack-based VM with fixed-size arrays (no heap allocation in hot path):
 - **Value stack**: 1024 WarValue slots
-- **Call frames**: 128 CallFrame slots (Function, IP, StackBase, `FrameKind`: Script / Function / Method / Constructor — what the frame pushed on the context stacks, popped by `PopFrameContexts`)
+- **Call frames**: 128 CallFrame slots (Function, IP, StackBase, `FrameKind`: Script / Function / Method / Constructor — what the frame pushed on the context stacks, popped by `PopFrameContexts`; `Instance`: what `this` is, T3.5 — a method's or constructor's instance part, a function/lambda frame takes its caller's (so a method called by bare name sees the same instance), an entry frame has none; there is no `ClassInstanceContext` any more)
 - **Exception handlers**: 32 TryHandler slots
 
 Function call dispatch (3 paths):
@@ -355,7 +355,7 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 - **State hash** (`WarScriptLanguage.ComputeStateHash()`, plan §9.7): FNV-1a 64 over every line printed since the instance was created (fed through the internal `WarScriptLanguage.Print`, the only path `print` takes — keep it that way), `0xFF`, then the user globals (`UserMemoryScope`; host globals excluded) sorted ordinally. The byte layout is pinned by `StateHashTests.EncodingIsPinned`; changing it invalidates every recorded baseline (T0.9). An instance hashes its constructor parameters in order and then its other fields (base-class fields included, one field scope per instance since Q-16) by name — revisit when the indexed field list lands.
 - **C# repros** (`Tests/ReproTests.cs`): Appendix A repros that need a native or a host value. Each check returns null for the v2 behaviour or a deviation string, and `KnownFailing("<ID>", failure)` reports it Ignored until fixed and fails once it passes — the C# counterpart of `# known-failing:`.
 - **Pattern**: Check print output or rely on `assert` in .ws scripts
-- **Invariants** (`Tests/Invariants.cs`, plan §9.3): every `TestHelper.Run`/`RunFile` checks afterwards that `MemoryContext`/`DefinitionContext` depths are back where they were, no exception is left raised, `ClassInstanceContext` is empty and the VM is idle (`WarVM.IsIdle`, unless the script yielded). A test that currently breaks one carries `[KnownInvariantViolation("<finding/task ID>")]`: the violation is logged instead of failing, the test's own asserts still run, and the marker fails the test once nothing is violated any more. No test carries one today (T1.3 fixed the 15 that did).
+- **Invariants** (`Tests/Invariants.cs`, plan §9.3): every `TestHelper.Run`/`RunFile` checks afterwards that `MemoryContext`/`DefinitionContext` depths are back where they were, no exception is left raised and the VM is idle (`WarVM.IsIdle`, unless the script yielded). A test that currently breaks one carries `[KnownInvariantViolation("<finding/task ID>")]`: the violation is logged instead of failing, the test's own asserts still run, and the marker fails the test once nothing is violated any more. No test carries one today (T1.3 fixed the 15 that did).
 - **Comparing numerics**: `WarValue.Numeric` is `F64`. Compare against `F64.FromInt(n)` (the `==(F64,int)` operator also works), or project with `F64.RoundToInt(...)` — there is no `(int)F64` cast. For approximate results (sqrt/pow/trig, or non-representable values like `0.7`), assert on `.Float` with a tolerance: `Assert.AreEqual(1.3f, v.Float, 0.001f)`.
 
 ## Performance-Sensitive Areas

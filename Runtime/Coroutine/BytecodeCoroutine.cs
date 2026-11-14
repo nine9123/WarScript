@@ -34,12 +34,11 @@ namespace WarScript
         private bool _faulted;
 
         // Scopes the VM pushed for calls still in flight when it yielded
-        // (function locals, method class context, block scopes). They are set
+        // (function locals, a method's or constructor's class scopes). They are set
         // aside between ticks and pushed back on resume, so the VM's frames
         // find them where they left them. Stored top-of-stack first.
         private readonly List<MemoryScope> _suspendedMemory = new();
         private readonly List<DefinitionScope> _suspendedDefinitions = new();
-        private readonly List<ClassData> _suspendedInstances = new();
 
         // Yield timing
         private YieldType _yieldType;
@@ -110,17 +109,13 @@ namespace WarScript
 
             int memoryBase = _script.MemoryContext.Depth;
             int definitionBase = _script.DefinitionContext.Depth;
-            int instanceBase = _script.ClassInstanceContext.Depth;
 
             for (int i = _suspendedMemory.Count - 1; i >= 0; i--)
                 _script.MemoryContext.PushScope(_suspendedMemory[i]);
             for (int i = _suspendedDefinitions.Count - 1; i >= 0; i--)
                 _script.DefinitionContext.PushScope(_suspendedDefinitions[i]);
-            for (int i = _suspendedInstances.Count - 1; i >= 0; i--)
-                _script.ClassInstanceContext.PushValue(_suspendedInstances[i]);
             _suspendedMemory.Clear();
             _suspendedDefinitions.Clear();
-            _suspendedInstances.Clear();
 
             try
             {
@@ -161,11 +156,6 @@ namespace WarScript
                 {
                     var scope = _script.DefinitionContext.DetachScope();
                     if (suspended) _suspendedDefinitions.Add(scope);
-                }
-                while (_script.ClassInstanceContext.Depth > instanceBase)
-                {
-                    var instance = _script.ClassInstanceContext.DetachValue();
-                    if (suspended) _suspendedInstances.Add(instance);
                 }
 
                 _script.MemoryContext.EndScope();  // coroutine scope

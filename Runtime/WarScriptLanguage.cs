@@ -24,7 +24,6 @@ namespace WarScript
         public readonly DefinitionContext DefinitionContext;
         public readonly MemoryContext MemoryContext;
         public readonly ExceptionContext ExceptionContext;
-        public readonly ClassInstanceContext ClassInstanceContext;
         public readonly IExpression DefaultStep;
 
         public readonly Func<string, string?>? FileResolver;
@@ -436,7 +435,6 @@ namespace WarScript
             DefinitionContext = new DefinitionContext(this);
             MemoryContext = new MemoryContext(this);
             ExceptionContext = new ExceptionContext(this);
-            ClassInstanceContext = new ClassInstanceContext();
             DefaultStep = new ConstantExpression(WarValue.FromNumeric(1));
 
             _sourceCode = sourceCode;

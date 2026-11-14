@@ -128,7 +128,6 @@ namespace WarScript.Bytecode
         // InitCoroutine, ResumeCoroutine) started. A host fault restores them.
         private int _entryMemoryDepth;
         private int _entryDefinitionDepth;
-        private int _entryInstanceDepth;
 
         public WarVM(WarScriptLanguage script)
         {
@@ -149,6 +148,7 @@ namespace WarScript.Bytecode
             if (_running)
                 throw new System.InvalidOperationException("WarVM reset while it is executing");
             _sp = 0;
+            System.Array.Clear(_frames, 0, _frameCount); // drop function and instance references
             _frameCount = 0;
             _handlerCount = 0;
             _topLevelResult = default;
@@ -251,7 +251,6 @@ namespace WarScript.Bytecode
         {
             _entryMemoryDepth = _script.MemoryContext.Depth;
             _entryDefinitionDepth = _script.DefinitionContext.Depth;
-            _entryInstanceDepth = _script.ClassInstanceContext.Depth;
         }
 
         /// <summary>
@@ -348,8 +347,6 @@ namespace WarScript.Bytecode
                 _script.MemoryContext.EndScope();
             while (_script.DefinitionContext.Depth > _entryDefinitionDepth)
                 _script.DefinitionContext.EndScope();
-            while (_script.ClassInstanceContext.Depth > _entryInstanceDepth)
-                _script.ClassInstanceContext.PopValue();
             if (_script.ExceptionContext.IsRaised())
                 _script.ExceptionContext.RescueException();
             Reset();
@@ -814,7 +811,8 @@ namespace WarScript.Bytecode
                                 Function = lambdaFunc,
                                 IP = 0,
                                 StackBase = newBase,
-                                Kind = FrameKind.Function
+                                Kind = FrameKind.Function,
+                                Instance = _frames[fi].Instance
                             };
                             _frameCount++;
                             fi = _frameCount - 1;
@@ -869,7 +867,8 @@ namespace WarScript.Bytecode
                                 Function = def.Compiled,
                                 IP = 0,
                                 StackBase = newBase,
-                                Kind = FrameKind.Function
+                                Kind = FrameKind.Function,
+                                Instance = _frames[fi].Instance
                             };
                             _frameCount++;
                             fi = _frameCount - 1;
@@ -935,7 +934,8 @@ namespace WarScript.Bytecode
                             Function = lambdaCF,
                             IP = 0,
                             StackBase = cvNewBase,
-                            Kind = FrameKind.Function
+                            Kind = FrameKind.Function,
+                            Instance = _frames[fi].Instance
                         };
                         _frameCount++;
                         fi = _frameCount - 1;
@@ -1141,7 +1141,6 @@ namespace WarScript.Bytecode
                             // Push class context
                             _script.DefinitionContext.PushScope(classDef.GetDefinitionScope());
                             _script.MemoryContext.PushScope(methodClassData.MemoryScope);
-                            _script.ClassInstanceContext.PushValue(methodClassData);
 
                             if (methodDef.Compiled != null)
                             {
@@ -1167,7 +1166,6 @@ namespace WarScript.Bytecode
                                     _script.MemoryContext.EndScope(); // method-local
                                     _script.DefinitionContext.EndScope();
                                     _script.MemoryContext.EndScope(); // class memory
-                                    _script.ClassInstanceContext.PopValue();
                                     RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                                     if (DoHandleException(ref fi, ref code, ref constants)) break;
                                     return;
@@ -1177,7 +1175,8 @@ namespace WarScript.Bytecode
                                     Function = methodDef.Compiled,
                                     IP = 0,
                                     StackBase = newBase,
-                                    Kind = FrameKind.Method
+                                    Kind = FrameKind.Method,
+                                    Instance = methodClassData
                                 };
                                 _frameCount++;
                                 fi = _frameCount - 1;
@@ -1189,7 +1188,6 @@ namespace WarScript.Bytecode
                                 // No bytecode — clean up context and report error
                                 _script.DefinitionContext.EndScope();
                                 _script.MemoryContext.EndScope();
-                                _script.ClassInstanceContext.PopValue();
                                 RuntimeError(ScriptErrorKind.TypeError, $"Method '{methodName}' is not compiled");
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
@@ -1524,27 +1522,30 @@ namespace WarScript.Bytecode
                         break;
                     }
                     case OpCode.This:
-                        if (!_script.ClassInstanceContext.HasValue)
+                    {
+                        var thisData = _frames[fi].Instance;
+                        if (thisData == null)
                         {
                             RuntimeError(ScriptErrorKind.NameError, "'this' can only be used inside a class");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
-                        Push(WarValue.FromClass(_script.ClassInstanceContext.GetValue()));
+                        Push(WarValue.FromClass(thisData));
                         break;
+                    }
 
                     // ── Superinstructions: This + GetProperty / SetProperty ──
                     case OpCode.ThisGetProperty:
                     {
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
                         var cacheSlot = ReadU16(code, ref _frames[fi].IP);
-                        if (!_script.ClassInstanceContext.HasValue)
+                        var cd = _frames[fi].Instance;
+                        if (cd == null)
                         {
                             RuntimeError(ScriptErrorKind.NameError, "'this' can only be used inside a class");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
-                        var cd = _script.ClassInstanceContext.GetValue();
                         var details = cd.Definition.ClassDetails;
                         ref var cache = ref _frames[fi].Function.Chunk.PropertyCaches[cacheSlot];
                         if (ReferenceEquals(cache.CachedType, details))
@@ -1568,13 +1569,13 @@ namespace WarScript.Bytecode
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
                         var cacheSlot = ReadU16(code, ref _frames[fi].IP);
                         var value = Pop();
-                        if (!_script.ClassInstanceContext.HasValue)
+                        var cd = _frames[fi].Instance;
+                        if (cd == null)
                         {
                             RuntimeError(ScriptErrorKind.NameError, "'this' can only be used inside a class");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
-                        var cd = _script.ClassInstanceContext.GetValue();
                         var details = cd.Definition.ClassDetails;
                         ref var cache = ref _frames[fi].Function.Chunk.PropertyCaches[cacheSlot];
                         if (ReferenceEquals(cache.CachedType, details))
@@ -2107,15 +2108,13 @@ namespace WarScript.Bytecode
                     _script.MemoryContext.EndScope(); // method-local
                     _script.DefinitionContext.EndScope();
                     _script.MemoryContext.EndScope(); // instance
-                    _script.ClassInstanceContext.PopValue();
                     break;
                 case FrameKind.Constructor:
                     _script.DefinitionContext.EndScope();
                     _script.MemoryContext.EndScope(); // instance
-                    _script.ClassInstanceContext.PopValue();
-                    _frames[fi].Instance = null;
                     break;
             }
+            _frames[fi].Instance = null; // don't keep the instance alive
         }
 
         // ── Pending ensure records ──
@@ -2384,7 +2383,6 @@ namespace WarScript.Bytecode
                 var definition = part.Definition;
                 _script.DefinitionContext.PushScope(definition.GetDefinitionScope());
                 _script.MemoryContext.PushScope(part.MemoryScope);
-                _script.ClassInstanceContext.PushValue(part);
                 _frames[_frameCount++] = new CallFrame
                 {
                     Function = definition.CompiledConstructor,

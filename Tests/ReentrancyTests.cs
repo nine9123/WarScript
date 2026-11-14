@@ -350,5 +350,30 @@ end", null, (w, m) => output.Add(m));
             CollectionAssert.AreEqual(new[] { "outer rescued first" }, output);
             Assert.AreEqual(0, s.EntryDepth);
         }
+
+        // ── 'this' ──────────────────────────────────────────────────────
+
+        [Test]
+        public void Callback_FromAMethod_HasNoThis()
+        {
+            // T3.5: 'this' is part of the call frame, so a callback a native
+            // makes from inside a method does not see the method's instance.
+            var (_, output) = RunWithCallback(@"
+fun on_event []
+    print this
+end
+class C [x]
+    fun go []
+        begin
+            fire []
+        rescue e
+            print e
+        end
+        print @x
+    end
+end
+(new C [7]) :: go []", _ => { });
+            CollectionAssert.AreEqual(new[] { "'this' can only be used inside a class", "7" }, output);
+        }
     }
 }

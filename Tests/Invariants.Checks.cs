@@ -43,9 +43,6 @@ namespace Tests
             if (!outermost)
                 return null;
 
-            if (script.ClassInstanceContext.Depth != 0)
-                return $"ClassInstanceContextEmpty: {script.ClassInstanceContext.Depth} instance(s) left pushed";
-
             if (script.EntryDepth != 0)
                 return $"EntryDepth: {script.EntryDepth} host entr(y/ies) still counted as running";
 
