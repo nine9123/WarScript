@@ -51,9 +51,19 @@ namespace WarScript.Context
         }
 
         /// <summary>
-        /// The last exception reported (logged and cleared) as unhandled.
-        /// Lets the golden test runner tell an unhandled error apart from
-        /// printed output until the v2 result types exist.
+        /// Clears an error that escaped the outermost entry, keeping it as
+        /// <see cref="LastUnhandled"/>; the entry's result carries it and the
+        /// instance halts with it (plan T2.4), which logs it.
+        /// </summary>
+        internal void TakeUnhandled()
+        {
+            LastUnhandled = Exception;
+            RescueException();
+        }
+
+        /// <summary>
+        /// The last exception that escaped an outermost entry (cleared by
+        /// <see cref="TakeUnhandled"/> or <see cref="PrintStackTrace"/>).
         /// </summary>
         internal Exception.Exception LastUnhandled { get; private set; }
 

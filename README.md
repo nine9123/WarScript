@@ -888,16 +888,29 @@ else
 | `Status` | Meaning | `Value` | `Error` |
 |---|---|---|---|
 | `Ok` | The entry completed. | The return value (`TickCoroutines`: the number of active coroutines) | null |
-| `Error` | A script error escaped the entry, or the script does not compile (`Kind` `CompileError`). | null | The error |
-| `HostFault` | A C# exception occurred inside the VM (a VM bug or a host failure). | null | The error, with `HostException` set |
+| `Error` | A script error escaped the entry, or the script does not compile (`Kind` `CompileError`). The instance is now halted. | null | The error |
+| `Halted` | The instance was already halted, so nothing ran. | null | The fault that halted it |
+| `HostFault` | A C# exception occurred inside the VM (a VM bug or a host failure). The instance is now halted. | null | The error, with `HostException` set |
 
-A `ScriptError` has a `Kind`, a `Message`, the raised `Value`, a `ScriptName` and a `Line`. The
-error is still logged as before. Being written in stages: until structured errors land, most
-runtime errors report kind `Raised` (natives throwing `ScriptErrorException` and native failures
-already have their own kind) with line 0 and an empty `CallStack`, and an error does not yet halt
-the instance (`Halted` is not returned yet). A native that calls back into its own instance gets
-the callback's error as its result, and the error also continues in the calling script, where
-`begin/rescue` can catch it.
+A `ScriptError` has a `Kind`, a `Message`, the raised `Value`, a `ScriptName` and a `Line`. Being
+written in stages: until structured errors land, most runtime errors report kind `Raised` (natives
+throwing `ScriptErrorException` and native failures already have their own kind) with line 0 and an
+empty `CallStack`. A native that calls back into its own instance gets the callback's error as its
+result, and the error also continues in the calling script, where `begin/rescue` can catch it; a
+host fault in such a callback stops the calling script too.
+
+**Halting.** An error (or host fault) that escapes the outermost entry halts the instance: its
+coroutines are cleared, `IsHalted` becomes true and `Fault` holds the error, the error is logged as
+`[WarScript] ` + `ScriptError.ToString()` (unless `LogUnhandledErrors` is false), and the `Faulted`
+event fires. From then on every entry returns `Halted` at once, without running anything, until the
+host calls `ClearFault()` or `Reload(...)`. Neither undoes state the script changed before the
+fault. Halting is deterministic, so every peer halts the same instance at the same point.
+
+```csharp
+script.Faulted += (instance, error) => Debug.LogError($"{instance.ScriptName} halted: {error}");
+// ...later, once the host has dealt with it:
+script.ClearFault();
+```
 
 ### Passing values in and out
 
@@ -987,7 +1000,9 @@ int count = script.ActiveCoroutineCount;
 
 `StartCoroutine` runs the function immediately up to its first `yield`, then returns the result of
 that first run. The id is `-1` (and the result an `Error`) if the function could not be found.
-`TickCoroutines` returns the first error a resumed coroutine ended with, if any. Each call creates an independent coroutine with its own
+`TickCoroutines` resumes the ready coroutines newest first and stops at the first error a resumed
+coroutine ends with, returning it; the remaining coroutines do not run, and the error halts the
+instance (see [Results and errors](#results-and-errors)). Each call creates an independent coroutine with its own
 state, so the same function can run several times concurrently.
 
 ### Adding native functions

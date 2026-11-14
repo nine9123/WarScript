@@ -143,9 +143,11 @@ print ""not reached""";
             Assert.IsInstanceOf<InvalidOperationException>(script.LastHostFault);
             Assert.AreEqual(2, output.Count, string.Join(" | ", output));
             Assert.AreEqual("before", output[0]);
-            StringAssert.StartsWith("[WarScript] Host fault in 't': System.InvalidOperationException: host failed", output[1]);
+            StringAssert.StartsWith("[WarScript] t:0:0: HostFault: host failed\nSystem.InvalidOperationException: host failed", output[1]);
 
-            // The instance is usable again.
+            // The fault halted the instance (T2.4); once cleared, it is usable again.
+            Assert.IsTrue(script.IsHalted);
+            script.ClearFault();
             script.DebugHook = null;
             output.Clear();
             script.Call(script.GetFunction("inner", 0));

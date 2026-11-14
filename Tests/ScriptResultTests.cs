@@ -13,8 +13,8 @@ namespace Tests
     /// Result types (v2 plan T2.3, 6.1, 6.3; API-1, API-2): <c>Run</c>,
     /// <c>Call</c>, <c>StartCoroutine</c> and <c>TickCoroutines</c> return a
     /// <see cref="ScriptResult"/> holding the return value or the error that
-    /// escaped the entry. Halting is T2.4; error kinds everywhere and call
-    /// stacks are T2.5.
+    /// escaped the entry. Halting (T2.4) is in <see cref="FaultTests"/>; error
+    /// kinds everywhere and call stacks are T2.5.
     /// </summary>
     [TestFixture]
     public class ScriptResultTests
@@ -119,6 +119,7 @@ namespace Tests
             script.Run();
 
             var argument = script.Call(script.GetFunction("bad_arg", 0));
+            script.ClearFault();
             var native = script.Call(script.GetFunction("broken", 0));
 
             Assert.AreEqual(ScriptErrorKind.ArgumentError, argument.Error.Kind);
@@ -194,8 +195,10 @@ end");
 
             Assert.AreEqual(ScriptStatus.Error, tick.Status, "the failing resume's error");
             Assert.AreEqual("Division by zero", tick.Error.Message);
-            Assert.AreEqual(0, script.ActiveCoroutineCount, "both ended: one completed, one failed");
-            CollectionAssert.Contains(output, "b", "the other coroutine still ran (v1, until T2.4)");
+            // The newest coroutine runs first; its error stops the tick and
+            // halts the instance, which clears the other one (PROP-3, T2.4).
+            Assert.AreEqual(0, script.ActiveCoroutineCount);
+            CollectionAssert.DoesNotContain(output, "b");
         }
 
         [Test]

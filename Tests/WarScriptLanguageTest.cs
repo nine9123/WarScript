@@ -80,12 +80,12 @@ namespace Tests
 
             // The script has an unhandled exception — the logger receives:
             // 1. "Do something useful ..." (from print in do_something)
-            // 2. The full exception + stack trace (from ExceptionContext.PrintStackTrace)
+            // 2. The error that halted the instance ("[WarScript] " + ScriptError, T2.4)
             Assert.AreEqual(2, output.Count, $"Unexpected output:\n{string.Join("\n", output)}");
             Assert.AreEqual("Do something useful ...", output[0]);
 
-            // The exception printout includes the class ToString and the stack trace.
-            // It arrives as a single logger call from PrintStackTrace.
+            // The error's line names the raised value (the class name).
+            // It arrives as a single logger call when the instance halts.
             var exceptionOutput = output[1];
             Assert.That(exceptionOutput, Does.Contain("MyBusinessException"));
         }

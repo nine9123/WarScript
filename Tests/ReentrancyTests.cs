@@ -55,12 +55,11 @@ end";
         private static string Unhandled(WarScriptLanguage s) =>
             s.ExceptionContext.LastUnhandled?.Value.ToString();
 
-        /// <summary>The printed lines, without the log line of the unhandled error.</summary>
+        /// <summary>The printed lines, without the log line of the error that halted the instance (T2.4).</summary>
         private static List<string> Printed(WarScriptLanguage s, List<string> output)
         {
             var printed = new List<string>(output);
-            var unhandled = s.ExceptionContext.LastUnhandled;
-            if (unhandled != null) printed.Remove(unhandled.ToString());
+            if (s.Fault != null) printed.Remove("[WarScript] " + s.Fault);
             return printed;
         }
 
@@ -186,15 +185,16 @@ print ""done""", null, (w, m) => output.Add(m));
             s.Run();
 
             Assert.IsNull(Invariants.Violation(s, before));
-            // The coroutine runs out of budget and ends with the error logged
-            // (v1 behaviour for a coroutine's own error); the budget stays
-            // exhausted (BUDGET-2), so the script's next instruction raises
-            // the error again and the run ends too.
+            // The coroutine runs out of budget and ends; its error stays
+            // raised for the script that started it (PROP-1, T2.4), so the
+            // run ends with it and the instance halts. It is logged once.
             CollectionAssert.DoesNotContain(output, "work done");
             CollectionAssert.DoesNotContain(output, "done");
-            Assert.AreEqual(2, output.FindAll(o => o.StartsWith("Instruction budget exceeded")).Count,
+            Assert.AreEqual(1, output.FindAll(o => o.Contains("Instruction budget exceeded")).Count,
                 string.Join(" | ", output));
             Assert.AreEqual("Instruction budget exceeded", Unhandled(s));
+            Assert.IsTrue(s.IsHalted);
+            Assert.AreEqual(0, s.ActiveCoroutineCount);
         }
 
         // ── Nesting ─────────────────────────────────────────────────────
@@ -243,7 +243,7 @@ print ""done""", null, (w, m) => output.Add(m));
         }
 
         [Test]
-        public void HostFaultInACallback_IsReportedByTheNestedEntry()
+        public void HostFaultInACallback_StopsTheCallingScriptAndHalts()
         {
             var output = new List<string>();
             WarScriptLanguage s = null;
@@ -251,25 +251,41 @@ print ""done""", null, (w, m) => output.Add(m));
     x = 1
 end
 fun main []
-    fire []
+    begin
+        fire []
+    rescue e
+        print ""rescued""
+    end
     print ""after fire""
 end
 main []", null, (w, m) => output.Add(m));
+            var nested = new List<ScriptStatus>();
             AddNative(s, "fire", _ =>
             {
-                s.Call(s.GetFunction("on_event", 0));
+                // A native that ignores the result cannot let the script go on.
+                nested.Add(s.Call(s.GetFunction("on_event", 0)).Status);
                 return WarValue.Null;
             });
             s.AddBreakpoint(2); // in on_event
             s.DebugHook = ctx => throw new InvalidOperationException("host failed");
             var before = Invariants.Capture(s);
-            Assert.DoesNotThrow(() => s.Run());
+            ScriptResult result = default;
+            Assert.DoesNotThrow(() => result = s.Run());
 
             Assert.IsNull(Invariants.Violation(s, before));
-            Assert.IsInstanceOf<InvalidOperationException>(s.LastHostFault);
-            // Until the fault model (T2.4) the nested entry reports the fault
-            // and returns to the native, like an outermost one.
-            CollectionAssert.Contains(output, "after fire");
+            // The nested entry returns a HostFault result to the native; when
+            // the native returns, the calling VM stops too (no rescue), and
+            // the outermost entry reports the fault and halts (T2.4).
+            CollectionAssert.AreEqual(new[] { ScriptStatus.HostFault }, nested);
+            Assert.AreEqual(ScriptStatus.HostFault, result.Status);
+            Assert.IsInstanceOf<InvalidOperationException>(result.Error.HostException);
+            Assert.AreSame(result.Error.HostException, s.LastHostFault);
+            CollectionAssert.DoesNotContain(output, "rescued");
+            CollectionAssert.DoesNotContain(output, "after fire");
+            Assert.IsTrue(s.IsHalted);
+            Assert.AreSame(result.Error, s.Fault);
+            Assert.AreEqual(1, output.FindAll(o => o.StartsWith("[WarScript] t:0:0: HostFault: host failed", StringComparison.Ordinal)).Count,
+                string.Join(" | ", output));
         }
 
         [Test]

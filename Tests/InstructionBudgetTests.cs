@@ -106,12 +106,11 @@ namespace Tests
         // next outermost entry, so a rescue or ensure body cannot run and the
         // error ends the entry whatever the script rescues.
 
-        /// <summary>The printed lines, without the log line of the unhandled error.</summary>
+        /// <summary>The printed lines, without the log line of the error that halted the instance (T2.4).</summary>
         private static List<string> Printed(WarScriptLanguage script, List<string> output)
         {
             var printed = new List<string>(output);
-            var unhandled = script.ExceptionContext.LastUnhandled;
-            if (unhandled != null) printed.Remove(unhandled.ToString());
+            if (script.Fault != null) printed.Remove("[WarScript] " + script.Fault);
             return printed;
         }
 
@@ -157,7 +156,10 @@ namespace Tests
             CollectionAssert.IsEmpty(Printed(script, output));
             Assert.AreEqual("Instruction budget exceeded", Unhandled(script));
 
-            // The next outermost entry starts with a full budget.
+            // The error halted the instance (T2.4); once the host clears the
+            // fault, the next outermost entry starts with a full budget.
+            Assert.IsTrue(script.IsHalted);
+            script.ClearFault();
             output.Clear();
             script.Call(script.GetFunction("after", 0));
             CollectionAssert.AreEqual(new[] { "next entry" }, output);
@@ -296,7 +298,9 @@ namespace Tests
             script.Call(work);
             Assert.IsTrue(output.Exists(o => o.Contains("budget exceeded")));
 
-            // Call with a generous budget — should succeed
+            // Call with a generous budget — should succeed (once the host
+            // has cleared the fault that halted the instance, T2.4)
+            script.ClearFault();
             script.InstructionBudget = 100000;
             output.Clear();
             script.Call(work);

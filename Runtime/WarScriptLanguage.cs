@@ -93,7 +93,8 @@ namespace WarScript
         /// When the budget is exhausted, the VM raises "Instruction budget exceeded".
         /// The budget then stays exhausted until the next outermost entry: every
         /// further instruction raises it again, so no rescue or ensure body runs
-        /// and the entry ends with the error logged (BUDGET-2). The game continues.
+        /// and the entry ends with the error (BUDGET-2), which halts the instance
+        /// (plan T2.4). The host simulation continues.
         /// </summary>
         public int InstructionBudget { get; set; }
 
@@ -248,6 +249,8 @@ namespace WarScript
         /// </summary>
         internal bool BeginEntry()
         {
+            if (EntryDepth == 0)
+                _pendingHostFault = null;
             if (EntryDepth > 0 && ExceptionContext.IsRaised())
                 return false;
             if (EntryDepth > MaxHostNesting)
@@ -262,16 +265,111 @@ namespace WarScript
         }
 
         /// <summary>
-        /// Ends a host entry. An error the entry left unhandled is logged and
-        /// cleared at the outermost entry; a nested entry leaves it raised,
-        /// so it continues in the calling script from the native call site,
-        /// where begin/rescue can catch it (PROP-1).
+        /// Ends a host entry. An error the entry left unhandled is cleared at
+        /// the outermost entry (its result carries it, and
+        /// <see cref="FinishEntry"/> halts the instance with it); a nested
+        /// entry leaves it raised, so it continues in the calling script from
+        /// the native call site, where begin/rescue can catch it (PROP-1).
         /// </summary>
         internal void EndEntry()
         {
             EntryDepth--;
             if (EntryDepth == 0 && ExceptionContext.IsRaised())
-                ExceptionContext.PrintStackTrace();
+                ExceptionContext.TakeUnhandled();
+        }
+
+        /// <summary>
+        /// Completes an entry after <see cref="EndEntry"/> (or one refused
+        /// before it began): at the outermost level an <c>Error</c> or
+        /// <c>HostFault</c> result halts the instance (plan 6.4), and a host
+        /// fault a nested entry recorded but that never reached this entry
+        /// (a native that ignored the nested result) becomes the result.
+        /// Nested results are returned unchanged.
+        /// </summary>
+        internal ScriptResult FinishEntry(ScriptResult result)
+        {
+            if (EntryDepth != 0) return result;
+            if (_pendingHostFault != null && result.Status != ScriptStatus.HostFault)
+                result = ReportHostFault(_pendingHostFault);
+            _pendingHostFault = null;
+            if (result.Status == ScriptStatus.Error || result.Status == ScriptStatus.HostFault)
+                Halt(result.Error!);
+            return result;
+        }
+
+        // ── Fault and halt model (plan 6.3, 6.4, T2.4) ──
+
+        /// <summary>
+        /// True once an unhandled error, a compile error or a host fault has
+        /// ended an outermost entry. A halted instance answers every entry
+        /// (<see cref="Run"/>, <see cref="Call"/>, <see cref="StartCoroutine(string, WarValue[], bool, out int)"/>,
+        /// <see cref="TickCoroutines"/>) with <c>Halted</c> and the original
+        /// <see cref="Fault"/>, running nothing, until <see cref="ClearFault"/>
+        /// or <see cref="Reload"/>.
+        /// </summary>
+        public bool IsHalted { get; private set; }
+
+        /// <summary>The error that halted the instance; null while it is not halted.</summary>
+        public ScriptError? Fault { get; private set; }
+
+        /// <summary>
+        /// Invoked synchronously when the instance halts, after its coroutines
+        /// were cleared and the error was logged. Entries made from a handler
+        /// return <c>Halted</c>. An exception from a handler propagates to the
+        /// host code that made the entry.
+        /// </summary>
+        public event Action<WarScriptLanguage, ScriptError>? Faulted;
+
+        /// <summary>
+        /// Whether the error that halts the instance is sent to
+        /// <see cref="Logger"/> (as <c>[WarScript] </c> + <see cref="ScriptError.ToString"/>,
+        /// plus the C# exception for a host fault). Default true (plan 6.8).
+        /// </summary>
+        public bool LogUnhandledErrors { get; set; } = true;
+
+        /// <summary>
+        /// Returns a halted instance to normal operation. State changed
+        /// before the fault (globals, native side effects) is kept; the
+        /// coroutines cleared by the fault stay cleared.
+        /// </summary>
+        public void ClearFault()
+        {
+            IsHalted = false;
+            Fault = null;
+        }
+
+        /// <summary>
+        /// A host fault a nested entry caught (plan 6.3): the entries around
+        /// it must stop too, so the VM that called the native rethrows it
+        /// (<see cref="ThrowPendingHostFault"/>) and the outermost entry
+        /// reports it and halts.
+        /// </summary>
+        private System.Exception? _pendingHostFault;
+
+        /// <summary>
+        /// Called by the VM after a native returned or threw: when an entry
+        /// nested inside that native ended with a host fault, rethrow it so
+        /// the calling VM stops as well (it treats it as its own host fault).
+        /// </summary>
+        internal void ThrowPendingHostFault()
+        {
+            if (_pendingHostFault != null)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(_pendingHostFault).Throw();
+        }
+
+        internal ScriptResult HaltedResult() => ScriptResult.HaltedBy(Fault!);
+
+        /// <summary>The steps of plan 6.4 after the VM unwound and the contexts were restored.</summary>
+        private void Halt(ScriptError error)
+        {
+            ClearCoroutines();
+            IsHalted = true;
+            Fault = error;
+            if (LogUnhandledErrors && Logger != null)
+                Logger(this, error.HostException == null
+                    ? "[WarScript] " + error
+                    : "[WarScript] " + error + "\n" + error.HostException);
+            Faulted?.Invoke(this, error);
         }
 
         /// <summary>
@@ -427,15 +525,17 @@ namespace WarScript
         }
 
         /// <summary>
-        /// The <c>Error</c> result (kind CompileError) of an entry into a
-        /// script that does not compile, or null when it compiles. The error
-        /// is logged like an unhandled one (plan T2.3; halting comes with T2.4).
+        /// What an entry returns before it runs anything: <c>Halted</c> when
+        /// the instance is halted; the <c>Error</c> result (kind
+        /// CompileError) when the script does not compile, which halts the
+        /// instance (plan T2.2, 6.4); null when it may run.
         /// </summary>
-        private ScriptResult? CompileFailure()
+        private ScriptResult? RefuseBeforeRunning()
         {
+            if (IsHalted) return HaltedResult();
             var compiled = Compile();
             if (compiled.Success) return null;
-            return ReportUnhandled(ScriptError.FromCompile(_compileError!, compiled.Diagnostics[0]));
+            return FinishEntry(ScriptResult.Failed(ScriptError.FromCompile(_compileError!, compiled.Diagnostics[0])));
         }
 
         /// <summary>
@@ -445,14 +545,7 @@ namespace WarScript
         /// Phase 3).
         /// </summary>
         internal ScriptResult ImportCompileFailure(Exception.SyntaxException e) =>
-            ReportUnhandled(ScriptError.FromCompile(e, Diagnose(e)));
-
-        /// <summary>Logs an error that ends an outermost entry without having been raised, and returns its result.</summary>
-        private ScriptResult ReportUnhandled(ScriptError error)
-        {
-            Logger?.Invoke(this, "[WarScript] " + error);
-            return ScriptResult.Failed(error);
-        }
+            ScriptResult.Failed(ScriptError.FromCompile(e, Diagnose(e)));
 
         /// <summary>
         /// The result of an entry that ran: <paramref name="value"/>, or the
@@ -469,14 +562,15 @@ namespace WarScript
         /// <summary>
         /// An entry that cannot start a function: raised for the calling
         /// script when nested inside another entry (like a callback's error,
-        /// PROP-1), logged and cleared as unhandled at the outermost level.
+        /// PROP-1); at the outermost level an <c>Error</c> result that halts
+        /// the instance, like any unhandled error.
         /// </summary>
         private ScriptResult RefuseEntry(ScriptErrorKind kind, string message)
         {
+            if (EntryDepth == 0)
+                return FinishEntry(ScriptResult.Failed(new ScriptError(kind, message, WarValue.FromText(message), ScriptName, 0, 0)));
             ExceptionContext.RaiseException(message, kind);
-            var result = EntryResult(WarValue.Null);
-            if (EntryDepth == 0) ExceptionContext.PrintStackTrace();
-            return result;
+            return EntryResult(WarValue.Null);
         }
 
         /// <summary>
@@ -554,8 +648,10 @@ namespace WarScript
         /// </summary>
         public void Reload(string newSourceCode)
         {
-            // 1. Stop all coroutines — they hold VMs with old bytecode
-            _coroutines.Clear();
+            // 1. Stop all coroutines — they hold VMs with old bytecode —
+            //    and return a halted instance to normal operation (plan 6.4)
+            ClearCoroutines();
+            ClearFault();
 
             // 2. Clear old definitions (functions, classes)
             //    The MemoryScope (_memoryScope) is deliberately NOT cleared —
@@ -642,8 +738,9 @@ namespace WarScript
             using (var r = new System.IO.BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true))
                 (topLevel, scope) = BytecodeSerializer.Load(r, this, GlobalDefinitionScope);
 
-            // Stop coroutines referencing old bytecode
-            _coroutines.Clear();
+            // Stop coroutines referencing old bytecode (a halted instance
+            // stays halted: only Reload and ClearFault clear the fault)
+            ClearCoroutines();
 
             // Clear old definitions and caches
             _definitionScope.Clear();
@@ -724,13 +821,15 @@ namespace WarScript
         /// when it completes; <c>Error</c> when a script error escapes it, or
         /// with kind CompileError, before anything runs, when the script does
         /// not compile (or, while it runs, a file it imports); <c>HostFault</c>
-        /// for a C# exception inside the VM. An error is also logged. Never
-        /// throws for a script error (plan T2.3).
+        /// for a C# exception inside the VM. An error or host fault halts the
+        /// instance and is logged (plan 6.4); a halted instance returns
+        /// <c>Halted</c> without running anything. Never throws for a script
+        /// error (plan T2.3).
         /// </summary>
         public ScriptResult Run()
         {
-            var failed = CompileFailure();
-            if (failed != null) return failed.Value;
+            var refused = RefuseBeforeRunning();
+            if (refused != null) return refused.Value;
             if (!BeginEntry()) return EntryResult(WarValue.Null);
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
@@ -745,7 +844,7 @@ namespace WarScript
                     result = EntryResult(WarValue.Null);
                 }
                 catch (Exception.SyntaxException e) when (EntryDepth == 1) { result = ImportCompileFailure(e); }
-                catch (System.Exception e) when (!(e is Exception.SyntaxException)) { result = ReportHostFault(e); }
+                catch (System.Exception e) when (!(e is Exception.SyntaxException)) { result = HostFaultAtEntry(e); }
             }
             finally
             {
@@ -753,7 +852,7 @@ namespace WarScript
                 MemoryContext.EndScope();
                 EndEntry();
             }
-            return result;
+            return FinishEntry(result);
         }
 
         // ────────────────────────────────────────────────────────
@@ -766,19 +865,21 @@ namespace WarScript
         /// Every script function of the instance has bytecode once the script
         /// is compiled (<see cref="Run"/>, <see cref="Reload"/>,
         /// <see cref="LoadBytecode"/>). A function without bytecode (a native
-        /// function) cannot be called this way: the call is logged and does
-        /// nothing but an <c>Error</c> result (TypeError) — there is no AST
+        /// function) cannot be called this way: the call does nothing but
+        /// return an <c>Error</c> result (TypeError) — there is no AST
         /// interpreter to run it (plan T2.1).
         /// Returns <c>Ok</c> with the function's return value, or the error
         /// that escaped it, as <see cref="Run"/> does (plan T2.3). Called from
         /// a native while the instance runs (a nested entry, plan 6.5), an
         /// error result's error also stays raised: it continues in the calling
-        /// script from the native call site (PROP-1).
+        /// script from the native call site (PROP-1). At the outermost level an
+        /// error halts the instance (plan 6.4), and a halted instance returns
+        /// <c>Halted</c>.
         /// </summary>
         public ScriptResult Call(FunctionDefinition function, params WarValue[] arguments)
         {
-            var failed = CompileFailure();
-            if (failed != null) return failed.Value;
+            var refused = RefuseBeforeRunning();
+            if (refused != null) return refused.Value;
             if (function.Compiled != null)
                 return CallBytecode(function, arguments ?? Array.Empty<WarValue>());
 
@@ -801,7 +902,7 @@ namespace WarScript
                 var vm = AcquireVM();
                 try { result = EntryResult(vm.RunFunction(function.Compiled!, arguments)); }
                 catch (Exception.SyntaxException e) when (EntryDepth == 1) { result = ImportCompileFailure(e); }
-                catch (System.Exception e) when (!(e is Exception.SyntaxException)) { result = ReportHostFault(e); }
+                catch (System.Exception e) when (!(e is Exception.SyntaxException)) { result = HostFaultAtEntry(e); }
             }
             finally
             {
@@ -810,7 +911,7 @@ namespace WarScript
                 MemoryContext.EndScope();
                 EndEntry();
             }
-            return result;
+            return FinishEntry(result);
         }
 
         /// <summary>
@@ -821,18 +922,30 @@ namespace WarScript
         internal System.Exception? LastHostFault { get; private set; }
 
         /// <summary>
-        /// Reports a host fault caught at an entry point and returns its
-        /// <c>HostFault</c> result. By the time it gets here the VM has
-        /// restored the context stacks and reset itself, so the instance can
-        /// be called again (halting comes with T2.4). The fault is logged with
-        /// its C# stack trace.
+        /// A host fault caught by an entry point, before <see cref="EndEntry"/>.
+        /// The VM has restored the context stacks and reset itself. The
+        /// outermost entry reports it (<see cref="ReportHostFault"/>; its
+        /// result then halts the instance). A nested entry records it and
+        /// returns the <c>HostFault</c> result to the native that called it;
+        /// when that native returns, the calling VM rethrows the fault, so
+        /// every entry around it stops (plan 6.3, T2.4).
         /// </summary>
-        internal ScriptResult ReportHostFault(System.Exception e)
+        internal ScriptResult HostFaultAtEntry(System.Exception e)
         {
-            LastHostFault = e;
+            if (EntryDepth <= 1) return ReportHostFault(e);
+            if (_pendingHostFault == null) _pendingHostFault = e;
             if (ExceptionContext.IsRaised())
                 ExceptionContext.RescueException();
-            Logger?.Invoke(this, $"[WarScript] Host fault in '{ScriptName}': {e}");
+            return ScriptResult.Failed(ScriptError.FromHostFault(e, ScriptName));
+        }
+
+        /// <summary>The <c>HostFault</c> result of the outermost entry; it is logged when it halts the instance.</summary>
+        private ScriptResult ReportHostFault(System.Exception e)
+        {
+            LastHostFault = e;
+            _pendingHostFault = null;
+            if (ExceptionContext.IsRaised())
+                ExceptionContext.RescueException();
             return ScriptResult.Failed(ScriptError.FromHostFault(e, ScriptName));
         }
 
@@ -911,13 +1024,15 @@ namespace WarScript
         /// called before <see cref="Run"/> (the top-level code has then not
         /// run); a compile error is an <c>Error</c> result, as from
         /// <see cref="Run"/>. Started from a native while the instance runs,
-        /// a missing function's error stays raised for the calling script.
+        /// an error (a missing function's, or the first run's) stays raised
+        /// for the calling script (PROP-1); from the host it halts the
+        /// instance (plan 6.4), and a halted instance returns <c>Halted</c>.
         /// </summary>
         public ScriptResult StartCoroutine(string functionName, WarValue[] args, bool loop, out int id)
         {
             id = -1;
-            var failed = CompileFailure();
-            if (failed != null) return failed.Value;
+            var refused = RefuseBeforeRunning();
+            if (refused != null) return refused.Value;
             var argCount = args?.Length ?? 0;
             var function = _definitionScope.GetFunction(functionName, argCount);
             if (function == null)
@@ -942,8 +1057,9 @@ namespace WarScript
 
         /// <summary>
         /// <see cref="StartCoroutine(string, WarValue[], bool, out int)"/> for
-        /// a caller that only wants the id (-1: nothing started); an error is
-        /// logged, or stays raised when started from a native, but not returned.
+        /// a caller that only wants the id (-1: nothing started); an error
+        /// halts the instance (and is logged), or stays raised when started
+        /// from a native, but is not returned.
         /// </summary>
         public int StartCoroutine(string functionName, WarValue[] args, bool loop = false)
         {
@@ -958,33 +1074,84 @@ namespace WarScript
                 if (_coroutines[i].Id == id)
                 {
                     _coroutines.RemoveAt(i);
+                    _coroutinesRemoved++;
                     return true;
                 }
             }
             return false;
         }
 
-        public void StopAllCoroutines() => _coroutines.Clear();
+        public void StopAllCoroutines() => ClearCoroutines();
+
+        private void ClearCoroutines()
+        {
+            _coroutines.Clear();
+            _coroutinesRemoved++;
+        }
+
+        /// <summary>
+        /// Counts removals from <see cref="_coroutines"/> other than the
+        /// tick's own (stop, stop all, reload, load, halt), so a tick can tell
+        /// whether a resume stopped coroutines it has not reached yet.
+        /// </summary>
+        private int _coroutinesRemoved;
 
         /// <summary>
         /// Advance every coroutine's wait by <paramref name="dt"/> and resume
-        /// the ready ones, newest first; each resume is a host entry. Returns
-        /// <c>Ok</c> with the number of active coroutines as its value, or the
-        /// first error a resume ended with (that coroutine ends). Until the
-        /// halt model (T2.4, PROP-3) the other coroutines still run after one
-        /// fails, as in v1.
+        /// the ready ones, newest first (PROP-24); each resume is a host
+        /// entry. Returns <c>Ok</c> with the number of active coroutines as
+        /// its value, or the first error a resume ended with: the tick stops
+        /// there and the remaining coroutines do not run (PROP-3). From the
+        /// host such an error halts the instance, which clears every
+        /// coroutine; a halted instance returns <c>Halted</c>. Coroutines
+        /// started during the tick first run on the next one; coroutines
+        /// stopped during it (by a native, or a nested <see cref="Reload"/>)
+        /// are not resumed.
         /// </summary>
         public ScriptResult TickCoroutines(F64 dt)
         {
+            if (IsHalted) return HaltedResult();
+            var count = _coroutines.Count;
+            if (count == 0) return ScriptResult.Ok(WarValue.FromNumeric(0));
+
+            // A resume may start, stop or clear coroutines (natives, nested
+            // entries), so walk a snapshot of the list as it was.
+            var snapshot = System.Buffers.ArrayPool<ICoroutine>.Shared.Rent(count);
             ScriptResult? failed = null;
-            for (var i = _coroutines.Count - 1; i >= 0; i--)
+            try
+            {
+                _coroutines.CopyTo(snapshot, 0);
+                var removedBefore = _coroutinesRemoved;
+                for (var i = count - 1; i >= 0; i--)
+                {
+                    var co = snapshot[i];
+                    if (co.IsComplete) continue;
+                    if (_coroutinesRemoved != removedBefore && !_coroutines.Contains(co)) continue;
+                    if (!co.IsReady(dt)) continue;
+                    var result = co.Resume();
+                    if (!result.IsOk)
+                    {
+                        failed = result;
+                        break;
+                    }
+                }
+            }
+            finally
+            {
+                System.Array.Clear(snapshot, 0, count);
+                System.Buffers.ArrayPool<ICoroutine>.Shared.Return(snapshot);
+            }
+
+            // Drop the coroutines that completed (in place, keeping the order).
+            var kept = 0;
+            for (var i = 0; i < _coroutines.Count; i++)
             {
                 var co = _coroutines[i];
-                if (!co.IsReady(dt)) continue;
-                var result = co.Resume();
-                if (failed == null && !result.IsOk) failed = result;
-                if (co.IsComplete) _coroutines.RemoveAt(i);
+                if (co.IsComplete) continue;
+                _coroutines[kept++] = co;
             }
+            _coroutines.RemoveRange(kept, _coroutines.Count - kept);
+
             return failed ?? ScriptResult.Ok(WarValue.FromNumeric(_coroutines.Count));
         }
 

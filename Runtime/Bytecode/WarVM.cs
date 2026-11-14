@@ -827,7 +827,7 @@ namespace WarScript.Bytecode
                         {
                             var args = CollectArgs(argCount);
                             WarValue result;
-                            try { result = nativeFn.NativeBody(args); }
+                            try { result = nativeFn.NativeBody(args); _script.ThrowPendingHostFault(); }
                             catch (System.Exception e)
                             {
                                 RaiseNativeFailure("Native function", funcName, e);
@@ -979,7 +979,7 @@ namespace WarScript.Bytecode
                             // Can't tail-call into native — call normally and return the result
                             var args = CollectArgs(argCount);
                             WarValue nResult;
-                            try { nResult = nativeTail.NativeBody(args); }
+                            try { nResult = nativeTail.NativeBody(args); _script.ThrowPendingHostFault(); }
                             catch (System.Exception e)
                             {
                                 RaiseNativeFailure("Native function", funcName, e);
@@ -1153,7 +1153,7 @@ namespace WarScript.Bytecode
                         {
                             var args = CollectArgs(argCount);
                             WarValue mResult;
-                            try { mResult = nativeMethod.NativeBody(args); }
+                            try { mResult = nativeMethod.NativeBody(args); _script.ThrowPendingHostFault(); }
                             catch (System.Exception e)
                             {
                                 RaiseNativeFailure("Native method", methodName, e);
@@ -1948,10 +1948,15 @@ namespace WarScript.Bytecode
         /// <summary>
         /// Raises the script error for an exception thrown by a native body
         /// (plan 6.9, PROP-13): a <see cref="ScriptErrorException"/> keeps its
-        /// own message; anything else is a NativeError naming the native.
+        /// own message; anything else is a NativeError naming the native. A
+        /// host fault recorded by an entry nested inside the native is
+        /// rethrown instead, as this VM's own host fault.
         /// </summary>
         private void RaiseNativeFailure(string what, string name, System.Exception e)
         {
+            // A host fault in an entry the native made (plan 6.3, T2.4):
+            // this VM stops too, whatever the native did with the result.
+            _script.ThrowPendingHostFault();
             if (e is ScriptErrorException scriptError)
                 _script.ExceptionContext.RaiseException(e.Message, scriptError.Kind);
             else

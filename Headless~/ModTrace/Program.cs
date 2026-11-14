@@ -150,6 +150,8 @@ namespace WarScript.ModTrace
 
             trace.Add("run: top level");
             script.Run();
+            // An error halts the instance (T2.4); every function is still traced.
+            script.ClearFault();
 
             foreach (var (name, arity) in scan.Functions.OrderBy(f => f.Name, StringComparer.Ordinal).ThenBy(f => f.Arity))
             {
@@ -157,6 +159,7 @@ namespace WarScript.ModTrace
                 if (function == null) continue;
                 trace.Add($"run: {name}[{arity} null]");
                 script.Call(function, Enumerable.Repeat(WarValue.Null, arity).ToArray());
+                script.ClearFault();
             }
 
             trace.Add($"state hash: {script.ComputeStateHash():x16}");

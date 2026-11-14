@@ -228,6 +228,9 @@ namespace Tests.Golden
                     sourceCode: source,
                     fileResolver: ImportResolver(directory),
                     logger: (s, msg) => run.Output.Add(msg));
+                // The run reads the error from Run()'s result (T2.3), so
+                // only printed lines reach the output (T2.4).
+                script.LogUnhandledErrors = false;
                 if (!file.NoStdlib)
                     WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
                 script.InstructionBudget = file.Budget;
@@ -284,16 +287,15 @@ namespace Tests.Golden
             }
 
             var before = Invariants.Capture(target);
+            ScriptResult result;
             try
             {
                 // Run() compiles when needed and returns a compile error,
                 // the script's own or an import's, as a result (T2.3).
-                var result = target.Run();
+                result = target.Run();
                 var compileError = result.Error?.CompileException;
                 if (compileError != null)
                 {
-                    // Take the error's log line back out of the printed output.
-                    run.Output.Remove("[WarScript] " + result.Error);
                     run.CompileError = compileError.Message;
                     return run;
                 }
@@ -305,28 +307,13 @@ namespace Tests.Golden
             }
 
             // A host fault (a C# exception the VM caught at its boundary, T1.3)
-            // is logged and the run stops; report it as before, when it
-            // escaped Run(), and take the log line out of the printed output.
-            // The invariants are still checked: the VM restores the context
+            // stops the run; report it as before, when it escaped Run(). The
+            // invariants are still checked: the VM restores the context
             // stacks after a fault.
-            var fault = target.LastHostFault;
-            if (fault != null)
-            {
-                run.EscapedException = Escaped(fault);
-                var line = run.Output.FindLastIndex(l => l.StartsWith("[WarScript] Host fault in ", StringComparison.Ordinal));
-                if (line >= 0) run.Output.RemoveAt(line);
-            }
-
-            // v1 logs an unhandled error through the same logger as print and
-            // clears it; take its trace back out of the printed output.
-            var unhandled = target.ExceptionContext.LastUnhandled;
-            if (unhandled != null)
-            {
-                run.ErrorMessage = unhandled.Value.ToString();
-                var trace = unhandled.ToString();
-                var at = run.Output.LastIndexOf(trace);
-                if (at >= 0) run.Output.RemoveAt(at);
-            }
+            if (result.Status == ScriptStatus.HostFault)
+                run.EscapedException = Escaped(result.Error.HostException);
+            else if (result.Status == ScriptStatus.Error)
+                run.ErrorMessage = result.Error.Message;
 
             run.InvariantViolation = Invariants.Violation(target, before);
             run.Hash = target.ComputeStateHash().ToString("x16", CultureInfo.InvariantCulture);

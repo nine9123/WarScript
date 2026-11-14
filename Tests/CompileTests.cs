@@ -172,15 +172,16 @@ namespace Tests
             Assert.AreEqual(diagnostic.Message, run.Error.Message);
             Assert.AreEqual(diagnostic.ScriptName, run.Error.ScriptName);
             Assert.IsTrue(run.Value.IsNull);
+            // The compile error halted the instance (T2.4): later entries
+            // answer Halted with the same error and log nothing.
+            Assert.IsTrue(script.IsHalted);
             var start = script.StartCoroutine("co", null, false, out var id);
-            Assert.AreEqual(ScriptErrorKind.CompileError, start.Error.Kind);
+            Assert.AreEqual(ScriptStatus.Halted, start.Status);
+            Assert.AreSame(run.Error, start.Error);
             Assert.AreEqual(-1, id);
 
-            CollectionAssert.AreEqual(new[]
-            {
-                "[WarScript] " + run.Error,
-                "[WarScript] " + start.Error,
-            }, output, "nothing runs; each failed entry logs the error");
+            CollectionAssert.AreEqual(new[] { "[WarScript] " + run.Error }, output,
+                "nothing runs; the halting error is logged once");
             Assert.AreEqual(0, script.ActiveCoroutineCount);
             Assert.IsFalse(script.ExceptionContext.IsRaised());
             Assert.IsNull(Invariants.Violation(script, before));

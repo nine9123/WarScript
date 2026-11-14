@@ -327,6 +327,9 @@ print ""done""", null, (w, m) => output.Add(m));
         private static string RunChecked(WarScriptLanguage s, out WarScript.Exception.Exception unhandled)
         {
             unhandled = null;
+            // The error is read from LastUnhandled; keep its log line (T2.4)
+            // out of the printed output.
+            s.LogUnhandledErrors = false;
             var before = Invariants.Capture(s);
             try
             {

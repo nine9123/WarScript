@@ -15,7 +15,7 @@ namespace WarScript
         Ok,
         /// <summary>A script error (any kind but HostFault) escaped the entry.</summary>
         Error,
-        /// <summary>The instance was halted, so nothing ran (from plan T2.4).</summary>
+        /// <summary>The instance was already halted, so nothing ran; <see cref="ScriptResult.Error"/> is the fault that halted it (plan T2.4).</summary>
         Halted,
         /// <summary>An unexpected C# exception occurred inside the VM.</summary>
         HostFault,
@@ -139,7 +139,7 @@ namespace WarScript
         /// <summary>Ok: the return value (<c>Run</c>: null; <c>TickCoroutines</c>: the number of active coroutines). Null otherwise.</summary>
         public WarValue Value { get; }
 
-        /// <summary>Error and HostFault: the error. Null for Ok.</summary>
+        /// <summary>Error and HostFault: the error; Halted: the fault that halted the instance. Null for Ok.</summary>
         public ScriptError? Error { get; }
 
         public bool IsOk => Status == ScriptStatus.Ok;
@@ -152,6 +152,9 @@ namespace WarScript
         }
 
         internal static ScriptResult Ok(WarValue value) => new ScriptResult(ScriptStatus.Ok, value, null);
+
+        /// <summary>The answer of a halted instance: nothing ran; the error is the fault that halted it (plan 6.3).</summary>
+        internal static ScriptResult HaltedBy(ScriptError fault) => new ScriptResult(ScriptStatus.Halted, WarValue.Null, fault);
 
         /// <summary>An Error result, or a HostFault one for an error of that kind.</summary>
         internal static ScriptResult Failed(ScriptError error) =>

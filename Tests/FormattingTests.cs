@@ -248,7 +248,7 @@ print ""not reached""",
                 s => s.RegisterNativeFormatter<HostThing>(h => throw new InvalidOperationException("formatter failed")));
             Assert.IsInstanceOf<InvalidOperationException>(script.LastHostFault);
             Assert.AreEqual(1, output.Count, string.Join(" | ", output));
-            StringAssert.StartsWith("[WarScript] Host fault in 't': System.InvalidOperationException: formatter failed", output[0]);
+            StringAssert.StartsWith("[WarScript] t:0:0: HostFault: formatter failed\nSystem.InvalidOperationException: formatter failed", output[0]);
         }
 
         [Test]
