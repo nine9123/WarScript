@@ -78,11 +78,5 @@ namespace WarScript.Bytecode
         /// base-class part of one) whose constructor body it runs.
         /// </summary>
         public WarScript.Expression.Value.ClassData Instance;
-
-        /// <summary>
-        /// VM scope depth at the time this frame was pushed.
-        /// Used during exception unwinding to restore scope state.
-        /// </summary>
-        public int SavedScopeDepth;
     }
 }

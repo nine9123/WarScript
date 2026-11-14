@@ -164,13 +164,6 @@ namespace WarScript
         /// </summary>
         public Action<Audit.AuditEvent>? AuditSink { get; set; }
 
-        /// <summary>
-        /// Audit mode: names created in top-level blocks that have ended, for
-        /// <see cref="Audit.AuditKind.BlockVariableEscapes"/>. Null until the
-        /// first such block ends with a sink attached.
-        /// </summary>
-        internal HashSet<string>? AuditBlockNames;
-
         /// <summary>Add a breakpoint at a source line number.</summary>
         public void AddBreakpoint(int line) => _breakpoints.Add(line);
 

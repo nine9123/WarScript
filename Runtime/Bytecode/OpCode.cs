@@ -3,7 +3,8 @@ namespace WarScript.Bytecode
     /// <summary>
     /// The VM's instructions. Every member has an explicit value (v2 plan
     /// T1.7, DEC-18): never renumber one and never reuse a removed value
-    /// (58 was YieldUntil, 61 to 65 the unused fused compare-and-jumps).
+    /// (7 and 8 were PushScope and PopScope, 58 YieldUntil, 61 to 65 the
+    /// unused fused compare-and-jumps).
     /// Operands, stack effects and the format hash come from
     /// <see cref="OpInfo"/>; a change here needs a new
     /// <see cref="BytecodeFormat.Version"/>.
@@ -20,10 +21,6 @@ namespace WarScript.Bytecode
         Pop = 4,        // discard TOS
         PopN = 5,       // [op][n]  → discard n values
         Dup = 6,        // duplicate TOS
-
-        // ── Scope management ──
-        PushScope = 7,  // push a new MemoryScope (for if-blocks, etc.)
-        PopScope = 8,   // pop the current MemoryScope
 
         // ── Variables ──
         GetLocal = 9,   // [op][hi][lo]  → push stack[base+slot]

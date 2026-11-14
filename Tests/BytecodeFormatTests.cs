@@ -88,7 +88,7 @@ namespace Tests
         [Test]
         public void Load_RejectsAnotherVersion()
         {
-            foreach (byte version in new byte[] { 1, 2, 3, 4, 5, 7 })
+            foreach (byte version in new byte[] { 1, 2, 3, 4, 5, 6, 8 })
             {
                 var bytes = SavedBytecode();
                 bytes[4] = version;
@@ -221,8 +221,13 @@ namespace Tests
         }
 
         [Test]
-        public void A20_UnknownOpcode() =>
+        public void A20_UnknownOpcode()
+        {
             RejectedBody(new byte[] { 58, Null_, Ret }, "unknown opcode 58");
+            // The removed PushScope and PopScope (T3.5).
+            RejectedBody(new byte[] { 7, Null_, Ret }, "unknown opcode 7");
+            RejectedBody(new byte[] { 8, Null_, Ret }, "unknown opcode 8");
+        }
 
         [Test]
         public void A20_LambdaConstantsNested1000Deep()
@@ -275,25 +280,25 @@ namespace Tests
         }
 
         [Test]
-        public void Verifier_RejectsPoppingAScopeOrHandlerTheFrameDidNotPush()
-        {
-            // Either would remove what the calling frame or the host pushed.
-            RejectedBody(new byte[] { (byte)OpCode.PopScope, Null_, Ret }, "PopScope without an open block scope");
+        public void Verifier_RejectsPoppingAHandlerTheFrameDidNotPush() =>
+            // It would remove what the calling frame or the host pushed.
             RejectedBody(new byte[] { (byte)OpCode.PopHandler, Null_, Ret }, "PopHandler without an open handler");
-        }
 
         [Test]
-        public void Verifier_RejectsAMergeWithDifferentOpenScopes() =>
-            // True; JumpIfFalse +1 (over PushScope); Pop: reached with 0 and 1 open scopes.
-            RejectedBody(new byte[] { (byte)OpCode.True, (byte)OpCode.JumpIfFalse, 0, 1, (byte)OpCode.PushScope,
-                (byte)OpCode.Pop, Null_, Ret }, "open scopes or handlers");
+        public void Verifier_RejectsAMergeWithDifferentOpenHandlers() =>
+            // True; JumpIfFalse +8 (over PushHandler rescue=15 ensure=end=18);
+            // Pop: reached with 0 and 1 open handlers. Rescue: Pop, Null,
+            // Return; end: Null, Return.
+            RejectedBody(new byte[] { (byte)OpCode.True, (byte)OpCode.JumpIfFalse, 0, 8,
+                (byte)OpCode.PushHandler, 0, 15, 0, 18, 0, 18, 1,
+                (byte)OpCode.Pop, Null_, Ret, (byte)OpCode.Pop, Null_, Ret, Null_, Ret }, "open handlers");
 
         [Test]
         public void Verifier_RejectsATailCallInsideAHandler()
         {
             // PushHandler rescue=9 ensure=10 end=10 has-rescue; TailCall f/0; rescue: Pop; ensure: Null, Return.
             RejectedBody(new byte[] { (byte)OpCode.PushHandler, 0, 13, 0, 14, 0, 14, 1, (byte)OpCode.TailCall, 0, 0, 0,
-                Null_, (byte)OpCode.Pop, Null_, Ret }, "TailCall inside a block scope or handler",
+                Null_, (byte)OpCode.Pop, Null_, Ret }, "TailCall inside a handler",
                 constants: new[] { WarValue.FromText("f") });
         }
 
@@ -307,7 +312,7 @@ namespace Tests
             // ensure=13 end=15; PopHandler; Jump +1; rescue: Pop;
             // ensure: Null, Pop; end: Null, Return.
             RejectedBody(new byte[] { (byte)OpCode.PushHandler, 0, 12, 0, 13, 0, 15, 1, (byte)OpCode.PopHandler,
-                (byte)OpCode.Jump, 0, 1, (byte)OpCode.Pop, Null_, (byte)OpCode.Pop, Null_, Ret }, "open scopes or handlers");
+                (byte)OpCode.Jump, 0, 1, (byte)OpCode.Pop, Null_, (byte)OpCode.Pop, Null_, Ret }, "open handlers");
             // Version 4: the rescue body ends with PopHandler (ensure=14, end=16, Jump +2).
             var current = Function("f", 0, new byte[] { (byte)OpCode.PushHandler, 0, 12, 0, 14, 0, 16, 1, (byte)OpCode.PopHandler,
                 (byte)OpCode.Jump, 0, 2, (byte)OpCode.Pop, (byte)OpCode.PopHandler, Null_, (byte)OpCode.Pop, Null_, Ret });
@@ -557,7 +562,7 @@ namespace Tests
                 File.WriteAllBytes(good, File_(Function("<script>", 0, new byte[] { Const, 0, 0, (byte)OpCode.Print, Null_, Ret },
                     new[] { WarValue.FromText("hi") })));
                 var bad = Path.Combine(dir, "bad.wsbc");
-                File.WriteAllBytes(bad, File_(Function("<script>", 0, new byte[] { (byte)OpCode.PopScope, Null_, Ret })));
+                File.WriteAllBytes(bad, File_(Function("<script>", 0, new byte[] { (byte)OpCode.PopHandler, Null_, Ret })));
 
                 var ran = Tests.Golden.IsolatedRun.Execute(runner, Tests.Golden.GoldenFile.LoadBytecode(good),
                     Tests.Golden.GoldenMode.Source, "", 1000, 1024 * 1024);
@@ -567,7 +572,7 @@ namespace Tests
 
                 var refused = Tests.Golden.IsolatedRun.Execute(runner, Tests.Golden.GoldenFile.LoadBytecode(bad),
                     Tests.Golden.GoldenMode.Source, "");
-                StringAssert.Contains("PopScope without an open block scope", refused.Rejected);
+                StringAssert.Contains("PopHandler without an open handler", refused.Rejected);
                 Assert.IsNull(refused.EscapedException);
                 Assert.IsNull(refused.Hash, "nothing ran");
             }

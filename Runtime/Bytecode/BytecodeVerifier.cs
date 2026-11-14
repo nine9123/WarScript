@@ -16,7 +16,7 @@ namespace WarScript.Bytecode
     /// height <see cref="CompiledFunction.Arity"/> (its arguments, padded by
     /// the VM), a rescue body at its <c>PushHandler</c>'s height + 1 (the
     /// error value), with one more handler open when the block has an ensure
-    /// block (the ensure-only handler, Q-14), an ensure body at that height. The block scopes and
+    /// block (the ensure-only handler, Q-14), an ensure body at that height. The
     /// handlers a frame has open are tracked the same way, so a frame never
     /// pops what its caller pushed and a <c>TailCall</c> leaves nothing open
     /// (beyond the list in 10.3: the VM relies on both). Only instructions reachable
@@ -107,23 +107,21 @@ namespace WarScript.Bytecode
                 at = end;
             }
 
-            // ── Stack heights, block scopes and handlers over the control-flow graph ──
-            // Per reached offset: the stack height, the block scopes
-            // (PushScope) and the handlers (PushHandler) the frame has open.
+            // ── Stack heights and handlers over the control-flow graph ──
+            // Per reached offset: the stack height and the handlers
+            // (PushHandler) the frame has open.
             var height = new int[length + 1];
-            var scopes = new int[length + 1];
             var handlers = new int[length + 1];
             for (int i = 0; i < height.Length; i++) height[i] = -1;
             var work = new Stack<int>();
             int max = function.Arity;
 
-            void Reach(int target, int h, int sc, int hd, int from)
+            void Reach(int target, int h, int hd, int from)
             {
                 if (target == length) throw Reject(name, from, "a path falls off the end of the code");
                 if (height[target] == -1)
                 {
                     height[target] = h;
-                    scopes[target] = sc;
                     handlers[target] = hd;
                     if (h > max) max = h;
                     work.Push(target);
@@ -131,16 +129,16 @@ namespace WarScript.Bytecode
                 else if (height[target] != h)
                     throw Reject(name, target, "stack height " + Str(h) + " from offset " + Str(from)
                                                + " differs from " + Str(height[target]));
-                else if (scopes[target] != sc || handlers[target] != hd)
-                    throw Reject(name, target, "open scopes or handlers from offset " + Str(from) + " differ");
+                else if (handlers[target] != hd)
+                    throw Reject(name, target, "open handlers from offset " + Str(from) + " differ");
             }
 
             if (length == 0) throw Reject(name, 0, "a path falls off the end of the code");
-            Reach(0, function.Arity, 0, 0, 0);
+            Reach(0, function.Arity, 0, 0);
             while (work.Count > 0)
             {
                 int at = work.Pop();
-                int h = height[at], sc = scopes[at], hd = handlers[at];
+                int h = height[at], hd = handlers[at];
                 var info = OpInfo.Get(code[at])!;
                 int end = at + info.Length;
                 int pops = info.PopsAt(code, at);
@@ -155,14 +153,6 @@ namespace WarScript.Bytecode
                         if (ReadU16(code, at + 1) >= h - pops)
                             throw Reject(name, at, info.Name + " slot is not below the stack height");
                         break;
-                    case OpCode.PushScope:
-                        sc++;
-                        break;
-                    case OpCode.PopScope:
-                        // Would pop a scope the frame did not push.
-                        if (sc == 0) throw Reject(name, at, "PopScope without an open block scope");
-                        sc--;
-                        break;
                     case OpCode.PopHandler:
                         // Would remove a handler of a calling frame.
                         if (hd == 0) throw Reject(name, at, "PopHandler without an open handler");
@@ -170,7 +160,7 @@ namespace WarScript.Bytecode
                         break;
                     case OpCode.TailCall:
                         // The frame is reused: nothing of the old function's may stay open.
-                        if (sc != 0 || hd != 0) throw Reject(name, at, "TailCall inside a block scope or handler");
+                        if (hd != 0) throw Reject(name, at, "TailCall inside a handler");
                         break;
                 }
 
@@ -181,32 +171,32 @@ namespace WarScript.Bytecode
                 switch (info.Op)
                 {
                     case OpCode.Jump:
-                        Reach(end + ReadU16(code, at + 1), next, sc, hd, at);
+                        Reach(end + ReadU16(code, at + 1), next, hd, at);
                         continue;
                     case OpCode.Loop:
-                        Reach(end - ReadU16(code, at + 1), next, sc, hd, at);
+                        Reach(end - ReadU16(code, at + 1), next, hd, at);
                         continue;
                     case OpCode.JumpIfFalse:
                     case OpCode.JumpIfTrue:
                     case OpCode.LessJump:
-                        Reach(end + ReadU16(code, at + 1), next, sc, hd, at);
+                        Reach(end + ReadU16(code, at + 1), next, hd, at);
                         break;
                     case OpCode.PushHandler:
                     {
-                        // The VM enters both with the stack and scopes as they
+                        // The VM enters both with the stack as it
                         // were at the PushHandler and the handler removed; a
                         // block with an ensure block (ensure != end) runs its
                         // rescue body under an ensure-only handler instead,
                         // which the body's end removes (Q-14).
                         int ensure = ReadU16(code, at + 3);
                         int rescueHandlers = ensure != ReadU16(code, at + 5) ? hd + 1 : hd;
-                        Reach(ReadU16(code, at + 1), h + 1, sc, rescueHandlers, at); // rescue: the error value
-                        Reach(ensure, h, sc, hd, at);                                // ensure
+                        Reach(ReadU16(code, at + 1), h + 1, rescueHandlers, at); // rescue: the error value
+                        Reach(ensure, h, hd, at);                                // ensure
                         hd++;
                         break;
                     }
                 }
-                Reach(end, next, sc, hd, at);
+                Reach(end, next, hd, at);
             }
 
             if (atLoad && max > StackLimit)

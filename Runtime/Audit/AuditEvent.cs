@@ -45,7 +45,7 @@ namespace WarScript.Audit
         FieldAccessViaBareName,
         /// <summary>A method or class body reading null for a name that is a global. v2 reads the global (PROP-20); since T3.4 a method does, so only a class body raises it.</summary>
         GlobalShadowedInClass,
-        /// <summary>A top-level read of a name last assigned inside a top-level block, which v1 reads as null. v2 reads the value (DEC-4).</summary>
+        /// <summary>A top-level read of a name last assigned inside a top-level block, which v1 reads as null. v2 reads the value (DEC-4). Not raised since T3.4 (no block has a scope; T3.5 removed the opcodes).</summary>
         BlockVariableEscapes,
         /// <summary><c>==</c>/<c>!=</c> finding two different instances structurally equal. v2: false (DEC-9).</summary>
         ClassStructuralEquality,

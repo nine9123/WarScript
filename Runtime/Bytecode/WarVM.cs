@@ -51,10 +51,6 @@ namespace WarScript.Bytecode
         private PendingEnsure[] _pending = new PendingEnsure[8];
         private int _pendingCount;
 
-        // Scope depth tracking: PushScope increments, PopScope decrements.
-        // TryHandler saves it so DoHandleException can restore on unwind.
-        private int _scopeDepth;
-
         // Instruction and memory budgets: shared by every VM of the instance
         // and reset only when an outermost host entry starts (T1.5, PROP-2).
         private readonly ExecutionBudget _budget;
@@ -109,7 +105,6 @@ namespace WarScript.Bytecode
             public int FrameIndex;
             public int SavedSP;
             public bool HasRescue;
-            public int SavedScopeDepth;
         }
 
         private struct PendingEnsure
@@ -158,7 +153,6 @@ namespace WarScript.Bytecode
             _handlerCount = 0;
             _topLevelResult = default;
             ClearPending(0);
-            _scopeDepth = 0;
             _yielded = false;
             _yieldType = YieldType.NextTick;
             _yieldWaitDuration = F64.Zero;
@@ -177,8 +171,7 @@ namespace WarScript.Bytecode
             {
                 Function = main,
                 IP = 0,
-                StackBase = 0,
-                SavedScopeDepth = _scopeDepth
+                StackBase = 0
             };
             _frameCount = 1;
 
@@ -203,8 +196,7 @@ namespace WarScript.Bytecode
             {
                 Function = func,
                 IP = 0,
-                StackBase = 0,
-                SavedScopeDepth = _scopeDepth
+                StackBase = 0
             };
             _frameCount = 1;
 
@@ -231,8 +223,7 @@ namespace WarScript.Bytecode
             {
                 Function = func,
                 IP = 0,
-                StackBase = 0,
-                SavedScopeDepth = _scopeDepth
+                StackBase = 0
             };
             _frameCount = 1;
 
@@ -342,7 +333,6 @@ namespace WarScript.Bytecode
             _sp = 0;
             _handlerCount = 0;
             ClearPending(0);
-            _scopeDepth = 0;
         }
 
         /// <summary>
@@ -467,20 +457,6 @@ namespace WarScript.Bytecode
                     case OpCode.Pop:  _sp--; break;
                     case OpCode.PopN: _sp -= code[_frames[fi].IP++]; break;
                     case OpCode.Dup:  Push(Peek()); break;
-
-                    // ══════════════════════════════════════════════
-                    //  Scope management
-                    // ══════════════════════════════════════════════
-
-                    case OpCode.PushScope:
-                        _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
-                        _scopeDepth++;
-                        break;
-                    case OpCode.PopScope:
-                        if (_script.AuditSink != null) AuditBlockEnd();
-                        _script.MemoryContext.EndScope();
-                        _scopeDepth--;
-                        break;
 
                     // ══════════════════════════════════════════════
                     //  Variables
@@ -838,8 +814,7 @@ namespace WarScript.Bytecode
                                 Function = lambdaFunc,
                                 IP = 0,
                                 StackBase = newBase,
-                                Kind = FrameKind.Function,
-                                SavedScopeDepth = _scopeDepth
+                                Kind = FrameKind.Function
                             };
                             _frameCount++;
                             fi = _frameCount - 1;
@@ -894,8 +869,7 @@ namespace WarScript.Bytecode
                                 Function = def.Compiled,
                                 IP = 0,
                                 StackBase = newBase,
-                                Kind = FrameKind.Function,
-                                SavedScopeDepth = _scopeDepth
+                                Kind = FrameKind.Function
                             };
                             _frameCount++;
                             fi = _frameCount - 1;
@@ -961,8 +935,7 @@ namespace WarScript.Bytecode
                             Function = lambdaCF,
                             IP = 0,
                             StackBase = cvNewBase,
-                            Kind = FrameKind.Function,
-                            SavedScopeDepth = _scopeDepth
+                            Kind = FrameKind.Function
                         };
                         _frameCount++;
                         fi = _frameCount - 1;
@@ -1010,13 +983,6 @@ namespace WarScript.Bytecode
                                 return;
                             }
                             // Behave as Return with this result
-                            // Pop excess scopes
-                            while (_scopeDepth > _frames[fi].SavedScopeDepth)
-                            {
-                                if (_script.AuditSink != null) AuditBlockEnd();
-                                _script.MemoryContext.EndScope();
-                                _scopeDepth--;
-                            }
                             DoReturn(nResult, fi, ref code, ref constants, out fi);
                             if (_frameCount == 0) return;
                             code = _frames[fi].Function.Chunk.Code;
@@ -1096,12 +1062,6 @@ namespace WarScript.Bytecode
                         while (_handlerCount > 0 && _handlers[_handlerCount - 1].FrameIndex == fi)
                         {
                             var handler = _handlers[--_handlerCount];
-                            while (_scopeDepth > handler.SavedScopeDepth)
-                            {
-                                if (_script.AuditSink != null) AuditBlockEnd();
-                                _script.MemoryContext.EndScope();
-                                _scopeDepth--;
-                            }
                             if (handler.EnsureIP != handler.EndIP)
                             {
                                 _sp = handler.SavedSP;
@@ -1109,15 +1069,6 @@ namespace WarScript.Bytecode
                                 _frames[fi].IP = handler.EnsureIP;
                                 goto nextInstruction;
                             }
-                        }
-
-                        // Pop any remaining excess scopes (e.g. from rescue body PushScope
-                        // where the handler was already consumed during exception handling)
-                        while (_scopeDepth > _frames[fi].SavedScopeDepth)
-                        {
-                            if (_script.AuditSink != null) AuditBlockEnd();
-                            _script.MemoryContext.EndScope();
-                            _scopeDepth--;
                         }
 
                         DoReturn(result, fi, ref code, ref constants, out fi);
@@ -1226,8 +1177,7 @@ namespace WarScript.Bytecode
                                     Function = methodDef.Compiled,
                                     IP = 0,
                                     StackBase = newBase,
-                                    Kind = FrameKind.Method,
-                                    SavedScopeDepth = _scopeDepth
+                                    Kind = FrameKind.Method
                                 };
                                 _frameCount++;
                                 fi = _frameCount - 1;
@@ -1722,8 +1672,7 @@ namespace WarScript.Bytecode
                             EndIP = endIP,
                             FrameIndex = fi,
                             SavedSP = _sp,
-                            HasRescue = hasRescue,
-                            SavedScopeDepth = _scopeDepth
+                            HasRescue = hasRescue
                         };
                         break;
                     }
@@ -1820,12 +1769,6 @@ namespace WarScript.Bytecode
                     while (_handlerCount > 0 && _handlers[_handlerCount - 1].FrameIndex == fi)
                     {
                         var h = _handlers[--_handlerCount];
-                        while (_scopeDepth > h.SavedScopeDepth)
-                        {
-                            if (_script.AuditSink != null) AuditBlockEnd();
-                            _script.MemoryContext.EndScope();
-                            _scopeDepth--;
-                        }
                         if (h.EnsureIP != h.EndIP)
                         {
                             _sp = h.SavedSP;
@@ -1833,14 +1776,6 @@ namespace WarScript.Bytecode
                             _frames[fi].IP = h.EnsureIP;
                             goto continueLoop;
                         }
-                    }
-
-                    // Pop excess scopes before returning
-                    while (_scopeDepth > _frames[fi].SavedScopeDepth)
-                    {
-                        if (_script.AuditSink != null) AuditBlockEnd();
-                        _script.MemoryContext.EndScope();
-                        _scopeDepth--;
                     }
 
                     DoReturn(result, fi, ref code, ref constants, out fi);
@@ -2083,14 +2018,6 @@ namespace WarScript.Bytecode
                 var errorVal = _script.ExceptionContext.Exception?.Value ?? WarValue.Null;
                 _sp = handler.SavedSP;
 
-                // Pop any MemoryContext scopes pushed since the handler was installed
-                while (_scopeDepth > handler.SavedScopeDepth)
-                {
-                    if (_script.AuditSink != null) AuditBlockEnd();
-                    _script.MemoryContext.EndScope();
-                    _scopeDepth--;
-                }
-
                 if (handler.HasRescue)
                 {
                     // Has rescue: clear exception, push error, jump to rescue.
@@ -2153,17 +2080,11 @@ namespace WarScript.Bytecode
 
         /// <summary>
         /// Pops frame <paramref name="fi"/> (the top one) during unwinding,
-        /// with the block scopes, function scope and class context it pushed
+        /// with the function scope and class context it pushed
         /// and any ensure records it owns. Its stack values are dropped.
         /// </summary>
         private void PopFrame(int fi)
         {
-            while (_scopeDepth > _frames[fi].SavedScopeDepth)
-            {
-                if (_script.AuditSink != null) AuditBlockEnd();
-                _script.MemoryContext.EndScope();
-                _scopeDepth--;
-            }
             var kind = _frames[fi].Kind;
             _sp = _frames[fi].StackBase;
             _frameCount--;
@@ -2425,8 +2346,7 @@ namespace WarScript.Bytecode
                     IP = 0,
                     StackBase = _sp,
                     Kind = FrameKind.Constructor,
-                    Instance = part,
-                    SavedScopeDepth = _scopeDepth
+                    Instance = part
                 };
             }
             _constructors.Clear();
@@ -2637,9 +2557,6 @@ namespace WarScript.Bytecode
                 && _script.UserMemoryScope.Resolve(name) != null)
                 Audit(AuditKind.GlobalShadowedInClass, fi,
                       name + ": null here, global value " + Describe(_script.UserMemoryScope.Get(name)));
-            else if ((start.Kind == MemoryScopeKind.User || start.Kind == MemoryScopeKind.Block)
-                     && _script.AuditBlockNames != null && _script.AuditBlockNames.Contains(name))
-                Audit(AuditKind.BlockVariableEscapes, fi, name + ": assigned in an ended top-level block, read as null");
             else
                 Audit(AuditKind.UndefinedRead, fi, name);
         }
@@ -2660,19 +2577,6 @@ namespace WarScript.Bytecode
                 Audit(AuditKind.GlobalWriteFromFunction, fi, name);
             else if (start.Kind == MemoryScopeKind.MethodLocal && holder.Kind == MemoryScopeKind.ClassInstance)
                 Audit(AuditKind.FieldAccessViaBareName, fi, "write " + name);
-        }
-
-        /// <summary>A top-level block ends: remember the names it created, for BlockVariableEscapes.</summary>
-        private void AuditBlockEnd()
-        {
-            var scope = _script.MemoryContext.GetScope();
-            if (scope.Kind != MemoryScopeKind.Block || scope.LocalNames.Count == 0) return;
-            // Only blocks of the script body: a class body's blocks sit on the instance's scope.
-            var outer = scope.Parent;
-            while (outer != null && outer.Kind == MemoryScopeKind.Block) outer = outer.Parent;
-            if (outer == null || outer.Kind != MemoryScopeKind.User) return;
-            var names = _script.AuditBlockNames ??= new HashSet<string>(StringComparer.Ordinal);
-            foreach (var name in scope.LocalNames) names.Add(name);
         }
 
         // ── Import ──

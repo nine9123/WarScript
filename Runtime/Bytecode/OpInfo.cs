@@ -114,8 +114,6 @@ namespace WarScript.Bytecode
             Op_(OpCode.PopN, Var, 0, Count8),
             Op_(OpCode.Dup, 1, 2),
 
-            Op_(OpCode.PushScope, 0, 0),
-            Op_(OpCode.PopScope, 0, 0),
 
             Op_(OpCode.GetLocal, 0, 1, Local),
             Op_(OpCode.SetLocal, 1, 1, Local),
@@ -248,9 +246,10 @@ namespace WarScript.Bytecode
         /// writing the instance globals, T3.4; version 5 wrote a class body's
         /// fields with SetGlobal, which version 6 writes with
         /// ThisSetProperty, its SetGlobal writing a declared global, and no
-        /// block emits PushScope/PopScope any more, T3.4).
+        /// block emits PushScope/PopScope any more, T3.4; version 7 removed
+        /// those two opcodes, T3.5).
         /// </summary>
-        public const byte Version = 6;
+        public const byte Version = 7;
 
         /// <summary>
         /// Names the file layout for the hash. Change it (and the version)
@@ -263,7 +262,7 @@ namespace WarScript.Bytecode
         /// <see cref="ComputeHash"/> for the current table, version and
         /// layout. <c>BytecodeFormatTests</c> recomputes it.
         /// </summary>
-        public const uint Hash = 0x4EAF6843;
+        public const uint Hash = 0x5A886A8F;
 
         /// <summary>
         /// FNV-1a (32-bit) over, for each <see cref="OpInfo"/> entry: its

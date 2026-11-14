@@ -10,7 +10,7 @@ namespace WarScript.Context
     /// </summary>
     internal enum MemoryScopeKind
     {
-        /// <summary>A block (<c>PushScope</c>, no longer emitted since T3.4), and anything not classified below.</summary>
+        /// <summary>A scope not classified below (block scopes went with <c>PushScope</c>, T3.5).</summary>
         Block,
         /// <summary>The host globals (<see cref="WarScriptLanguage.GlobalMemoryScope"/>).</summary>
         Native,
@@ -67,9 +67,6 @@ namespace WarScript.Context
 
         /// <summary>True if this scope itself (not a parent) holds <paramref name="name"/>.</summary>
         internal bool HasLocal(string name) => _variables.ContainsKey(name);
-
-        /// <summary>The names this scope itself holds.</summary>
-        internal Dictionary<string, ValueReference>.KeyCollection LocalNames => _variables.Keys;
 
         public WarValue Get(string name)
         {
