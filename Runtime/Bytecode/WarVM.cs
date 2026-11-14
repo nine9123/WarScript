@@ -164,7 +164,8 @@ namespace WarScript.Bytecode
         {
             Reset();
             RecordEntryDepths();
-            if (!StackFits(0, 0, main)) return;
+            if (!StackFits(0, main)) return;
+            EnterArguments(0, main);
 
             _frames[0] = new CallFrame
             {
@@ -187,10 +188,14 @@ namespace WarScript.Bytecode
         {
             Reset();
             RecordEntryDepths();
-            if (!StackFits(0, 0, func)) return _topLevelResult;
+            if (!StackFits(0, func)) return _topLevelResult;
 
-            for (int i = 0; i < func.Arity; i++)
-                _stack[_sp++] = i < arguments.Length ? arguments[i] : WarValue.Null;
+            // Extra arguments are not copied; EnterArguments pads the
+            // missing ones and reserves the body's locals.
+            int given = System.Math.Min(arguments.Length, func.Arity);
+            for (int i = 0; i < given; i++)
+                _stack[_sp++] = arguments[i];
+            EnterArguments(given, func);
 
             _frames[0] = new CallFrame
             {
@@ -215,10 +220,12 @@ namespace WarScript.Bytecode
         {
             Reset();
             RecordEntryDepths();
-            if (!StackFits(0, 0, func)) return;
+            if (!StackFits(0, func)) return;
 
-            for (int i = 0; i < func.Arity; i++)
-                _stack[_sp++] = i < arguments.Length ? arguments[i] : WarValue.Null;
+            int given = System.Math.Min(arguments.Length, func.Arity);
+            for (int i = 0; i < given; i++)
+                _stack[_sp++] = arguments[i];
+            EnterArguments(given, func);
 
             _frames[0] = new CallFrame
             {
@@ -784,24 +791,18 @@ namespace WarScript.Bytecode
                         if (lambdaFunc != null)
                         {
                             // Call a function value (lambda or function reference)
-                            if (!StackFits(_sp - argCount, argCount, lambdaFunc))
+                            if (!StackFits(_sp - argCount, lambdaFunc))
                             {
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
-                            var arity = lambdaFunc.Arity;
-                            while (argCount < arity)
-                            {
-                                Push(WarValue.Null);
-                                argCount++;
-                            }
-                            var newBase = _sp - argCount;
                             if (_frameCount >= FramesMax)
                             {
                                 RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
+                            var newBase = EnterArguments(argCount, lambdaFunc);
                             _frames[_frameCount] = new CallFrame
                             {
                                 Function = lambdaFunc,
@@ -831,28 +832,22 @@ namespace WarScript.Bytecode
                         }
                         else if (def!.Compiled != null)
                         {
-                            // Pad missing arguments with null for default parameters.
-                            // The function body's desugared null-checks will assign defaults.
-                            if (!StackFits(_sp - argCount, argCount, def.Compiled))
+                            // Arguments are already on the stack at sp-argCount .. sp-1.
+                            // Missing ones are padded with null for default
+                            // parameters (the body's desugared null-checks
+                            // assign the defaults).
+                            if (!StackFits(_sp - argCount, def.Compiled))
                             {
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
-                            var arity = def.Compiled.Arity;
-                            while (argCount < arity)
-                            {
-                                Push(WarValue.Null);
-                                argCount++;
-                            }
-
-                            // Arguments are already on the stack at sp-argCount .. sp-1
-                            var newBase = _sp - argCount;
                             if (_frameCount >= FramesMax)
                             {
                                 RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
+                            var newBase = EnterArguments(argCount, def.Compiled);
                             _frames[_frameCount] = new CallFrame
                             {
                                 Function = def.Compiled,
@@ -890,8 +885,14 @@ namespace WarScript.Bytecode
                             return;
                         }
 
-                        if (!StackFits(_sp - argCount - 1, argCount, lambdaCF))
+                        if (!StackFits(_sp - argCount - 1, lambdaCF))
                         {
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
+                        if (_frameCount >= FramesMax)
+                        {
+                            RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -902,21 +903,7 @@ namespace WarScript.Bytecode
                             _stack[cvArgBase + i] = _stack[cvArgBase + i + 1];
                         _sp--;
 
-                        // Pad missing arguments with null for default parameters
-                        var cvArity = lambdaCF.Arity;
-                        while (argCount < cvArity)
-                        {
-                            Push(WarValue.Null);
-                            argCount++;
-                        }
-
-                        var cvNewBase = _sp - argCount;
-                        if (_frameCount >= FramesMax)
-                        {
-                            RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
-                            if (DoHandleException(ref fi, ref code, ref constants)) break;
-                            return;
-                        }
+                        var cvNewBase = EnterArguments(argCount, lambdaCF);
                         _frames[_frameCount] = new CallFrame
                         {
                             Function = lambdaCF,
@@ -989,30 +976,24 @@ namespace WarScript.Bytecode
                         {
                             // ── True tail call: reuse the current frame ──
 
-                            // The arguments are padded where they are, then
-                            // moved down to the frame's base.
-                            if (!StackFits(_sp - argCount, argCount, tailTarget))
+                            // The arguments are moved down to the frame's
+                            // base, then padded (or cut) to the arity and
+                            // followed by the reserved locals. The frame's
+                            // base is at or below where they are now.
+                            var stackBase = _frames[fi].StackBase;
+                            if (!StackFits(stackBase, tailTarget))
                             {
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
 
-                            // Pad missing arguments with null for default parameters.
-                            var arity = tailTarget.Arity;
-                            while (argCount < arity)
-                            {
-                                Push(WarValue.Null);
-                                argCount++;
-                            }
-
                             // A method frame keeps its class definitions;
                             // no frame has a memory scope of its own (T3.5).
-                            // Move arguments down to the frame's stack base
-                            var stackBase = _frames[fi].StackBase;
                             var argBase = _sp - argCount;
                             for (int i = 0; i < argCount; i++)
                                 _stack[stackBase + i] = _stack[argBase + i];
                             _sp = stackBase + argCount;
+                            EnterArguments(argCount, tailTarget);
 
                             // Reuse the frame — no _frameCount change
                             _frames[fi].Function = tailTarget;
@@ -1091,7 +1072,7 @@ namespace WarScript.Bytecode
                         var methodDef = classDef.GetDefinitionScope().GetFunction(methodName, argCount)!;
                         var methodClassData = classData.GetRelation(classDef.ClassDetails.Name) ?? classData;
 
-                        if (methodDef.Compiled != null && !StackFits(_sp - argCount - 1, argCount, methodDef.Compiled))
+                        if (methodDef.Compiled != null && !StackFits(_sp - argCount - 1, methodDef.Compiled))
                         {
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
@@ -1120,24 +1101,16 @@ namespace WarScript.Bytecode
                         {
                             if (methodDef.Compiled != null)
                             {
-                                // Pad missing arguments with null for default parameters.
-                                var arity = methodDef.Compiled.Arity;
-                                while (argCount < arity)
-                                {
-                                    Push(WarValue.Null);
-                                    argCount++;
-                                }
-
                                 // A bare name in a method is a local or a
                                 // global (T3.4, DEC-6, PROP-20; NameScope);
                                 // fields are `@x` / `this :: x`.
-                                var newBase = _sp - argCount;
                                 if (_frameCount >= FramesMax)
                                 {
                                     RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                                     if (DoHandleException(ref fi, ref code, ref constants)) break;
                                     return;
                                 }
+                                var newBase = EnterArguments(argCount, methodDef.Compiled);
                                 _frames[_frameCount] = new CallFrame
                                 {
                                     Function = methodDef.Compiled,
@@ -1853,22 +1826,45 @@ namespace WarScript.Bytecode
         }
 
         /// <summary>
-        /// Whether a frame of <paramref name="function"/> whose
-        /// <paramref name="argCount"/> arguments start at
+        /// Whether a frame of <paramref name="function"/> based at (or above)
         /// <paramref name="stackBase"/> fits in the value stack (T1.7, SEC-2):
         /// the verifier bounds every height the function reaches by its
         /// <see cref="CompiledFunction.MaxStack"/>, counted from its arity
-        /// (the null padding included). Arguments beyond the arity stay in the
-        /// frame under everything the function pushes, so they are added. When
-        /// it does not fit, raises "Value stack overflow" for the caller,
-        /// before anything was pushed.
+        /// plus its reserved locals (the null padding included). Arguments
+        /// beyond the arity are dropped (<see cref="EnterArguments"/>), so they
+        /// take no room. When it does not fit, raises "Value stack overflow"
+        /// for the caller, before anything was pushed.
         /// </summary>
-        private bool StackFits(int stackBase, int argCount, CompiledFunction function)
+        private bool StackFits(int stackBase, CompiledFunction function)
         {
-            int surplus = argCount > function.Arity ? argCount - function.Arity : 0;
-            if (stackBase + surplus + function.MaxStack <= StackMax) return true;
+            if (stackBase + function.MaxStack <= StackMax) return true;
             RuntimeError(ScriptErrorKind.LimitExceeded, "Value stack overflow");
             return false;
+        }
+
+        /// <summary>
+        /// Lays out a new frame of <paramref name="function"/> whose
+        /// <paramref name="argCount"/> arguments are on top of the stack and
+        /// returns its stack base (T3.5): arguments beyond the arity are
+        /// dropped (a function value called with more arguments than it has
+        /// parameters, as the host <c>Call</c> ignores extra ones), missing
+        /// ones are null (so default parameters apply), and then the body's
+        /// <see cref="CompiledFunction.ReservedLocals"/> slots are pushed as
+        /// null. So the parameters and body locals are exactly the slots the
+        /// compiler gave them. The caller has checked <see cref="StackFits"/>.
+        /// </summary>
+        private int EnterArguments(int argCount, CompiledFunction function)
+        {
+            int stackBase = _sp - argCount;
+            int arity = function.Arity;
+            if (argCount > arity)
+                _sp = stackBase + arity;
+            else
+                for (; argCount < arity; argCount++)
+                    _stack[_sp++] = WarValue.Null;
+            for (int i = function.ReservedLocals; i > 0; i--)
+                _stack[_sp++] = WarValue.Null;
+            return stackBase;
         }
 
         private void RuntimeError(ScriptErrorKind kind, string message)
@@ -2337,7 +2333,7 @@ namespace WarScript.Bytecode
             // Every constructor frame's base is just above the instance.
             for (int i = 0; i < count; i++)
             {
-                if (!StackFits(_sp + 1, 0, _constructors[i].Definition.CompiledConstructor))
+                if (!StackFits(_sp + 1, _constructors[i].Definition.CompiledConstructor))
                 {
                     _constructors.Clear();
                     return false;

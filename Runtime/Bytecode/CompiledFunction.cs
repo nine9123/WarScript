@@ -17,8 +17,18 @@ namespace WarScript.Bytecode
         public int LocalCount;
 
         /// <summary>
+        /// The body's locals (T3.4): the slots right after the parameters
+        /// that the VM fills with null whenever it pushes a frame of this
+        /// function (T3.5), so the code starts at height
+        /// <see cref="Arity"/> + <see cref="ReservedLocals"/>. Always 0 for a
+        /// script body and a constructor (the loader requires it). Set by the
+        /// compiler; stored in the file since format version 8.
+        /// </summary>
+        public int ReservedLocals;
+
+        /// <summary>
         /// The largest stack height the function reaches, relative to its
-        /// frame's stack base, arguments included. Computed by
+        /// frame's stack base, arguments and reserved locals included. Computed by
         /// <see cref="BytecodeVerifier"/> (T1.7); the VM checks it whenever it
         /// pushes a frame, so execution never runs past the value stack.
         /// </summary>

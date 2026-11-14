@@ -491,6 +491,9 @@ f = ops{0}
 print f [3, 4]       # → 7
 ```
 
+Calling a function value with fewer arguments than it has parameters passes `null` for the rest
+(so default parameters apply); extra arguments are ignored.
+
 **Lambdas do not close over enclosing locals.** They see their own parameters and locals and the
 globals; reading a parameter, local or loop variable of the code around them is a compile error:
 

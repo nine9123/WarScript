@@ -491,9 +491,10 @@ namespace WarScript.Bytecode
         /// Starts a function, method or lambda body (T3.4): the parameters
         /// take the first slots, then every name the body assigns without
         /// declaring it <c>global</c> gets a slot of its own for the whole
-        /// body, initialized to null here, in the order of first assignment
-        /// (PROP-9). Loop and rescue variables get theirs when their block
-        /// starts. Reports the scoping errors <see cref="BodyNames"/> finds.
+        /// body, in the order of first assignment (PROP-9); the VM fills them
+        /// with null when it pushes the frame (T3.5,
+        /// <see cref="CompiledFunction.ReservedLocals"/>). Loop and rescue
+        /// variables get theirs when their block starts. Reports the scoping errors <see cref="BodyNames"/> finds.
         /// </summary>
         private void BeginBody(IReadOnlyList<string> parameters, CompositeStatement body)
         {
@@ -504,11 +505,11 @@ namespace WarScript.Bytecode
 
             var names = BodyNames.Collect(parameters, body, _source);
             _declaredGlobals = names.Globals;
+            // The VM fills these slots with null when it pushes the frame
+            // (T3.5): no code is emitted for them.
             foreach (var name in names.Locals)
-            {
-                Chunk.EmitOp(OpCode.Null, _line);
                 AddLocal(name, LocalKind.BodyLocal);
-            }
+            _current.ReservedLocals = names.Locals.Count;
         }
 
         // ────────────────────────────────────────────────────────

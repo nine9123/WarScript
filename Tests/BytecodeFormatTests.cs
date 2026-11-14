@@ -88,7 +88,7 @@ namespace Tests
         [Test]
         public void Load_RejectsAnotherVersion()
         {
-            foreach (byte version in new byte[] { 1, 2, 3, 4, 5, 6, 8 })
+            foreach (byte version in new byte[] { 1, 2, 3, 4, 5, 6, 7, 9 })
             {
                 var bytes = SavedBytecode();
                 bytes[4] = version;
@@ -182,6 +182,54 @@ namespace Tests
             BytecodeVerifier.Verify(f, atLoad: true);
             Assert.AreEqual(4, f.MaxStack);
         }
+
+        [Test]
+        public void Verifier_StartsAfterTheReservedLocals()
+        {
+            // T3.5: the VM pushes the reserved locals after the arguments,
+            // so slot 2 of a one-parameter function with two reserved
+            // locals is live at the first instruction.
+            var f = Function("f", 1, new byte[] { (byte)OpCode.GetLocal, 0, 2, Ret });
+            f.ReservedLocals = 2;
+            BytecodeVerifier.Verify(f, atLoad: true);
+            Assert.AreEqual(4, f.MaxStack);
+
+            var g = Function("g", 1, new byte[] { (byte)OpCode.GetLocal, 0, 3, Ret });
+            g.ReservedLocals = 2;
+            var e = Assert.Throws<InvalidDataException>(() => BytecodeVerifier.Verify(g, atLoad: true));
+            StringAssert.Contains("slot is not below the stack height", e.Message);
+
+            // More reserved locals than the value stack holds.
+            var h = Function("h", 0, new byte[] { Null_, Ret });
+            h.ReservedLocals = 1024;
+            e = Assert.Throws<InvalidDataException>(() => BytecodeVerifier.Verify(h, atLoad: true));
+            StringAssert.Contains("stack slots", e.Message);
+        }
+
+        [Test]
+        public void Compiler_ReservesABodysLocals_InsteadOfPushingThem()
+        {
+            // T3.5: the body's locals are the function's ReservedLocals; its
+            // code does not start with one Null per local any more.
+            var (_, definitions) = new WarScriptLanguage("t",
+                "fun f [a]\n    x = a\n    y = x + 1\n    return y\nend", null, null).CompileWithoutRunning();
+            var f = definitions.GetFunction("f", 1).Compiled;
+            Assert.AreEqual(2, f.ReservedLocals);
+            Assert.AreEqual((byte)OpCode.GetLocal, f.Chunk.Code[0]);
+            Assert.AreEqual(5, f.MaxStack);   // a, x, y, then x + 1
+
+            var ms = new MemoryStream();
+            using (var w = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
+                BytecodeSerializer.Save(w, CompiledBody(), definitions);
+            ms.Position = 0;
+            DefinitionScope loaded;
+            using (var r = new BinaryReader(ms))
+                (_, loaded) = BytecodeSerializer.Load(r, new WarScriptLanguage("u", "", null, null), null);
+            Assert.AreEqual(2, loaded.GetFunction("f", 1).Compiled.ReservedLocals);
+        }
+
+        private static CompiledFunction CompiledBody() =>
+            new WarScriptLanguage("t", "", null, null).CompileWithoutRunning().Item1;
 
         // A.20, one test per case of the appendix.
 
@@ -361,6 +409,27 @@ namespace Tests
             Rejected(ms.ToArray(), "constructor of class 'P' has arity 1");
         }
 
+        [Test]
+        public void Loader_RejectsReservedLocalsOnTheScriptBodyOrAConstructor()
+        {
+            // Every constructor frame of an instance starts at the same stack
+            // base (T1.1), so the VM reserves no locals for them, nor for the
+            // script body (T3.5); the compiler never gives them any.
+            var body = Function("<script>", 0, new[] { Null_, Ret });
+            body.ReservedLocals = 1;
+            Rejected(File_(body), "script body reserves 1 locals");
+
+            var host = new WarScriptLanguage("t", "class P []\n    x = 1\nend\np = new P []", null, null);
+            var (top, definitions) = host.CompileWithoutRunning();
+            var ctor = Function("P#ctor", 0, new[] { Null_, Ret });
+            ctor.ReservedLocals = 1;
+            definitions.ClassDefinitions.Single().CompiledConstructor = ctor;
+            var ms = new MemoryStream();
+            using (var w = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
+                BytecodeSerializer.Save(w, top, definitions);
+            Rejected(ms.ToArray(), "constructor of class 'P' reserves 1 locals");
+        }
+
         // ── Line table (10.2, DX-3) ─────────────────────────────────────
 
         [Test]
@@ -448,8 +517,8 @@ namespace Tests
         public void Loader_RejectsACountLargerThanTheBytesLeft()
         {
             var bytes = File_(Function("<script>", 0, new[] { Null_, Ret }));
-            // name (2 + 8 bytes), arity, local count, then the constant count.
-            int constCount = 9 + 10 + 2 + 2;
+            // name (2 + 8 bytes), arity, local count, reserved locals, then the constant count.
+            int constCount = 9 + 10 + 2 + 2 + 2;
             bytes[constCount] = 0xFF;
             bytes[constCount + 1] = 0xFF;
             Rejected(bytes, "constant count");
@@ -468,19 +537,21 @@ namespace Tests
         }
 
         [Test]
-        public void Call_WithMoreArgumentsThanTheArity_CountsTheSurplus()
+        public void Call_WithMoreArgumentsThanTheArity_DropsTheSurplus()
         {
-            // The 200 extra arguments stay in the lambda's frame under its
-            // 900-element literal: 1,100 slots, though its MaxStack alone fits.
+            // T3.5: the 200 extra arguments are dropped when the lambda's
+            // frame is pushed (before, they stayed under its 900-element
+            // literal and overflowed the stack, and they shifted its locals).
             var literal = string.Join(", ", Enumerable.Range(0, 900));
             var args = string.Join(", ", Enumerable.Range(0, 200));
             var output = new List<string>();
             var script = new WarScriptLanguage("t",
-                "g = fun [] return {" + literal + "} end\nbegin\n    g [" + args + "]\nrescue e\n    print e\nend\nprint \"after\"",
+                "g = fun [] return {" + literal + "} end\nbegin\n    print Array_length [g [" + args + "]]\nrescue e\n    print e\nend\nprint \"after\"",
                 null, (w, m) => output.Add(m));
+            WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
             script.Run();
             Assert.IsNull(script.LastHostFault);
-            CollectionAssert.AreEqual(new[] { "Value stack overflow", "after" }, output);
+            CollectionAssert.AreEqual(new[] { "900", "after" }, output);
         }
 
         [Test]

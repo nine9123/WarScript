@@ -247,22 +247,24 @@ namespace WarScript.Bytecode
         /// fields with SetGlobal, which version 6 writes with
         /// ThisSetProperty, its SetGlobal writing a declared global, and no
         /// block emits PushScope/PopScope any more, T3.4; version 7 removed
-        /// those two opcodes, T3.5).
+        /// those two opcodes, T3.5; version 7 pushed a body's locals with
+        /// Null instructions, which version 8 records as the function's
+        /// reserved locals for the VM to push, T3.5).
         /// </summary>
-        public const byte Version = 7;
+        public const byte Version = 8;
 
         /// <summary>
         /// Names the file layout for the hash. Change it (and the version)
         /// with any change to what <see cref="BytecodeSerializer"/> writes.
         /// </summary>
         public const string Layout =
-            "WSBC magic|version u8|hash u32; v1 function, constant and definition records; line table u32 count of (u16 offset, i32 line) where the line changes; a rescue body of a block with an ensure block runs under an ensure-only handler and ends with PopHandler; a function, method or lambda body keeps every variable in a stack slot (its locals pushed as nulls after the parameters) and its SetGlobal writes a declared global; a class body writes its fields with ThisSetProperty and its SetGlobal writes a declared global; no block scopes";
+            "WSBC magic|version u8|hash u32; v1 function, constant and definition records, a function record with a u16 reserved-locals count after its local count; line table u32 count of (u16 offset, i32 line) where the line changes; a rescue body of a block with an ensure block runs under an ensure-only handler and ends with PopHandler; a function, method or lambda body keeps every variable in a stack slot (its reserved locals pushed as nulls by the VM after the parameters, extra arguments dropped) and its SetGlobal writes a declared global; a class body writes its fields with ThisSetProperty and its SetGlobal writes a declared global; no block scopes";
 
         /// <summary>
         /// <see cref="ComputeHash"/> for the current table, version and
         /// layout. <c>BytecodeFormatTests</c> recomputes it.
         /// </summary>
-        public const uint Hash = 0x5A886A8F;
+        public const uint Hash = 0xF24068DC;
 
         /// <summary>
         /// FNV-1a (32-bit) over, for each <see cref="OpInfo"/> entry: its

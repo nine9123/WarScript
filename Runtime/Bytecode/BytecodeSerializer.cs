@@ -120,6 +120,7 @@ namespace WarScript.Bytecode
             WriteString(w, func.Name);
             w.Write((ushort)func.Arity);
             w.Write((ushort)func.LocalCount);
+            w.Write((ushort)func.ReservedLocals);   // format 8 (T3.5)
 
             // Constant pool
             w.Write((ushort)func.Chunk.Constants.Count);
@@ -216,7 +217,7 @@ namespace WarScript.Bytecode
 
                 // Top-level script body
                 var topLevel = ReadCompiledFunction(reader, 0);
-                RequireNoArity(topLevel, "script body");
+                RequireNoArguments(topLevel, "script body");
 
                 // Rebuild DefinitionScope
                 var scope = new DefinitionScope(script, parentScope);
@@ -326,7 +327,7 @@ namespace WarScript.Bytecode
             if (hasCtor != 0)
             {
                 compiledCtor = ReadCompiledFunction(r, depth);
-                RequireNoArity(compiledCtor, "constructor of class '" + name + "'");
+                RequireNoArguments(compiledCtor, "constructor of class '" + name + "'");
             }
 
             // Build the class's own DefinitionScope (for methods + nested classes)
@@ -343,14 +344,19 @@ namespace WarScript.Bytecode
         /// The VM enters the script body and constructor frames without
         /// arguments, while the verifier starts every function at height =
         /// arity: a nonzero arity there would let code pop below the frame's
-        /// stack base (or read a slot nothing wrote). The compiler always
-        /// gives both arity 0.
+        /// stack base (or read a slot nothing wrote). Likewise the VM reserves
+        /// no locals for them (every constructor frame of an instance starts
+        /// at the same stack base, T1.1). The compiler always gives both arity
+        /// 0 and no reserved locals.
         /// </summary>
-        private static void RequireNoArity(CompiledFunction function, string what)
+        private static void RequireNoArguments(CompiledFunction function, string what)
         {
             if (function.Arity != 0)
                 throw new InvalidDataException(System.FormattableString.Invariant(
                     $"Bytecode {what} has arity {function.Arity}; it takes no arguments"));
+            if (function.ReservedLocals != 0)
+                throw new InvalidDataException(System.FormattableString.Invariant(
+                    $"Bytecode {what} reserves {function.ReservedLocals} locals; it has none"));
         }
 
         private static CompiledFunction ReadCompiledFunction(BoundedReader r, int depth)
@@ -361,9 +367,11 @@ namespace WarScript.Bytecode
             var name = r.String();
             var arity = r.U16();
             var localCount = r.U16();
+            var reservedLocals = r.U16();
 
             var func = new CompiledFunction(name, arity);
             func.LocalCount = localCount;
+            func.ReservedLocals = reservedLocals;
 
             // Constant pool
             var constCount = r.Count(1, "constant");

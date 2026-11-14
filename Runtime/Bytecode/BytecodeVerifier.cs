@@ -13,8 +13,9 @@ namespace WarScript.Bytecode
     /// compiler verifies its own output, where a rejection is a compiler bug.
     ///
     /// Heights are relative to the frame's stack base: a function starts at
-    /// height <see cref="CompiledFunction.Arity"/> (its arguments, padded by
-    /// the VM), a rescue body at its <c>PushHandler</c>'s height + 1 (the
+    /// height <see cref="CompiledFunction.Arity"/> +
+    /// <see cref="CompiledFunction.ReservedLocals"/> (its arguments, padded
+    /// or cut to the arity by the VM, then its body's locals, T3.5), a rescue body at its <c>PushHandler</c>'s height + 1 (the
     /// error value), with one more handler open when the block has an ensure
     /// block (the ensure-only handler, Q-14), an ensure body at that height. The
     /// handlers a frame has open are tracked the same way, so a frame never
@@ -114,7 +115,11 @@ namespace WarScript.Bytecode
             var handlers = new int[length + 1];
             for (int i = 0; i < height.Length; i++) height[i] = -1;
             var work = new Stack<int>();
-            int max = function.Arity;
+            // The VM pushes the arguments (padded or cut to the arity) and
+            // then the reserved locals, as nulls, before the first
+            // instruction (T3.5).
+            int start = function.Arity + function.ReservedLocals;
+            int max = start;
 
             void Reach(int target, int h, int hd, int from)
             {
@@ -134,7 +139,7 @@ namespace WarScript.Bytecode
             }
 
             if (length == 0) throw Reject(name, 0, "a path falls off the end of the code");
-            Reach(0, function.Arity, 0, 0);
+            Reach(0, start, 0, 0);
             while (work.Count > 0)
             {
                 int at = work.Pop();
