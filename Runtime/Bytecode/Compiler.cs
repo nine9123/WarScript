@@ -282,7 +282,8 @@ namespace WarScript.Bytecode
         /// <c>this :: x</c>) and not declared <c>global</c>, and the fields
         /// of its base classes. Null when a class is not known here (a base
         /// defined in an import, or one without source: registered by the
-        /// host or loaded from bytecode) or is on its own base path (a
+        /// host or loaded from bytecode), shares its name with a nested class
+        /// of the class deriving from it, or is on its own base path (a
         /// runtime error at <c>new</c>, Q-11): nothing can be checked then.
         /// </summary>
         private static HashSet<string>? ClassFields(ClassDefinition classDef, List<ClassDefinition> path)
@@ -293,6 +294,11 @@ namespace WarScript.Bytecode
             path.Add(classDef);
             foreach (var baseType in classDef.BaseTypes)
             {
+                // The VM resolves a base class from the scope of the 'new'
+                // that creates the instance, which does not see this class's
+                // nested classes: when one has the base's name, which class
+                // the base is depends on that site, so nothing is checked.
+                if (DefinesNestedClass(classDef, baseType.Name)) return null;
                 var baseDef = classDef.GetDefinitionScope().GetClass(baseType.Name);
                 if (baseDef == null || path.Contains(baseDef)) return null;
                 var baseFields = ClassFields(baseDef, path);
@@ -301,6 +307,13 @@ namespace WarScript.Bytecode
             }
             path.RemoveAt(path.Count - 1);
             return fields;
+        }
+
+        private static bool DefinesNestedClass(ClassDefinition classDef, string name)
+        {
+            foreach (var nested in classDef.GetDefinitionScope().ClassDefinitions)
+                if (nested.ClassDetails.Name == name) return true;
+            return false;
         }
 
         private void CompileConstructorBody(ClassDefinition classDef, HashSet<string>? fields)
@@ -520,10 +533,10 @@ namespace WarScript.Bytecode
             return Chunk.EmitJump(OpCode.JumpIfFalse, line);
         }
 
-        // No block emits PushScope/PopScope any more (T3.4, DEC-4): a
-        // block's loop and rescue variables are stack slots, and every other
-        // name is a local of the whole body, a field (class body) or a global
-        // (top level). T3.5 removes the opcodes.
+        // Blocks have no runtime scope (T3.4, DEC-4; T3.5 removed the
+        // PushScope/PopScope opcodes): a block's loop and rescue variables
+        // are stack slots, and every other name is a local of the whole body,
+        // a field (class body) or a global (top level).
 
         private static int Line(Statement.Statement stmt) => stmt.RowNumber ?? 0;
 
