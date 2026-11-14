@@ -179,6 +179,8 @@ namespace Tests.Golden
     {
         public readonly List<string> Output = new List<string>();
         public string ErrorMessage;           // unhandled script error, or null
+        public string ErrorKind;              // its ScriptErrorKind (T2.5)
+        public int ErrorLine;                 // the line it was raised at, 0 when unknown
         public string CompileError;           // SyntaxException message, or null
         public string InvariantViolation;
         public string EscapedException;       // "<type>: <message>" of a C# exception that left the runtime
@@ -313,7 +315,11 @@ namespace Tests.Golden
             if (result.Status == ScriptStatus.HostFault)
                 run.EscapedException = Escaped(result.Error.HostException);
             else if (result.Status == ScriptStatus.Error)
+            {
                 run.ErrorMessage = result.Error.Message;
+                run.ErrorKind = result.Error.Kind.ToString();
+                run.ErrorLine = result.Error.Line;
+            }
 
             run.InvariantViolation = Invariants.Violation(target, before);
             run.Hash = target.ComputeStateHash().ToString("x16", CultureInfo.InvariantCulture);
@@ -409,34 +415,15 @@ namespace Tests.Golden
 
         private string MatchError(GoldenFile file)
         {
-            // v1 errors carry only a message. Until structured errors (T2.5),
-            // the kind is recognised from the messages that identify one; any
-            // other message is accepted for any expected kind, so goldens can be
-            // written with their v2 kind now. Lines are not checked until T2.5
-            // either: v1 errors raised by the VM carry no line.
-            var kind = V1Kind(ErrorMessage);
-            if (kind != null && kind != file.ExpectErrorKind)
-                return $"expected {file.ExpectErrorKind}, got {kind}: {ErrorMessage}";
+            // Every error has its kind and the line it was raised at (T2.5).
+            // The line is checked when the directive trails the code line
+            // (`x = 1 / 0  # expect-error: DivisionByZero`).
+            if (ErrorKind != file.ExpectErrorKind)
+                return $"expected {file.ExpectErrorKind}, got {ErrorKind}: {ErrorMessage}";
             if (file.ExpectErrorSubstring != null && !ErrorMessage.Contains(file.ExpectErrorSubstring))
                 return $"expected an error containing '{file.ExpectErrorSubstring}', got: {ErrorMessage}";
-            return null;
-        }
-
-        internal static string V1Kind(string message)
-        {
-            if (message.StartsWith("Division by zero") || message.StartsWith("Modulo by zero"))
-                return "DivisionByZero";
-            if (message.StartsWith("Instruction budget exceeded"))
-                return "InstructionBudgetExceeded";
-            if (message.StartsWith("Memory budget exceeded"))
-                return "MemoryBudgetExceeded";
-            if (message.StartsWith("Assertion error"))
-                return "AssertionFailed";
-            if (message == "Stack overflow" || message == "Value stack overflow" ||
-                message.StartsWith("Exception handler stack overflow") ||
-                message == "Text too long" || message == "Array too long" ||
-                message == "Value nested too deeply" || message == "Host nesting limit exceeded")
-                return "LimitExceeded";
+            if (file.ExpectErrorLine != 0 && ErrorLine != file.ExpectErrorLine)
+                return $"expected the error at line {file.ExpectErrorLine}, got line {ErrorLine}: {ErrorMessage}";
             return null;
         }
     }

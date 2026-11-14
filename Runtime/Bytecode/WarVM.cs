@@ -117,6 +117,8 @@ namespace WarScript.Bytecode
             /// <summary>True: return <see cref="Value"/>; false: re-raise it.</summary>
             public bool IsReturn;
             public WarValue Value;
+            /// <summary>The error to re-raise (kind and call stack kept, T2.5); null for a return.</summary>
+            public Exception.Exception? Error;
             public int FrameIndex;
             /// <summary>End of the ensure block (exclusive).</summary>
             public int EndIP;
@@ -381,7 +383,7 @@ namespace WarScript.Bytecode
                     // again, so rescue and ensure bodies cannot run and the
                     // error ends the entry whatever the script rescues.
                     budget.InstructionsLeft = -1;
-                    RuntimeError("Instruction budget exceeded");
+                    RuntimeError(ScriptErrorKind.InstructionBudgetExceeded, "Instruction budget exceeded");
                     if (DoHandleException(ref fi, ref code, ref constants))
                         continue;
                     return;
@@ -582,7 +584,7 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            RuntimeError("Unable to multiply non-numeric values");
+                            RuntimeError(ScriptErrorKind.TypeError, "Unable to multiply non-numeric values");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -595,7 +597,7 @@ namespace WarScript.Bytecode
                         {
                             if (b.Numeric == F64.Zero)
                             {
-                                RuntimeError("Division by zero");
+                                RuntimeError(ScriptErrorKind.DivisionByZero, "Division by zero");
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -603,7 +605,7 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            RuntimeError("Unable to divide non-numeric values");
+                            RuntimeError(ScriptErrorKind.TypeError, "Unable to divide non-numeric values");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -616,7 +618,7 @@ namespace WarScript.Bytecode
                         {
                             if (b.Numeric == F64.Zero)
                             {
-                                RuntimeError("Modulo by zero");
+                                RuntimeError(ScriptErrorKind.DivisionByZero, "Modulo by zero");
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -624,7 +626,7 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            RuntimeError("Unable to perform modulo for non-numeric values");
+                            RuntimeError(ScriptErrorKind.TypeError, "Unable to perform modulo for non-numeric values");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -780,7 +782,7 @@ namespace WarScript.Bytecode
                                 lambdaFunc = cf;
                             else
                             {
-                                RuntimeError(System.FormattableString.Invariant($"Function '{funcName}' with {argCount} args is not defined"));
+                                RuntimeError(ScriptErrorKind.NameError, System.FormattableString.Invariant($"Function '{funcName}' with {argCount} args is not defined"));
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -806,7 +808,7 @@ namespace WarScript.Bytecode
                             if (_frameCount >= FramesMax)
                             {
                                 _script.MemoryContext.EndScope();
-                                RuntimeError("Stack overflow");
+                                RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -862,7 +864,7 @@ namespace WarScript.Bytecode
                             if (_frameCount >= FramesMax)
                             {
                                 _script.MemoryContext.EndScope();
-                                RuntimeError("Stack overflow");
+                                RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -881,7 +883,7 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            RuntimeError($"Function '{funcName}' is not compiled");
+                            RuntimeError(ScriptErrorKind.TypeError, $"Function '{funcName}' is not compiled");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -897,7 +899,7 @@ namespace WarScript.Bytecode
 
                         if (!(funcVal.IsNativeObject && funcVal.Ref is CompiledFunction lambdaCF))
                         {
-                            RuntimeError("Value is not callable");
+                            RuntimeError(ScriptErrorKind.TypeError, "Value is not callable");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -929,7 +931,7 @@ namespace WarScript.Bytecode
                         if (_frameCount >= FramesMax)
                         {
                             _script.MemoryContext.EndScope();
-                            RuntimeError("Stack overflow");
+                            RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -965,7 +967,7 @@ namespace WarScript.Bytecode
                                 tailLambda = cf;
                             else
                             {
-                                RuntimeError(System.FormattableString.Invariant($"Function '{funcName}' with {argCount} args is not defined"));
+                                RuntimeError(ScriptErrorKind.NameError, System.FormattableString.Invariant($"Function '{funcName}' with {argCount} args is not defined"));
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -1003,7 +1005,7 @@ namespace WarScript.Bytecode
                         {
                             // The compiler emits TailCall only inside functions;
                             // a constructor frame has no function scope to reuse.
-                            RuntimeError("Tail call in a constructor");
+                            RuntimeError(ScriptErrorKind.TypeError, "Tail call in a constructor");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1053,7 +1055,7 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            RuntimeError($"Function '{funcName}' is not compiled");
+                            RuntimeError(ScriptErrorKind.TypeError, $"Function '{funcName}' is not compiled");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1120,7 +1122,7 @@ namespace WarScript.Bytecode
                         var instance = _stack[_sp - argCount - 1];
                         if (!instance.IsClass)
                         {
-                            RuntimeError($"Cannot call method '{methodName}' on non-class value");
+                            RuntimeError(ScriptErrorKind.TypeError, $"Cannot call method '{methodName}' on non-class value");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1129,7 +1131,7 @@ namespace WarScript.Bytecode
                         var classDef = FindClassWithMethod(classData.Definition, methodName, argCount);
                         if (classDef == null)
                         {
-                            RuntimeError(System.FormattableString.Invariant($"Method '{methodName}' with {argCount} args not found"));
+                            RuntimeError(ScriptErrorKind.NameError, System.FormattableString.Invariant($"Method '{methodName}' with {argCount} args not found"));
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1189,7 +1191,7 @@ namespace WarScript.Bytecode
                                     _script.DefinitionContext.EndScope();
                                     _script.MemoryContext.EndScope(); // class memory
                                     _script.ClassInstanceContext.PopValue();
-                                    RuntimeError("Stack overflow");
+                                    RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                                     if (DoHandleException(ref fi, ref code, ref constants)) break;
                                     return;
                                 }
@@ -1212,7 +1214,7 @@ namespace WarScript.Bytecode
                                 _script.DefinitionContext.EndScope();
                                 _script.MemoryContext.EndScope();
                                 _script.ClassInstanceContext.PopValue();
-                                RuntimeError($"Method '{methodName}' is not compiled");
+                                RuntimeError(ScriptErrorKind.TypeError, $"Method '{methodName}' is not compiled");
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -1413,7 +1415,7 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            RuntimeError($"Unable to iterate '{target}'");
+                            RuntimeError(ScriptErrorKind.TypeError, $"Unable to iterate '{target}'");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1448,7 +1450,7 @@ namespace WarScript.Bytecode
                         var parent = Pop();
                         if (!parent.IsClass)
                         {
-                            RuntimeError("Cannot instantiate nested class on non-class value");
+                            RuntimeError(ScriptErrorKind.TypeError, "Cannot instantiate nested class on non-class value");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1507,7 +1509,7 @@ namespace WarScript.Bytecode
                         else
                         {
                             var propName = constants[nameIdx].TextValue;
-                            RuntimeError($"Cannot access property '{propName}' on non-class value");
+                            RuntimeError(ScriptErrorKind.TypeError, $"Cannot access property '{propName}' on non-class value");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1548,7 +1550,7 @@ namespace WarScript.Bytecode
                     case OpCode.This:
                         if (!_script.ClassInstanceContext.HasValue)
                         {
-                            RuntimeError("'this' can only be used inside a class");
+                            RuntimeError(ScriptErrorKind.NameError, "'this' can only be used inside a class");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1562,7 +1564,7 @@ namespace WarScript.Bytecode
                         var cacheSlot = ReadU16(code, ref _frames[fi].IP);
                         if (!_script.ClassInstanceContext.HasValue)
                         {
-                            RuntimeError("'this' can only be used inside a class");
+                            RuntimeError(ScriptErrorKind.NameError, "'this' can only be used inside a class");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1592,7 +1594,7 @@ namespace WarScript.Bytecode
                         var value = Pop();
                         if (!_script.ClassInstanceContext.HasValue)
                         {
-                            RuntimeError("'this' can only be used inside a class");
+                            RuntimeError(ScriptErrorKind.NameError, "'this' can only be used inside a class");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1664,7 +1666,7 @@ namespace WarScript.Bytecode
                         {
                             var line = _frames[fi].IP > 0 && _frames[fi].IP - 1 < code.Count
                                 ? _frames[fi].Function.Chunk.Lines.GetLine(_frames[fi].IP - 1) : 0;
-                            RuntimeError(System.FormattableString.Invariant($"Assertion error at line {line}"));
+                            RuntimeError(ScriptErrorKind.AssertionFailed, System.FormattableString.Invariant($"Assertion error at line {line}"));
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1683,7 +1685,7 @@ namespace WarScript.Bytecode
                         var hasRescue = code[_frames[fi].IP++] != 0;
                         if (_handlerCount >= HandlersMax)
                         {
-                            RuntimeError("Exception handler stack overflow (begin blocks nested too deeply)");
+                            RuntimeError(ScriptErrorKind.LimitExceeded, "Exception handler stack overflow (begin blocks nested too deeply)");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1779,7 +1781,8 @@ namespace WarScript.Bytecode
 
                     if (!pending.IsReturn)
                     {
-                        _script.ExceptionContext.RaiseException(pending.Value);
+                        if (pending.Error != null) _script.ExceptionContext.Reraise(pending.Error);
+                        else _script.ExceptionContext.RaiseException(pending.Value);
                         if (DoHandleException(ref fi, ref code, ref constants))
                             continue;
                         return;
@@ -1936,19 +1939,21 @@ namespace WarScript.Bytecode
         {
             int surplus = argCount > function.Arity ? argCount - function.Arity : 0;
             if (stackBase + surplus + function.MaxStack <= StackMax) return true;
-            RuntimeError("Value stack overflow");
+            RuntimeError(ScriptErrorKind.LimitExceeded, "Value stack overflow");
             return false;
         }
 
-        private void RuntimeError(string message)
+        private void RuntimeError(ScriptErrorKind kind, string message)
         {
-            _script.ExceptionContext.RaiseException(message);
+            _script.ExceptionContext.RaiseException(message, kind);
         }
 
         /// <summary>
         /// Raises the script error for an exception thrown by a native body
         /// (plan 6.9, PROP-13): a <see cref="ScriptErrorException"/> keeps its
-        /// own message; anything else is a NativeError naming the native. A
+        /// own message (a <see cref="NativeArgumentException"/> from
+        /// <see cref="NativeHelper"/> keeps v1's, naming the native, with its
+        /// own kind); anything else is a NativeError naming the native. A
         /// host fault recorded by an entry nested inside the native is
         /// rethrown instead, as this VM's own host fault.
         /// </summary>
@@ -1957,7 +1962,9 @@ namespace WarScript.Bytecode
             // A host fault in an entry the native made (plan 6.3, T2.4):
             // this VM stops too, whatever the native did with the result.
             _script.ThrowPendingHostFault();
-            if (e is ScriptErrorException scriptError)
+            if (e is NativeArgumentException argumentError)
+                _script.ExceptionContext.RaiseException($"{what} '{name}' failed: {e.Message}", argumentError.Kind);
+            else if (e is ScriptErrorException scriptError)
                 _script.ExceptionContext.RaiseException(e.Message, scriptError.Kind);
             else
                 _script.ExceptionContext.RaiseException($"{what} '{name}' failed: {e.Message}", ScriptErrorKind.NativeError);
@@ -1975,7 +1982,7 @@ namespace WarScript.Bytecode
             if (budget.MemoryLimit <= 0) return true;
             budget.MemoryUsed += bytes;
             if (budget.MemoryUsed <= budget.MemoryLimit) return true;
-            RuntimeError("Memory budget exceeded");
+            RuntimeError(ScriptErrorKind.MemoryBudgetExceeded, "Memory budget exceeded");
             return false;
         }
 
@@ -1987,7 +1994,7 @@ namespace WarScript.Bytecode
         private bool CheckTextLength(long length)
         {
             if (length <= _script.MaxTextLength) return true;
-            RuntimeError("Text too long");
+            RuntimeError(ScriptErrorKind.LimitExceeded, "Text too long");
             return false;
         }
 
@@ -1999,7 +2006,7 @@ namespace WarScript.Bytecode
         private bool CheckArrayLength(long length)
         {
             if (length <= _script.MaxArrayLength) return true;
-            RuntimeError("Array too long");
+            RuntimeError(ScriptErrorKind.LimitExceeded, "Array too long");
             return false;
         }
 
@@ -2026,6 +2033,7 @@ namespace WarScript.Bytecode
 
         private bool DoHandleException(ref int fi, ref List<byte> code, ref List<WarValue> constants)
         {
+            CaptureCallStack();
             while (_handlerCount > 0)
             {
                 var handler = _handlers[_handlerCount - 1];
@@ -2081,14 +2089,39 @@ namespace WarScript.Bytecode
                 else
                 {
                     // No rescue, but ensure must run: clear the exception,
-                    // keep its value, run ensure, re-raise when ensure ends.
+                    // keep it, run ensure, re-raise it when ensure ends.
+                    var raised = _script.ExceptionContext.Exception;
                     _script.ExceptionContext.RescueException();
-                    PushPending(false, errorVal, fi, handler.EndIP);
+                    PushPending(false, errorVal, fi, handler.EndIP, raised);
                     _frames[fi].IP = handler.EnsureIP;
                     return true;
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// Records where the raised error is, before any frame is unwound
+        /// (plan T2.5): this VM's frames, innermost first, with the line of
+        /// the instruction each one is executing. An error that a nested
+        /// entry left raised already has the frames of the VM it was raised
+        /// in, and gets this VM's added below them as it continues from the
+        /// native call site; one this VM recorded already (re-raised by an
+        /// ensure block) keeps its stack.
+        /// </summary>
+        private void CaptureCallStack()
+        {
+            var raised = _script.ExceptionContext.Exception;
+            if (raised == null || ReferenceEquals(raised.StackOwner, this)) return;
+            var stack = raised.BeginFrames(this);
+            for (int i = _frameCount - 1; i >= 0; i--)
+            {
+                var function = _frames[i].Function;
+                var chunk = function.Chunk;
+                var ip = _frames[i].IP > 0 ? _frames[i].IP - 1 : 0;
+                var line = ip < chunk.Code.Count ? chunk.Lines.GetLine(ip) : 0;
+                stack.Add(new ScriptFrame(function.Name, chunk.Source ?? _script.ScriptName, line, 0));
+            }
         }
 
         /// <summary>
@@ -2140,7 +2173,8 @@ namespace WarScript.Bytecode
         // ── Pending ensure records ──
 
         /// <summary>Records an ensure block being entered with a return or re-raise to finish.</summary>
-        private void PushPending(bool isReturn, in WarValue value, int fi, int endIP)
+        private void PushPending(bool isReturn, in WarValue value, int fi, int endIP,
+            Exception.Exception? error = null)
         {
             if (_pendingCount == _pending.Length)
                 System.Array.Resize(ref _pending, _pending.Length * 2);
@@ -2148,6 +2182,7 @@ namespace WarScript.Bytecode
             {
                 IsReturn = isReturn,
                 Value = value,
+                Error = error,
                 FrameIndex = fi,
                 EndIP = endIP,
                 HandlerDepth = _handlerCount
@@ -2231,7 +2266,7 @@ namespace WarScript.Bytecode
             var definition = _script.DefinitionContext.GetScope().GetClass(className);
             if (definition == null)
             {
-                RuntimeError($"Class '{className}' is not defined");
+                RuntimeError(ScriptErrorKind.NameError, $"Class '{className}' is not defined");
                 return default;
             }
             _constructors.Clear();
@@ -2283,7 +2318,7 @@ namespace WarScript.Bytecode
                 if (_allocationPath.Contains(baseDef))
                 {
                     // Q-11: a rescuable error at 'new', not a compile error.
-                    RuntimeError($"Class '{baseDef.ClassDetails.Name}' inherits from itself");
+                    RuntimeError(ScriptErrorKind.TypeError, $"Class '{baseDef.ClassDetails.Name}' inherits from itself");
                     return null;
                 }
 
@@ -2331,7 +2366,7 @@ namespace WarScript.Bytecode
             if (_frameCount + count > FramesMax)
             {
                 _constructors.Clear();
-                RuntimeError("Stack overflow");
+                RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                 return false;
             }
             // Every constructor frame's base is just above the instance.
@@ -2609,7 +2644,7 @@ namespace WarScript.Bytecode
         // ── Import ──
         private void ExecuteImport(string path)
         {
-            if (_script.ImportStack.Contains(path)) { RuntimeError($"Circular import: '{path}'"); return; }
+            if (_script.ImportStack.Contains(path)) { RuntimeError(ScriptErrorKind.NameError, $"Circular import: '{path}'"); return; }
             if (_script.ImportCache.TryGetValue(path, out var cached))
             {
                 cached.CopyLocalDefinitionsTo(_script.DefinitionContext.GetScope());
@@ -2626,10 +2661,10 @@ namespace WarScript.Bytecode
             string? source = null;
             if (precompiled == null)
             {
-                if (_script.FileResolver == null) { RuntimeError($"Cannot import '{path}': no file resolver"); return; }
+                if (_script.FileResolver == null) { RuntimeError(ScriptErrorKind.NameError, $"Cannot import '{path}': no file resolver"); return; }
                 try { source = _script.FileResolver(path); }
-                catch (System.Exception e) { RuntimeError($"Failed to read import '{path}': {e.Message}"); return; }
-                if (source == null) { RuntimeError($"Import '{path}' not found"); return; }
+                catch (System.Exception e) { RuntimeError(ScriptErrorKind.NameError, $"Failed to read import '{path}': {e.Message}"); return; }
+                if (source == null) { RuntimeError(ScriptErrorKind.NameError, $"Import '{path}' not found"); return; }
             }
 
             _script.ImportStack.Add(path);

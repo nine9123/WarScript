@@ -92,7 +92,10 @@ namespace Tests
             Assert.AreEqual("Division by zero", result.Error.Value.TextValue);
             Assert.AreEqual("res", result.Error.ScriptName);
             Assert.IsNull(result.Error.HostException);
-            Assert.AreEqual(0, result.Error.CallStack.Count, "call stacks come with T2.5");
+            Assert.AreEqual(ScriptErrorKind.DivisionByZero, result.Error.Kind);
+            Assert.AreEqual(2, result.Error.Line);
+            Assert.AreEqual(1, result.Error.CallStack.Count);
+            Assert.AreEqual("f", result.Error.CallStack[0].Function);
             Assert.IsFalse(script.ExceptionContext.IsRaised(), "the outermost entry still logs and clears it");
             Assert.AreEqual(1, output.Count);
         }

@@ -3,10 +3,8 @@ namespace WarScript
     /// <summary>
     /// The kinds of runtime error a script can raise (v2 plan, section 5.9).
     /// Scripts still see an error as message text only; the host sees the kind
-    /// in <see cref="ScriptError.Kind"/> (plan T2.3). Until structured errors
-    /// (T2.5) assign one at every raise, only compile errors, host faults,
-    /// native failures and errors thrown as <see cref="ScriptErrorException"/>
-    /// have their own kind; every other runtime error reports Raised.
+    /// in <see cref="ScriptError.Kind"/> (plan T2.3). Every error the runtime
+    /// raises has its kind (T2.5); Raised is a <c>raise</c> statement's.
     /// </summary>
     public enum ScriptErrorKind : byte
     {
@@ -45,6 +43,20 @@ namespace WarScript.Exception
         public ScriptErrorException(ScriptErrorKind kind, string message) : base(message)
         {
             Kind = kind;
+        }
+    }
+
+    /// <summary>
+    /// An argument check of <see cref="NativeHelper"/> failed (plan 6.9):
+    /// ArgumentError for a missing argument, TypeError for one of the wrong
+    /// type. Unlike other <see cref="ScriptErrorException"/>s the VM keeps
+    /// v1's message, which names the native:
+    /// <c>Native function 'f' failed: Argument 0 expected Numeric, got Text</c>.
+    /// </summary>
+    public sealed class NativeArgumentException : ScriptErrorException
+    {
+        public NativeArgumentException(ScriptErrorKind kind, string message) : base(kind, message)
+        {
         }
     }
 

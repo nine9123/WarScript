@@ -20,7 +20,17 @@ namespace WarScript.Context
             return default;
         }
 
-        /// <summary>Raises a runtime error of a known kind (plan T2.3; every raise gets one in T2.5).</summary>
+        /// <summary>
+        /// Raises an error again, keeping its kind and call stack: the error
+        /// an ensure block re-raises when it ends (plan T2.5).
+        /// </summary>
+        internal void Reraise(Exception.Exception exception)
+        {
+            Exception = exception;
+            _state = State.Raised;
+        }
+
+        /// <summary>Raises a runtime error of a given kind (plan T2.5).</summary>
         internal WarValue RaiseException(string textValue, ScriptErrorKind kind)
         {
             Exception = new Exception.Exception(WarValue.FromText(textValue), kind);

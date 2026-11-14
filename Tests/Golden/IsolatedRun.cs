@@ -194,7 +194,9 @@ namespace Tests.Golden
             {
                 WriteString(sb, "error");
                 sb.Append(", \"error\": {\"kind\": ");
-                WriteString(sb, GoldenRun.V1Kind(run.ErrorMessage));
+                WriteString(sb, run.ErrorKind);
+                sb.Append(", \"line\": ");
+                sb.Append(run.ErrorLine.ToString(CultureInfo.InvariantCulture));
                 sb.Append(", \"message\": ");
                 WriteString(sb, run.ErrorMessage);
                 sb.Append('}');
@@ -229,7 +231,12 @@ namespace Tests.Golden
             switch (status)
             {
                 case "ok": break;
-                case "error": run.ErrorMessage = message ?? ""; break;
+                case "error":
+                    run.ErrorMessage = message ?? "";
+                    run.ErrorKind = error != null && error.TryGetValue("kind", out var k) ? k as string : null;
+                    run.ErrorLine = error != null && error.TryGetValue("line", out var l) && l is string line
+                        ? int.Parse(line, CultureInfo.InvariantCulture) : 0;
+                    break;
                 case "compile-error": run.CompileError = message ?? ""; break;
                 case "rejected": run.Rejected = message ?? ""; break;
                 case "host-fault": run.EscapedException = message ?? ""; break;

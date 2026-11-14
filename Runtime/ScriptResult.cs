@@ -22,12 +22,15 @@ namespace WarScript
     }
 
     /// <summary>
-    /// One frame of a <see cref="ScriptError"/>'s call stack (plan 6.1).
-    /// Call stacks are captured from T2.5 on.
+    /// One frame of a <see cref="ScriptError"/>'s call stack (plan 6.1, T2.5).
     /// </summary>
     public readonly struct ScriptFrame
     {
-        /// <summary><c>&lt;script&gt;</c>, <c>tick</c>, <c>Unit.hit</c>, <c>Unit#ctor</c>, <c>&lt;lambda&gt;</c>.</summary>
+        /// <summary>
+        /// The compiled function: <c>&lt;script&gt;</c> (top-level code),
+        /// <c>tick</c>, <c>Unit#ctor</c>, <c>&lt;lambda&gt;</c>. A method is
+        /// named by its own name (<c>hit</c>), not yet <c>Unit.hit</c>.
+        /// </summary>
         public readonly string Function;
         public readonly string ScriptName;
         public readonly int Line;
@@ -62,13 +65,18 @@ namespace WarScript
         /// <summary>The instance's label (plan T2.8); null until then.</summary>
         public string? InstanceLabel { get; }
 
-        /// <summary>The line the error was raised at, or 0 when unknown (runtime errors carry their line from T2.5).</summary>
+        /// <summary>The line the error was raised at (the innermost frame's), or 0 when unknown: an error raised outside any frame, a host fault, or a compile error without one.</summary>
         public int Line { get; }
 
         /// <summary>0 until T3.1.</summary>
         public int Column { get; }
 
-        /// <summary>Innermost frame first; empty until T2.5 captures it.</summary>
+        /// <summary>
+        /// Innermost frame first (T2.5): the frames of the VM the error was
+        /// raised in, then those of each script it continued in through a
+        /// native's callback. Empty for compile errors, host faults and errors
+        /// raised outside any frame.
+        /// </summary>
         public IReadOnlyList<ScriptFrame> CallStack { get; }
 
         /// <summary>The C# exception of a <see cref="ScriptErrorKind.HostFault"/>; null otherwise.</summary>
@@ -82,7 +90,8 @@ namespace WarScript
         internal SyntaxException? CompileException { get; }
 
         internal ScriptError(ScriptErrorKind kind, string message, WarValue value, string scriptName,
-            int line, int column, System.Exception? hostException = null, SyntaxException? compileException = null)
+            int line, int column, System.Exception? hostException = null, SyntaxException? compileException = null,
+            IReadOnlyList<ScriptFrame>? callStack = null)
         {
             Kind = kind;
             Message = message;
@@ -90,16 +99,23 @@ namespace WarScript
             ScriptName = scriptName;
             Line = line;
             Column = column;
-            CallStack = System.Array.Empty<ScriptFrame>();
+            CallStack = callStack ?? System.Array.Empty<ScriptFrame>();
             HostException = hostException;
             CompileException = compileException;
         }
 
-        /// <summary>An error the VM raised and no handler caught.</summary>
+        /// <summary>
+        /// An error the VM raised and no handler caught, with the script,
+        /// line and call stack recorded where it was raised (T2.5); an error
+        /// raised outside any frame (a refused nested entry the host made
+        /// directly) has <paramref name="scriptName"/>, line 0 and no stack.
+        /// </summary>
         internal static ScriptError FromRaised(Exception.Exception raised, string scriptName)
         {
             var text = raised.Value.IsText ? raised.Value.TextValue : raised.Value.ToString();
-            return new ScriptError(raised.Kind, text, raised.Value, scriptName, 0, 0);
+            var stack = raised.CallStack;
+            return new ScriptError(raised.Kind, text, raised.Value, raised.ScriptName ?? scriptName, raised.Line, 0,
+                callStack: stack == null ? null : stack.ToArray());
         }
 
         /// <summary>A compile error: of the script itself (<paramref name="diagnostic"/>) or of an imported file.</summary>

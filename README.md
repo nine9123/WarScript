@@ -892,10 +892,27 @@ else
 | `Halted` | The instance was already halted, so nothing ran. | null | The fault that halted it |
 | `HostFault` | A C# exception occurred inside the VM (a VM bug or a host failure). The instance is now halted. | null | The error, with `HostException` set |
 
-A `ScriptError` has a `Kind`, a `Message`, the raised `Value`, a `ScriptName` and a `Line`. Being
-written in stages: until structured errors land, most runtime errors report kind `Raised` (natives
-throwing `ScriptErrorException` and native failures already have their own kind) with line 0 and an
-empty `CallStack`. A native that calls back into its own instance gets the callback's error as its
+A `ScriptError` has a `Kind`, a `Message`, the raised `Value`, a `ScriptName`, a `Line` and a
+`CallStack`, innermost frame first. Every runtime error has its kind: `DivisionByZero`, `TypeError`
+(an operation on the wrong kind of value), `NameError` (an undefined function, method, class or
+import), `AssertionFailed`, `LimitExceeded` (stack overflow, text or array too long, nesting),
+`InstructionBudgetExceeded`, `MemoryBudgetExceeded`, `NativeError` (a native threw), `ArgumentError`
+and `TypeError` from `NativeHelper`'s argument checks, and `Raised` for a `raise` statement. Its
+`ToString()` prints the frames:
+
+```
+main:2:0: DivisionByZero: Division by zero
+  at inner (main:2:0)
+  at outer (main:6:0)
+  at <script> (main:8:0)
+```
+
+Frames are named after the compiled function: `<script>` for top-level code, `Unit#ctor` for a
+constructor, `<lambda>`, and a method by its own name. Columns are 0 for now. Scripts still see a
+rescued error as its message text. A native raises a specific kind by throwing
+`ScriptErrorException(kind, message)`; any other exception it throws is a `NativeError`.
+
+A native that calls back into its own instance gets the callback's error as its
 result, and the error also continues in the calling script, where `begin/rescue` can catch it; a
 host fault in such a callback stops the calling script too.
 
