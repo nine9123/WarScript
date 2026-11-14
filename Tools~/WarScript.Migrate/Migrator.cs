@@ -881,7 +881,9 @@ namespace WarScript.Migrate
                 .ToList();
             if (ordered.Count == 0) return;
 
-            var declaration = "global " + string.Join(", ", ordered);
+            // A name `global` is renamed `global_` everywhere (GlobalNames),
+            // so the declaration names the new one.
+            var declaration = "global " + string.Join(", ", ordered.Select(n => n == "global" ? "global_" : n));
             var what = body.Kind == BodyKind.Lambda ? "this lambda" : $"`{body.Name}`";
             var entry = body.File.Entry(body.Line, body.Column, Rules.GlobalWrite, EntryKind.Rewrite,
                 $"Inserted `{declaration}` as the first statement of {what} (v1 wrote these globals). Decide whether each was intended or should become a local.");

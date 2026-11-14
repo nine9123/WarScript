@@ -234,6 +234,14 @@ namespace Tests
             Assert.AreEqual(2, result.Entries.Count(e => e.Rule == Rules.GlobalName));
         }
 
+        [Test]
+        public void AFunctionWritingAGlobalNamedGlobal_DeclaresTheNewName()
+        {
+            var result = Migrate(("a.ws", "global = 1\nfun f [x]\n    global = x\nend\n"));
+            Assert.AreEqual("global_ = 1\nfun f [x]\n    global global_\n    global_ = x\nend\n", Rewritten(result, "a.ws"));
+            StringAssert.Contains("`global global_`", Single(result, Rules.GlobalWrite).Action);
+        }
+
         // ── Imports ──────────────────────────────────────────────────────
 
         [Test]

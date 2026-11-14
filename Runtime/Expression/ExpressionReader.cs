@@ -267,6 +267,8 @@ namespace WarScript.Expression
                 if (_operands.Count == 0)
                     throw new SyntaxException($"Malformed expression: binary operator '{op}' missing left-hand operand", token.RowNumber, token.Column);
 
+                // The names are swapped: `left` was popped first, so it is the
+                // right-hand operand, and `right` the left-hand one.
                 var right = _operands.Pop();
                 var binary = At(op.ToBinaryExpression(_script, right, left), token);
                 var spans = _script.ExpressionSpans;
