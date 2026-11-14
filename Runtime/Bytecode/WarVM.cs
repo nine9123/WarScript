@@ -2441,8 +2441,15 @@ namespace WarScript.Bytecode
         /// <summary>
         /// A value as text for <c>print</c> and the text operators: the
         /// canonical format (T1.6), with the instance's native formatters.
+        /// A formatter is host code and may call back into the instance: a
+        /// host fault in that nested entry stops this VM too (plan 6.3),
+        /// whether the formatter returned or threw.
         /// </summary>
-        private string Text(in WarValue v) => v.Format(_script.NativeFormatters);
+        private string Text(in WarValue v)
+        {
+            try { return v.Format(_script.NativeFormatters); }
+            finally { _script.ThrowPendingHostFault(); }
+        }
 
         /// <summary>
         /// A value for an audit detail: its type and a short form. Never calls

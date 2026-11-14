@@ -218,6 +218,48 @@ end");
             CollectionAssert.AreEqual(new[] { "rescued" }, output);
         }
 
+        private sealed class Widget { }
+
+        [TestCase(false, TestName = "HostFaultInAFormattersCallback_StopsTheScript(formatter returns)")]
+        [TestCase(true, TestName = "HostFaultInAFormattersCallback_StopsTheScript(formatter throws a script error)")]
+        public void HostFaultInAFormattersCallback_StopsTheScript(bool formatterThrows)
+        {
+            // A native formatter is host code that may call back (6.5); a host
+            // fault in that nested entry stops the formatting VM as well, like
+            // one in a native's callback (6.3), and is not rescuable.
+            var (script, output) = Script(@"fun on_format []
+    x = 1
+end
+w = widget []
+begin
+    print ""w="" + w
+rescue e
+    print ""rescued""
+end
+print ""after""");
+            AddNative(script, "widget", _ => WarValue.FromNativeObject(new Widget()));
+            script.RegisterNativeFormatter<Widget>(_ =>
+            {
+                script.Call(script.GetFunction("on_format", 0));
+                if (formatterThrows)
+                    throw new WarScript.Exception.ScriptErrorException(ScriptErrorKind.NativeError, "cannot format");
+                return "widget";
+            });
+            script.AddBreakpoint(2); // in on_format
+            script.DebugHook = ctx => throw new InvalidOperationException("host failed");
+            var before = Invariants.Capture(script);
+
+            var result = script.Run();
+
+            Assert.IsNull(Invariants.Violation(script, before));
+            Assert.AreEqual(ScriptStatus.HostFault, result.Status);
+            Assert.IsInstanceOf<InvalidOperationException>(result.Error.HostException);
+            Assert.IsTrue(script.IsHalted);
+            CollectionAssert.DoesNotContain(output, "rescued");
+            CollectionAssert.DoesNotContain(output, "after");
+            CollectionAssert.DoesNotContain(output, "w=widget");
+        }
+
         // ── Logging and the Faulted event ───────────────────────
 
         [Test]
