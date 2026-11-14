@@ -136,9 +136,7 @@ namespace WarScript
         /// line and call stack recorded where it was raised (T2.5); an error
         /// raised outside any frame (a refused nested entry the host made
         /// directly) has <paramref name="scriptName"/>, line 0 and no stack.
-        /// </summary>
-        /// <summary>
-        /// A runtime error. <paramref name="source"/> is the source of
+        /// <paramref name="source"/> is the source of
         /// <paramref name="scriptName"/>, when known: an error whose innermost
         /// frame is in that script and has a column shows its line (T3.1).
         /// </summary>

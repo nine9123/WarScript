@@ -234,7 +234,10 @@ namespace WarScript
 
             // add class definition
             var classScope = _script.DefinitionContext.NewScope();
-            var classStatement = new ClassStatement(_script, rowToken.RowNumber, classDetails.Name);
+            var classStatement = new ClassStatement(_script, rowToken.RowNumber, classDetails.Name)
+            {
+                Column = rowToken.Column // definitions are not in the statement list ParseExpression positions (T3.1)
+            };
             var classDefinition = new ClassDefinition(classDetails, baseTypes, classStatement, classScope);
             _script.DefinitionContext.GetScope().AddClass(classDefinition);
 
@@ -309,7 +312,10 @@ namespace WarScript
                 ? _compositeStatement.BlockName + "#" + name.Value
                 : name.Value;
 
-            var functionStatement = new FunctionStatement(_script, rowToken.RowNumber, blockName);
+            var functionStatement = new FunctionStatement(_script, rowToken.RowNumber, blockName)
+            {
+                Column = rowToken.Column // definitions are not in the statement list ParseExpression positions (T3.1)
+            };
             var functionScope = _script.DefinitionContext.NewScope();
             var functionDetails = new FunctionDetails(name.Value, arguments, minArity);
             var functionDefinition = new FunctionDefinition(functionDetails, functionStatement, functionScope);

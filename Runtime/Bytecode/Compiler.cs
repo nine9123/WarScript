@@ -171,7 +171,7 @@ namespace WarScript.Bytecode
             if (funcDef.Compiled != null) return;
             if (funcDef.Statement == null) return; // native function
 
-            CheckParameterCount(funcDef.Details.Arguments.Count, _source, Line(funcDef.Statement));
+            CheckParameterCount(funcDef.Details.Arguments.Count, _source, Line(funcDef.Statement), funcDef.Statement.Column);
             var child = new Compiler(_script, functionDepth: 1);
             child._source = _source;
             child._current = new CompiledFunction(funcDef.Details.Name, funcDef.Details.Arguments.Count);
@@ -283,10 +283,10 @@ namespace WarScript.Bytecode
         /// more parameters than a call can pass (T1.8; the loader rejects an
         /// arity above 255 too).
         /// </summary>
-        private static void CheckParameterCount(int count, string? source, int line)
+        private static void CheckParameterCount(int count, string? source, int line, int column)
         {
             if (count > BytecodeVerifier.MaxArity)
-                throw new CompileError("more than 255 parameters", source, line);
+                throw new CompileError("more than 255 parameters", source, line, column);
         }
 
         // ────────────────────────────────────────────────────────
@@ -295,12 +295,13 @@ namespace WarScript.Bytecode
 
         private static CompiledFunction CompileLambda(WarScriptLanguage script, LambdaExpression lambda, string? source)
         {
-            CheckParameterCount(lambda.Parameters.Count, source, lambda.Line);
+            CheckParameterCount(lambda.Parameters.Count, source, lambda.Line, lambda.Column);
             var compiler = new Compiler(script, functionDepth: 1);
             compiler._source = source;
             compiler._current = new CompiledFunction("<lambda>", lambda.Parameters.Count);
             compiler._current.Chunk.Source = source;
             compiler._line = lambda.Line;
+            compiler.SetColumn(lambda.Column);
             compiler.BeginScope();
 
             foreach (var param in lambda.Parameters)

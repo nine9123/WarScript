@@ -450,7 +450,7 @@ namespace WarScript.Expression
             var bodyScope = _script.DefinitionContext.NewScope();
             StatementParser.ParseLambdaBody(_script, Tokens, body, bodyScope);
 
-            return new LambdaExpression(_script, parameters, body, funToken.RowNumber);
+            return new LambdaExpression(_script, parameters, body, funToken.RowNumber, funToken.Column);
         }
     }
 }

@@ -24,15 +24,20 @@ namespace WarScript.Expression
         public readonly CompositeStatement Body;
         public readonly int Line;
 
+        /// <summary>The column of the <c>fun</c> keyword (T3.1), 0 when unknown.</summary>
+        public readonly int Column;
+
         public LambdaExpression(
             WarScriptLanguage script,
             List<string> parameters,
             CompositeStatement body,
-            int line)
+            int line,
+            int column = 0)
         {
             Parameters = parameters;
             Body = body;
             Line = line;
+            Column = column;
         }
     }
 }

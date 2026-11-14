@@ -138,11 +138,14 @@ namespace Tests
         {
             Compile("fun f [" + Repeat(255, i => "p" + i, ", ") + "]\nend");
             Compile("g = fun [" + Repeat(255, i => "p" + i, ", ") + "] end");
-            Assert.AreEqual("more than 255 parameters",
-                CompileFails("fun f [" + Repeat(256, i => "p" + i, ", ") + "]\nend").Reason);
+            var function = CompileFails("x = 1\n  fun f [" + Repeat(256, i => "p" + i, ", ") + "]\nend");
+            Assert.AreEqual("more than 255 parameters", function.Reason);
+            Assert.AreEqual(2, function.Line);
+            Assert.AreEqual(3, function.Column, "at the function's 'fun' (T3.1)");
             var lambda = CompileFails("x = 1\ng = fun [" + Repeat(256, i => "p" + i, ", ") + "] end");
             Assert.AreEqual("more than 255 parameters", lambda.Reason);
             Assert.AreEqual(2, lambda.Line);
+            Assert.AreEqual(5, lambda.Column, "at the lambda's 'fun' (T3.1)");
         }
 
         // ── PopN ─────────────────────────────────────────────────────────
