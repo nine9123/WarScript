@@ -75,17 +75,19 @@ end
         }
 
         [Test]
-        public void Lambda_DoesNotCaptureOuterLocal_ReadsAsNull()
+        public void Lambda_ReadingAnOuterLocal_IsACompileError()
         {
-            var output = Run(@"
+            // v1 read null here; v2 has no closures and says so (T3.4, PROP-16).
+            var e = Assert.Throws<WarScript.Exception.CompileError>(() => Run(@"
 fun make []
     local = 42
     return fun [] return local end
 end
 f = make []
 print f []
-");
-            Assert.AreEqual("null", output[0]);
+"));
+            StringAssert.Contains("closures are not supported", e.Message);
+            Assert.AreEqual(4, e.Line);
         }
 
         [Test]
@@ -275,7 +277,11 @@ end
             script.InstructionBudget = 100000;
             script.Run();
 
-            Assert.AreEqual("caught: Instruction budget exceeded", output[0]);
+            // The exhausted budget cannot be rescued (BUDGET-2): neither
+            // "finished" nor "caught" is printed.
+            Assert.AreEqual("Instruction budget exceeded", script.ExceptionContext.LastUnhandled?.Value.ToString());
+            CollectionAssert.DoesNotContain(output, "finished");
+            Assert.IsFalse(output.Exists(o => o.StartsWith("caught")));
         }
 
         // ────────────────────────────────────────────────

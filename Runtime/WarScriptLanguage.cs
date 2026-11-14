@@ -21,25 +21,9 @@ namespace WarScript
         public readonly ConstantExpression FalseExpr;
         public readonly ThisExpression ThisExpr;
 
-        // ── Consolidated halt flags for fast abort checking ──
-        [Flags]
-        public enum HaltFlag
-        {
-            None      = 0,
-            Exception = 1,
-            Return    = 2,
-            Break     = 4,
-            Next      = 8,
-            Yield     = 16,
-        }
-        public HaltFlag HaltFlags;
-
         public readonly DefinitionContext DefinitionContext;
         public readonly MemoryContext MemoryContext;
         public readonly ExceptionContext ExceptionContext;
-        public readonly ReturnContext ReturnContext;
-        public readonly NextContext NextContext;
-        public readonly BreakContext BreakContext;
         public readonly ClassInstanceContext ClassInstanceContext;
         public readonly IExpression DefaultStep;
 
@@ -64,6 +48,33 @@ namespace WarScript
 
         public readonly Action<WarScriptLanguage, string>? Logger;
 
+        /// <summary>
+        /// A host-chosen name for this instance (PROP-4, plan T2.8), e.g. the
+        /// unit or room it scripts, since many instances may run the same
+        /// script. Every <see cref="ScriptError"/> the instance reports
+        /// carries it (<see cref="ScriptError.InstanceLabel"/>, as it was when
+        /// the error was reported), and every line the runtime itself sends to
+        /// <see cref="Logger"/> starts with <c>[label] </c>. <c>print</c>
+        /// output is the script's, not the runtime's, and is passed on
+        /// unchanged. Null (the default) adds nothing.
+        /// </summary>
+        public string? InstanceLabel { get; set; }
+
+        /// <summary>
+        /// Sends a line the runtime emits (not <c>print</c> output) to
+        /// <see cref="Logger"/>, prefixed with <c>[</c><see cref="InstanceLabel"/><c>] </c>
+        /// when one is set (PROP-4).
+        /// </summary>
+        internal void Log(string line)
+        {
+            if (Logger == null) return;
+            var label = InstanceLabel;
+            Logger(this, label == null ? line : "[" + label + "] " + line);
+        }
+
+        /// <summary>FNV-1a state over every line printed so far (see <see cref="ComputeStateHash"/>).</summary>
+        private ulong _printedHash = StateHash.Offset;
+
         internal readonly Dictionary<string, DefinitionScope> ImportCache = new();
         internal readonly HashSet<string> ImportStack = new();
 
@@ -76,11 +87,27 @@ namespace WarScript
         private readonly DefinitionScope _definitionScope;
         private readonly MemoryScope _memoryScope;
 
+        /// <summary>
+        /// Incremented whenever a function is added to a definition scope of
+        /// this instance or a scope is cleared (<see cref="Reload"/>,
+        /// <see cref="LoadBytecode"/>, imports, <c>AddFunction</c>), so a
+        /// <see cref="FunctionHandle"/> knows when to look its function up
+        /// again (plan T2.6).
+        /// </summary>
+        internal int DefinitionsVersion { get; private set; }
+
+        internal void DefinitionsChanged() => DefinitionsVersion = unchecked(DefinitionsVersion + 1);
+
         public readonly string ScriptName;
 
-        private List<Token.Token> _tokens;
+        // The source Compile() lexes, parses and compiles (plan T2.2): set by
+        // the constructor and Reload, not lexed until then.
+        private string _sourceCode;
 
-        private CompositeStatement? _cachedStatement;
+        // Compile()'s cached answer (null: not compiled yet) and, for a
+        // failed compile, the error the v1 entry points still throw.
+        private CompileResult? _compileResult;
+        private Exception.SyntaxException? _compileError;
         private CompiledFunction? _cachedCompiled;
         private WarVM? _cachedVM;
 
@@ -90,15 +117,19 @@ namespace WarScript
         public MemoryScope UserMemoryScope => _memoryScope;
 
         /// <summary>
-        /// Maximum number of bytecode instructions a single Run() or Call()
-        /// invocation may execute before the VM raises an exception and stops.
-        /// 
+        /// Maximum number of bytecode instructions an outermost Run() or Call()
+        /// invocation (or a coroutine resume by TickCoroutines) may execute,
+        /// including everything nested inside it: constructors, imports, and
+        /// callbacks a native makes into this instance (v2 plan T1.5, PROP-2).
+        ///
         /// Set to 0 (default) to disable budgeting (unlimited execution).
         /// Recommended values: 100,000 for tick functions, 1,000,000 for Run().
         ///
-        /// When the budget is exhausted, the VM raises "Instruction budget exceeded"
-        /// which can be caught by begin/rescue like any other exception. If uncaught,
-        /// the script stops cleanly and the game continues.
+        /// When the budget is exhausted, the VM raises "Instruction budget exceeded".
+        /// The budget then stays exhausted until the next outermost entry: every
+        /// further instruction raises it again, so no rescue or ensure body runs
+        /// and the entry ends with the error (BUDGET-2), which halts the instance
+        /// (plan T2.4). The host simulation continues.
         /// </summary>
         public int InstructionBudget { get; set; }
 
@@ -121,6 +152,18 @@ namespace WarScript
 
         private readonly HashSet<int> _breakpoints = new();
 
+        // ── Audit mode (v2 plan 8.1, T0.8; temporary) ──
+
+        /// <summary>
+        /// Receives an <see cref="Audit.AuditEvent"/> each time the VM takes a
+        /// v1 code path whose behavior changes in WarScript v2 (mixed-type
+        /// equality, text subtraction, ignored index writes, a function
+        /// writing a global, ...). Null (the default) disables auditing; the
+        /// cost is then one null check on those paths. Collect events with an
+        /// <see cref="Audit.AuditReport"/>: <c>script.AuditSink = report.Add</c>.
+        /// </summary>
+        public Action<Audit.AuditEvent>? AuditSink { get; set; }
+
         /// <summary>Add a breakpoint at a source line number.</summary>
         public void AddBreakpoint(int line) => _breakpoints.Add(line);
 
@@ -140,8 +183,9 @@ namespace WarScript
         internal bool HasBreakpoint(int line) => _breakpoints.Contains(line);
 
         /// <summary>
-        /// Maximum bytes of heap allocation a single Run() or Call() invocation
-        /// may perform before the VM raises an exception and stops.
+        /// Maximum bytes of heap allocation an outermost Run() or Call()
+        /// invocation may perform, shared with everything nested inside it
+        /// like <see cref="InstructionBudget"/>, before the VM raises an exception.
         ///
         /// Set to 0 (default) to disable memory budgeting (unlimited).
         /// Recommended values: 1_000_000 (1MB) for tick functions,
@@ -155,6 +199,208 @@ namespace WarScript
         public long MemoryBudget { get; set; }
 
         /// <summary>
+        /// Longest text, in characters, that an operator may create
+        /// (concatenation, repetition, index write). Creating a longer one
+        /// raises "Text too long", which begin/rescue can catch; the check
+        /// happens before anything is allocated (v2 plan 5.12, PROP-5, T1.4).
+        /// </summary>
+        public int MaxTextLength { get; set; } = 1_048_576;
+
+        /// <summary>
+        /// Most elements an array may grow to through an operator
+        /// (<c>+</c>, <c>&lt;&lt;</c>, a literal) or <c>Array_insert</c>.
+        /// Exceeding it raises "Array too long", which begin/rescue can
+        /// catch; the check happens before anything is allocated (v2 plan
+        /// 5.12, PROP-5, T1.4).
+        /// </summary>
+        public int MaxArrayLength { get; set; } = 1_048_576;
+
+        // ── Formatting native objects (v2 plan T1.6, 5.10, PROP-14) ──
+
+        /// <summary>
+        /// The formatters registered with <see cref="RegisterNativeFormatter{T}"/>.
+        /// </summary>
+        internal readonly Native.NativeFormatters NativeFormatters = new();
+
+        /// <summary>
+        /// Registers how <c>print</c>, text concatenation and interpolation
+        /// format native objects whose runtime type is exactly
+        /// <typeparamref name="T"/>. Without one such an object prints as
+        /// <c>&lt;TypeName&gt;</c>: the runtime never calls a host object's
+        /// own <c>ToString()</c>, which may depend on the culture or go
+        /// through <c>double</c> (DET-3). <c>F64Vec3</c> and function values
+        /// have built-in formats that a registration does not change. The
+        /// formatter must be deterministic; it is kept across
+        /// <see cref="Reload"/>. It is host code, not a native function: a
+        /// <see cref="Exception.ScriptErrorException"/> it throws raises a
+        /// script error that <c>begin/rescue</c> can catch, any other
+        /// exception is a host fault that stops the entry.
+        /// </summary>
+        public void RegisterNativeFormatter<T>(Func<T, string> formatter) =>
+            NativeFormatters.Register(formatter);
+
+        // ── Host entries and instance budgets (v2 plan T1.5, 6.5) ──
+
+        /// <summary>
+        /// Most host entries (<see cref="Run"/>, <see cref="Call"/>, a
+        /// coroutine start or resume) that may be nested inside the outermost
+        /// one: a native that calls back into the instance which calls the
+        /// native again, and so on. A deeper entry does not run; it raises
+        /// "Host nesting limit exceeded" (LimitExceeded) for the caller
+        /// (PROP-5).
+        /// </summary>
+        public const int MaxHostNesting = 32;
+
+        /// <summary>
+        /// The instruction and memory budgets every VM of this instance
+        /// charges. <see cref="InstructionBudget"/> and <see cref="MemoryBudget"/>
+        /// are copied into it when an outermost entry starts (PROP-2).
+        /// </summary>
+        internal readonly ExecutionBudget Budget = new();
+
+        /// <summary>Host entries currently executing; 0 when the instance is idle.</summary>
+        internal int EntryDepth { get; private set; }
+
+        /// <summary>
+        /// Starts a host entry. The outermost one resets the budgets; one
+        /// nested deeper than <see cref="MaxHostNesting"/> raises
+        /// "Host nesting limit exceeded" instead and returns false, and the
+        /// entry must then return without running anything (the error stays
+        /// raised for the native that made the call). Pair a true result
+        /// with <see cref="EndEntry"/> in a finally block.
+        ///
+        /// A nested entry also returns false, running nothing, while an
+        /// earlier callback's error is still raised: that error belongs to
+        /// the calling script (PROP-1), and the new entry's VM would otherwise
+        /// take it for its own and could rescue it, letting the native
+        /// suppress a callback error (6.5).
+        /// </summary>
+        internal bool BeginEntry()
+        {
+            if (EntryDepth == 0)
+                _pendingHostFault = null;
+            if (EntryDepth > 0 && ExceptionContext.IsRaised())
+                return false;
+            if (EntryDepth > MaxHostNesting)
+            {
+                ExceptionContext.RaiseException("Host nesting limit exceeded", ScriptErrorKind.LimitExceeded);
+                return false;
+            }
+            if (EntryDepth == 0)
+                Budget.Reset(InstructionBudget, MemoryBudget);
+            EntryDepth++;
+            return true;
+        }
+
+        /// <summary>
+        /// Ends a host entry. An error the entry left unhandled is cleared at
+        /// the outermost entry (its result carries it, and
+        /// <see cref="FinishEntry"/> halts the instance with it); a nested
+        /// entry leaves it raised, so it continues in the calling script from
+        /// the native call site, where begin/rescue can catch it (PROP-1).
+        /// </summary>
+        internal void EndEntry()
+        {
+            EntryDepth--;
+            if (EntryDepth == 0 && ExceptionContext.IsRaised())
+                ExceptionContext.TakeUnhandled();
+        }
+
+        /// <summary>
+        /// Completes an entry after <see cref="EndEntry"/> (or one refused
+        /// before it began): at the outermost level an <c>Error</c> or
+        /// <c>HostFault</c> result halts the instance (plan 6.4), and a host
+        /// fault a nested entry recorded but that never reached this entry
+        /// (a native that ignored the nested result) becomes the result.
+        /// Nested results are returned unchanged.
+        /// </summary>
+        internal ScriptResult FinishEntry(ScriptResult result)
+        {
+            if (EntryDepth != 0) return result;
+            if (_pendingHostFault != null && result.Status != ScriptStatus.HostFault)
+                result = ReportHostFault(_pendingHostFault);
+            _pendingHostFault = null;
+            if (result.Status == ScriptStatus.Error || result.Status == ScriptStatus.HostFault)
+                Halt(result.Error!);
+            return result;
+        }
+
+        // ── Fault and halt model (plan 6.3, 6.4, T2.4) ──
+
+        /// <summary>
+        /// True once an unhandled error, a compile error or a host fault has
+        /// ended an outermost entry. A halted instance answers every entry
+        /// (<see cref="Run"/>, <see cref="Call"/>, <see cref="StartCoroutine(string, WarValue[], bool, out int)"/>,
+        /// <see cref="TickCoroutines"/>) with <c>Halted</c> and the original
+        /// <see cref="Fault"/>, running nothing, until <see cref="ClearFault"/>
+        /// or <see cref="Reload"/>.
+        /// </summary>
+        public bool IsHalted { get; private set; }
+
+        /// <summary>The error that halted the instance; null while it is not halted.</summary>
+        public ScriptError? Fault { get; private set; }
+
+        /// <summary>
+        /// Invoked synchronously when the instance halts, after its coroutines
+        /// were cleared and the error was logged. Entries made from a handler
+        /// return <c>Halted</c>. An exception from a handler propagates to the
+        /// host code that made the entry.
+        /// </summary>
+        public event Action<WarScriptLanguage, ScriptError>? Faulted;
+
+        /// <summary>
+        /// Whether the error that halts the instance is sent to
+        /// <see cref="Logger"/> (as <c>[WarScript] </c> + <see cref="ScriptError.ToString"/>,
+        /// plus the C# exception for a host fault). Default true (plan 6.8).
+        /// </summary>
+        public bool LogUnhandledErrors { get; set; } = true;
+
+        /// <summary>
+        /// Returns a halted instance to normal operation. State changed
+        /// before the fault (globals, native side effects) is kept; the
+        /// coroutines cleared by the fault stay cleared.
+        /// </summary>
+        public void ClearFault()
+        {
+            IsHalted = false;
+            Fault = null;
+        }
+
+        /// <summary>
+        /// A host fault a nested entry caught (plan 6.3): the entries around
+        /// it must stop too, so the VM that called the native rethrows it
+        /// (<see cref="ThrowPendingHostFault"/>) and the outermost entry
+        /// reports it and halts.
+        /// </summary>
+        private System.Exception? _pendingHostFault;
+
+        /// <summary>
+        /// Called by the VM after a native returned or threw: when an entry
+        /// nested inside that native ended with a host fault, rethrow it so
+        /// the calling VM stops as well (it treats it as its own host fault).
+        /// </summary>
+        internal void ThrowPendingHostFault()
+        {
+            if (_pendingHostFault != null)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(_pendingHostFault).Throw();
+        }
+
+        internal ScriptResult HaltedResult() => ScriptResult.HaltedBy(Fault!);
+
+        /// <summary>The steps of plan 6.4 after the VM unwound and the contexts were restored.</summary>
+        private void Halt(ScriptError error)
+        {
+            ClearCoroutines();
+            IsHalted = true;
+            Fault = error;
+            if (LogUnhandledErrors && Logger != null)
+                Log(error.HostException == null
+                    ? "[WarScript] " + error
+                    : "[WarScript] " + error + "\n" + error.HostException);
+            Faulted?.Invoke(this, error);
+        }
+
+        /// <summary>
         /// String interner for reducing GC pressure. Short strings created by
         /// the VM (concatenation results, ToString() conversions) are deduplicated
         /// through this cache. Pre-allocated integer strings (0–999) are returned
@@ -162,9 +408,7 @@ namespace WarScript
         /// </summary>
         internal readonly StringInterner Strings = new();
 
-        // ── Coroutine support ──
-        // Uses BytecodeCoroutine (VM suspend/resume) when the function has
-        // bytecode, falls back to tree-walk Coroutine otherwise.
+        // ── Coroutine support (BytecodeCoroutine: VM suspend/resume) ──
         private readonly List<ICoroutine> _coroutines = new();
         private int _nextCoroutineId = 1;
 
@@ -192,16 +436,13 @@ namespace WarScript
             DefinitionContext = new DefinitionContext(this);
             MemoryContext = new MemoryContext(this);
             ExceptionContext = new ExceptionContext(this);
-            ReturnContext = new ReturnContext();
-            NextContext = new NextContext();
-            BreakContext = new BreakContext();
             ClassInstanceContext = new ClassInstanceContext();
             DefaultStep = new ConstantExpression(WarValue.FromNumeric(1));
 
-            _tokens = LexicalParser.Parse(sourceCode);
+            _sourceCode = sourceCode;
 
             var nativeDefinitionScope = DefinitionContext.NewScope();
-            var nativeMemoryScope = MemoryContext.NewScope();
+            var nativeMemoryScope = MemoryContext.NewScope(MemoryScopeKind.Native);
             nativeMemoryScope.Poolable = false;
 
             DefinitionContext.PushScope(nativeDefinitionScope);
@@ -211,7 +452,7 @@ namespace WarScript
             GlobalMemoryScope = nativeMemoryScope;
 
             _definitionScope = DefinitionContext.NewScope();
-            _memoryScope = MemoryContext.NewScope();
+            _memoryScope = MemoryContext.NewScope(MemoryScopeKind.User);
             _memoryScope.Poolable = false;
 
             DefinitionContext.EndScope();
@@ -219,35 +460,208 @@ namespace WarScript
         }
 
         // ────────────────────────────────────────────────────────
-        //  Parse + compile (lazy, cached)
+        //  Compile — lex, parse and compile once (plan T2.2)
         // ────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Ensure the script has been parsed and compiled to bytecode.
-        /// Called automatically by Run() and Call(). Safe to call multiple
-        /// times — parsing and compilation are cached.
-        /// Must be called with _definitionScope pushed on DefinitionContext.
+        /// Lex, parse and compile the script to bytecode without running any
+        /// of it. Idempotent: the first call does the work and every later call
+        /// returns the same result, success or failure, until
+        /// <see cref="Reload"/> replaces the source (after
+        /// <see cref="LoadBytecode"/> the script is compiled). A script error
+        /// is reported as an error diagnostic, not thrown; when the script does
+        /// not compile, the instance holds none of its definitions.
+        /// <see cref="Run"/>, <see cref="Call"/> and <see cref="StartCoroutine"/>
+        /// call it when needed. Register natives, <c>[WsConst]</c> and
+        /// <c>[WsEnum]</c> values first: the parser checks assignments against
+        /// the constants known when it runs. Not a host entry: it runs no
+        /// script code and uses no budget. Errors in imported files are found
+        /// when the import runs (until Phase 3 resolves imports here).
         /// </summary>
-        private void EnsureCompiled()
+        public CompileResult Compile()
         {
-            if (_cachedStatement == null && _cachedCompiled == null)
+            if (_compileResult != null) return _compileResult;
+
+            // The parser adds `const`/`enum` names as it goes; a failed
+            // compile puts the set back, so none of the script stays behind.
+            var constantsBefore = new HashSet<string>(ConstantNames);
+            DefinitionContext.PushScope(_definitionScope);
+            MemoryContext.PushScope(_memoryScope);
+            try
             {
-                var statement = new CompositeStatement(this, null, ScriptName);
-                StatementParser.Parse(this, _tokens, statement);
-                _cachedCompiled = Compiler.CompileScript(this, statement, _definitionScope);
+                var tokens = LexicalParser.Parse(_sourceCode);
+                var module = StatementParser.ParseModule(this, tokens, ScriptName);
+                _cachedCompiled = Compiler.CompileScript(this, module.TopLevel, _definitionScope);
 
                 // Discard the AST — bytecode is the source of truth.
                 // This frees all Statement/Expression nodes for GC while
                 // keeping the DefinitionScope tree (function names, class
                 // details, compiled bytecode) intact.
                 DiscardAST(_definitionScope);
+                _compileResult = CompileResult.Succeeded;
             }
-            else if (_cachedCompiled == null && _cachedStatement != null)
+            catch (Exception.SyntaxException e)
             {
-                _cachedCompiled = Compiler.CompileScript(this, _cachedStatement, _definitionScope);
-                _cachedStatement = null;
-                DiscardAST(_definitionScope);
+                // Whatever the parser had added stays out of reach: a
+                // definition without bytecode cannot be called.
+                RollBackCompile(constantsBefore);
+                e.LocateIn(ScriptName, _sourceCode);
+                _compileError = e;
+                _compileResult = new CompileResult(false, new[] { Diagnose(e) });
             }
+            catch
+            {
+                // A compiler bug (not cached): roll back too, so that the next
+                // Compile() parses from a clean instance instead of reporting
+                // its own consts as reassigned.
+                RollBackCompile(constantsBefore);
+                throw;
+            }
+            finally
+            {
+                DefinitionContext.EndScope();
+                MemoryContext.EndScope();
+            }
+            return _compileResult;
+        }
+
+        /// <summary>
+        /// Expression spans recorded while parsing (T3.2): null, except
+        /// during <see cref="ParseForMigration"/>, so a normal parse records
+        /// nothing. The migration tool supplies a reference-equality map.
+        /// </summary>
+        internal Dictionary<Expression.IExpression, Expression.ExpressionSpan>? ExpressionSpans;
+
+        /// <summary>
+        /// The kind of body the parser is in (T3.3): set and restored by
+        /// <see cref="StatementParser"/>, read by it and by the expression
+        /// reader. Parse-time state only.
+        /// </summary>
+        internal ParseBody ParsingBody;
+
+        /// <summary>
+        /// True only during <see cref="ParseForMigration"/>: the parser
+        /// accepts v1 syntax, which v2 rejects: imports anywhere, <c>yield</c>
+        /// in a class body, <c>this</c> in a lambda; <c>global</c> is lexed as
+        /// a keyword but handed to the parser as a name.
+        /// </summary>
+        internal bool ParsingV1;
+
+        /// <summary>
+        /// Lexes and parses the script without compiling it, for the
+        /// migration tool (T3.2, plan 8.2): returns the token list, the
+        /// top-level statements and the definitions (the instance's own
+        /// definition scope, which keeps them), recording every expression's
+        /// span into <paramref name="spans"/>. Throws the parser's
+        /// <see cref="Exception.SyntaxException"/>. The instance is not
+        /// usable afterwards.
+        /// </summary>
+        internal (IReadOnlyList<Token.Token> Tokens, CompositeStatement TopLevel, DefinitionScope Definitions) ParseForMigration(
+            Dictionary<Expression.IExpression, Expression.ExpressionSpan> spans)
+        {
+            ExpressionSpans = spans;
+            ParsingV1 = true;
+            DefinitionContext.PushScope(_definitionScope);
+            MemoryContext.PushScope(_memoryScope);
+            try
+            {
+                // `global` was a name in v1 (T3.3 made it a keyword). The
+                // cached list is shared, so the renamed tokens are a copy.
+                var lexed = LexicalParser.Parse(_sourceCode);
+                var tokens = new List<Token.Token>(lexed.Count);
+                foreach (var t in lexed)
+                    tokens.Add(t.Type == Token.TokenType.Keyword && t.Value == "global"
+                        ? new Token.Token(Token.TokenType.Variable, t.Value, t.RowNumber, t.Column)
+                        : t);
+                var statement = new CompositeStatement(this, null, ScriptName);
+                StatementParser.Parse(this, tokens, statement);
+                return (tokens, statement, _definitionScope);
+            }
+            catch (Exception.SyntaxException e)
+            {
+                e.LocateIn(ScriptName, _sourceCode);
+                throw;
+            }
+            finally
+            {
+                ExpressionSpans = null;
+                ParsingV1 = false;
+                DefinitionContext.EndScope();
+                MemoryContext.EndScope();
+            }
+        }
+
+        private void RollBackCompile(HashSet<string> constantsBefore)
+        {
+            _definitionScope.Clear();
+            _cachedCompiled = null;
+            ConstantNames.Clear();
+            ConstantNames.UnionWith(constantsBefore);
+        }
+
+        private CompileDiagnostic Diagnose(Exception.SyntaxException e) =>
+            new CompileDiagnostic(DiagnosticSeverity.Error,
+                e is Exception.CompileError limit ? limit.Reason : e.Message,
+                e.ScriptName ?? ScriptName, e.Line, e.Column);
+
+        /// <summary>
+        /// Compile when needed; when the script does not compile, throw its
+        /// error. Used by <see cref="Reload"/> and <see cref="SaveBytecode"/>,
+        /// which keep v1's exception; the entry points return it as an
+        /// <c>Error</c> result instead (<see cref="CompileFailure"/>).
+        /// </summary>
+        private void EnsureCompiled()
+        {
+            if (!Compile().Success) throw _compileError!;
+        }
+
+        /// <summary>
+        /// What an entry returns before it runs anything: <c>Halted</c> when
+        /// the instance is halted; the <c>Error</c> result (kind
+        /// CompileError) when the script does not compile, which halts the
+        /// instance (plan T2.2, 6.4); null when it may run.
+        /// </summary>
+        private ScriptResult? RefuseBeforeRunning()
+        {
+            if (IsHalted) return HaltedResult();
+            var compiled = Compile();
+            if (compiled.Success) return null;
+            return FinishEntry(ScriptResult.Failed(ScriptError.FromCompile(_compileError!, compiled.Diagnostics[0], InstanceLabel)));
+        }
+
+        /// <summary>
+        /// The CompileError result for a <see cref="Exception.SyntaxException"/>
+        /// from compiling an imported file while the outermost entry ran (the
+        /// VM has restored the context stacks; imports become compile-time in
+        /// Phase 3).
+        /// </summary>
+        internal ScriptResult ImportCompileFailure(Exception.SyntaxException e) =>
+            ScriptResult.Failed(ScriptError.FromCompile(e, Diagnose(e), InstanceLabel));
+
+        /// <summary>
+        /// The result of an entry that ran: <paramref name="value"/>, or the
+        /// error it left raised. Call it before <see cref="EndEntry"/>, which
+        /// logs and clears the error at the outermost entry; a nested entry
+        /// leaves it raised for the calling script (PROP-1), and its caller
+        /// sees it in the result too.
+        /// </summary>
+        internal ScriptResult EntryResult(WarValue value) =>
+            ExceptionContext.IsRaised()
+                ? ScriptResult.Failed(ScriptError.FromRaised(ExceptionContext.Exception, ScriptName, InstanceLabel, _sourceCode))
+                : ScriptResult.Ok(value);
+
+        /// <summary>
+        /// An entry that cannot start a function: raised for the calling
+        /// script when nested inside another entry (like a callback's error,
+        /// PROP-1); at the outermost level an <c>Error</c> result that halts
+        /// the instance, like any unhandled error.
+        /// </summary>
+        private ScriptResult RefuseEntry(ScriptErrorKind kind, string message)
+        {
+            if (EntryDepth == 0)
+                return FinishEntry(ScriptResult.Failed(new ScriptError(kind, message, WarValue.FromText(message), ScriptName, InstanceLabel, 0, 0)));
+            ExceptionContext.RaiseException(message, kind);
+            return EntryResult(WarValue.Null);
         }
 
         /// <summary>
@@ -278,6 +692,24 @@ namespace WarScript
             return _cachedVM ??= new WarVM(this);
         }
 
+        /// <summary>
+        /// The VM a host entry runs on: the cached one, or a new one when the
+        /// cached VM is busy because this entry is nested inside another
+        /// (a native calling back into the instance). A busy VM is never
+        /// reset (T1.5, DEC-16; pooling is F-VM-2).
+        /// </summary>
+        private WarVM AcquireVM()
+        {
+            var vm = EnsureVM();
+            return vm.IsRunning ? new WarVM(this) : vm;
+        }
+
+        /// <summary>
+        /// True when the cached VM (if any) holds no execution state.
+        /// Test invariant (see <see cref="WarVM.IsIdle"/>).
+        /// </summary>
+        internal bool IsVMIdle => _cachedVM == null || _cachedVM.IsIdle;
+
         // ────────────────────────────────────────────────────────
         //  Hot reload — swap source code, preserve runtime state
         // ────────────────────────────────────────────────────────
@@ -294,21 +726,24 @@ namespace WarScript
         /// - Existing class instances keep their old definition. New instances
         ///   created after reload use the new class definition.
         /// - All active coroutines are stopped (they reference old bytecode).
-        /// - Function handles obtained via GetFunction() before reload are stale.
-        ///   Call GetFunction() again to get the new handle.
+        /// - Function handles obtained via GetFunction() call the new
+        ///   definition (plan T2.6); a handle whose function the new source
+        ///   no longer defines returns an Error result (NameError).
         ///
         /// Typical usage during development:
         /// <code>
         ///   // File watcher detects a change
         ///   var newSource = File.ReadAllText("patrol.ws");
         ///   script.Reload(newSource);
-        ///   tickFunc = script.GetFunction("tick", 1);  // re-acquire handle
+        ///   script.Call(tickFunc, dt);  // the same handle runs the new tick
         /// </code>
         /// </summary>
         public void Reload(string newSourceCode)
         {
-            // 1. Stop all coroutines — they hold VMs with old bytecode
-            _coroutines.Clear();
+            // 1. Stop all coroutines — they hold VMs with old bytecode —
+            //    and return a halted instance to normal operation (plan 6.4)
+            ClearCoroutines();
+            ClearFault();
 
             // 2. Clear old definitions (functions, classes)
             //    The MemoryScope (_memoryScope) is deliberately NOT cleared —
@@ -316,33 +751,21 @@ namespace WarScript
             _definitionScope.Clear();
 
             // 3. Clear all caches
-            _cachedStatement = null;
+            _compileResult = null;
+            _compileError = null;
             _cachedCompiled = null;
             _cachedVM = null;
             ImportCache.Clear();
             ConstantNames.Clear();
 
-            // 4. Clear any lingering exception/halt state
+            // 4. Clear any lingering exception state
             if (ExceptionContext.IsRaised())
                 ExceptionContext.RescueException();
-            HaltFlags = HaltFlag.None;
 
-            // 5. Re-lex from new source
-            _tokens = LexicalParser.Parse(newSourceCode);
-
-            // 6. Re-parse and re-compile (but do NOT execute top-level code)
-            DefinitionContext.PushScope(_definitionScope);
-            MemoryContext.PushScope(_memoryScope);
-
-            try
-            {
-                EnsureCompiled();
-            }
-            finally
-            {
-                DefinitionContext.EndScope();
-                MemoryContext.EndScope();
-            }
+            // 5. Re-lex, re-parse and re-compile (but do NOT execute
+            //    top-level code). A compile error is thrown, as in v1.
+            _sourceCode = newSourceCode;
+            EnsureCompiled();
         }
 
         // ────────────────────────────────────────────────────────
@@ -351,7 +774,7 @@ namespace WarScript
 
         /// <summary>
         /// Save the compiled bytecode to a binary stream. The script must
-        /// have been compiled first (via Run() or EnsureCompiled).
+        /// have been compiled first (it compiles when needed; see Compile()).
         ///
         /// Typical build-time usage:
         /// <code>
@@ -364,17 +787,22 @@ namespace WarScript
         public void SaveBytecode(Stream stream)
         {
             // Ensure we have something to save
-            DefinitionContext.PushScope(_definitionScope);
-            MemoryContext.PushScope(_memoryScope);
-            try { EnsureCompiled(); }
-            finally
-            {
-                DefinitionContext.EndScope();
-                MemoryContext.EndScope();
-            }
+            CompileWithoutRunning();
 
             using var w = new System.IO.BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
             BytecodeSerializer.Save(w, _cachedCompiled!, _definitionScope);
+        }
+
+        /// <summary>
+        /// Parses and compiles the script (cached) without running it, and
+        /// returns the script body and the scope holding its functions and
+        /// classes. Used by <see cref="SaveBytecode"/> and by tests that
+        /// inspect compiler output (T1.7).
+        /// </summary>
+        internal (CompiledFunction script, DefinitionScope definitions) CompileWithoutRunning()
+        {
+            EnsureCompiled();
+            return (_cachedCompiled!, _definitionScope);
         }
 
         /// <summary>
@@ -395,12 +823,19 @@ namespace WarScript
         /// </summary>
         public void LoadBytecode(Stream stream)
         {
-            // Stop coroutines referencing old bytecode
-            _coroutines.Clear();
+            // Read and verify everything first: a file that is rejected
+            // (InvalidDataException) leaves this instance unchanged (10.4).
+            CompiledFunction topLevel;
+            DefinitionScope scope;
+            using (var r = new System.IO.BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true))
+                (topLevel, scope) = BytecodeSerializer.Load(r, this, GlobalDefinitionScope);
+
+            // Stop coroutines referencing old bytecode (a halted instance
+            // stays halted: only Reload and ClearFault clear the fault)
+            ClearCoroutines();
 
             // Clear old definitions and caches
             _definitionScope.Clear();
-            _cachedStatement = null;
             _cachedCompiled = null;
             _cachedVM = null;
             ImportCache.Clear();
@@ -408,15 +843,12 @@ namespace WarScript
 
             if (ExceptionContext.IsRaised())
                 ExceptionContext.RescueException();
-            HaltFlags = HaltFlag.None;
-
-            // Load from binary
-            using var r = new System.IO.BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
-            var (topLevel, scope) = BytecodeSerializer.Load(r, this, GlobalDefinitionScope);
 
             // Merge loaded definitions into _definitionScope
             scope.CopyLocalDefinitionsTo(_definitionScope);
             _cachedCompiled = topLevel;
+            _compileResult = CompileResult.Succeeded;
+            _compileError = null;
         }
 
         /// <summary>
@@ -446,7 +878,7 @@ namespace WarScript
                 // A throwing resolver is the host's bug, not the script's: the
                 // source is still worth trying, so this reports and falls back
                 // rather than failing the import outright.
-                Logger?.Invoke(this,
+                Log(
                     $"[WarScript] Bytecode resolver failed for import '{path}' ({e.Message}) — " +
                     "compiling its source instead.");
                 return null;
@@ -464,7 +896,7 @@ namespace WarScript
             }
             catch (System.Exception e)
             {
-                Logger?.Invoke(this,
+                Log(
                     $"[WarScript] Precompiled bytecode for import '{path}' could not be loaded " +
                     $"({e.Message}) — compiling its source instead.");
                 return null;
@@ -476,31 +908,43 @@ namespace WarScript
         // ────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Parse, compile, and execute the script. On first call this
-        /// parses the source and compiles all functions to bytecode.
-        /// Subsequent calls reuse the cached bytecode.
+        /// Compile the script if needed (<see cref="Compile"/>), then execute
+        /// its top-level code (plan 6.2). Returns <c>Ok</c> with a null value
+        /// when it completes; <c>Error</c> when a script error escapes it, or
+        /// with kind CompileError, before anything runs, when the script does
+        /// not compile (or, while it runs, a file it imports); <c>HostFault</c>
+        /// for a C# exception inside the VM. An error or host fault halts the
+        /// instance and is logged (plan 6.4); a halted instance returns
+        /// <c>Halted</c> without running anything. Never throws for a script
+        /// error (plan T2.3).
         /// </summary>
-        public void Run()
+        public ScriptResult Run()
         {
+            var refused = RefuseBeforeRunning();
+            if (refused != null) return refused.Value;
+            if (!BeginEntry()) return EntryResult(WarValue.Null);
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
 
+            ScriptResult result;
             try
             {
-                EnsureCompiled();
-                var vm = EnsureVM();
-                vm.Run(_cachedCompiled!);
+                var vm = AcquireVM();
+                try
+                {
+                    vm.Run(_cachedCompiled!);
+                    result = EntryResult(WarValue.Null);
+                }
+                catch (Exception.SyntaxException e) when (EntryDepth == 1) { result = ImportCompileFailure(e); }
+                catch (System.Exception e) when (!(e is Exception.SyntaxException)) { result = HostFaultAtEntry(e); }
             }
             finally
             {
                 DefinitionContext.EndScope();
                 MemoryContext.EndScope();
-
-                if (ExceptionContext.IsRaised())
-                    ExceptionContext.PrintStackTrace();
-
-                HaltFlags = HaltFlag.None;
+                EndEntry();
             }
+            return FinishEntry(result);
         }
 
         // ────────────────────────────────────────────────────────
@@ -509,91 +953,160 @@ namespace WarScript
 
         /// <summary>
         /// Call a WarScript function from the host (C#/Unity).
-        /// Uses bytecode when available (always after Run() has been called).
         /// This is the hot path for game integration — tick loops, event handlers.
+        /// The handle calls the function its name and arity resolve to now
+        /// (plan T2.6), so it survives <see cref="Reload"/>; when the
+        /// instance no longer defines one, the result is an <c>Error</c>
+        /// (NameError), like any refused entry. A handle of another instance
+        /// is a host error (<see cref="ArgumentException"/>).
+        /// Every script function of the instance has bytecode once the script
+        /// is compiled (<see cref="Run"/>, <see cref="Reload"/>,
+        /// <see cref="LoadBytecode"/>). A function without bytecode (a native
+        /// function) cannot be called this way: the call does nothing but
+        /// return an <c>Error</c> result (TypeError) — there is no AST
+        /// interpreter to run it (plan T2.1).
+        /// Returns <c>Ok</c> with the function's return value, or the error
+        /// that escaped it, as <see cref="Run"/> does (plan T2.3). Called from
+        /// a native while the instance runs (a nested entry, plan 6.5), an
+        /// error result's error also stays raised: it continues in the calling
+        /// script from the native call site (PROP-1). At the outermost level an
+        /// error halts the instance (plan 6.4), and a halted instance returns
+        /// <c>Halted</c>.
         /// </summary>
-        public void Call(FunctionDefinition function, params WarValue[] arguments)
-        {
-            if (function.Compiled != null)
-            {
-                CallBytecode(function, arguments);
-                return;
-            }
+        public ScriptResult Call(FunctionHandle function, params WarValue[] arguments) =>
+            Call(function, new ReadOnlySpan<WarValue>(arguments));
 
-            // Fallback: tree-walk for functions not yet compiled
-            // (e.g. Call() before Run(), or native function wrappers)
-            CallTreeWalk(function, arguments);
+        /// <summary>
+        /// <see cref="Call(FunctionHandle, WarValue[])"/> without the
+        /// <c>params</c> array (plan T2.7): the arguments are copied onto the
+        /// VM stack and the span is not kept, so a host can call every tick
+        /// from one reused buffer (<c>args.AsSpan(0, n)</c>) without
+        /// allocating. Missing arguments are null (so default parameters
+        /// apply); arguments beyond the function's arity are ignored.
+        /// </summary>
+        public ScriptResult Call(FunctionHandle function, ReadOnlySpan<WarValue> arguments)
+        {
+            if (function == null) throw new ArgumentNullException(nameof(function));
+            if (!ReferenceEquals(function.Instance, this))
+                throw new ArgumentException(System.FormattableString.Invariant(
+                    $"The handle of '{function}' belongs to the instance '{function.Instance.ScriptName}', not '{ScriptName}'"),
+                    nameof(function));
+            var refused = RefuseBeforeRunning();
+            if (refused != null) return refused.Value;
+            var definition = function.Definition;
+            if (definition == null)
+                return RefuseEntry(ScriptErrorKind.NameError, System.FormattableString.Invariant(
+                    $"Function '{function.Name}' with {function.Arity} args is not defined"));
+            if (definition.Compiled != null)
+                return CallBytecode(definition, arguments);
+
+            return RefuseEntry(ScriptErrorKind.TypeError, System.FormattableString.Invariant(
+                $"Cannot call '{definition.Details.Name}' in '{ScriptName}': it has no bytecode"));
         }
 
-        private void CallBytecode(FunctionDefinition function, WarValue[] arguments)
+        private ScriptResult CallBytecode(FunctionDefinition function, ReadOnlySpan<WarValue> arguments)
         {
+            if (!BeginEntry()) return EntryResult(WarValue.Null);
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
             // Push a scope for function-local variables accessed via SetGlobal.
             // Parented to _memoryScope, matching the VM's OP_CALL behavior.
-            MemoryContext.PushScope(MemoryContext.NewScope(UserMemoryScope));
+            MemoryContext.PushScope(MemoryContext.NewScope(UserMemoryScope, MemoryScopeKind.FunctionLocal));
 
+            ScriptResult result;
             try
             {
-                var vm = EnsureVM();
-                vm.RunFunction(function.Compiled!, arguments);
+                var vm = AcquireVM();
+                try { result = EntryResult(vm.RunFunction(function.Compiled!, arguments)); }
+                catch (Exception.SyntaxException e) when (EntryDepth == 1) { result = ImportCompileFailure(e); }
+                catch (System.Exception e) when (!(e is Exception.SyntaxException)) { result = HostFaultAtEntry(e); }
             }
             finally
             {
                 MemoryContext.EndScope();  // function-local scope
                 DefinitionContext.EndScope();
                 MemoryContext.EndScope();
-                ReturnContext.Reset();
-                HaltFlags &= ~HaltFlag.Return;
-
-                if (ExceptionContext.IsRaised())
-                    ExceptionContext.PrintStackTrace();
-
-                HaltFlags = HaltFlag.None;
+                EndEntry();
             }
+            return FinishEntry(result);
         }
 
-        private void CallTreeWalk(FunctionDefinition function, WarValue[] arguments)
+        /// <summary>
+        /// The last host fault: a C# exception that escaped the VM, other
+        /// than a script error (plan T1.3, 6.3). Set by the entry point that
+        /// stopped because of it; the golden runner reports it as such.
+        /// </summary>
+        internal System.Exception? LastHostFault { get; private set; }
+
+        /// <summary>
+        /// A host fault caught by an entry point, before <see cref="EndEntry"/>.
+        /// The VM has restored the context stacks and reset itself. The
+        /// outermost entry reports it (<see cref="ReportHostFault"/>; its
+        /// result then halts the instance). A nested entry records it and
+        /// returns the <c>HostFault</c> result to the native that called it;
+        /// when that native returns, the calling VM rethrows the fault, so
+        /// every entry around it stops (plan 6.3, T2.4).
+        /// </summary>
+        internal ScriptResult HostFaultAtEntry(System.Exception e)
         {
-            DefinitionContext.PushScope(_definitionScope);
-            MemoryContext.PushScope(_memoryScope);
-            MemoryContext.PushScope(MemoryContext.NewScope());
-
-            try
-            {
-                var details = function.Details;
-                for (var i = 0; i < details.Arguments.Count; i++)
-                {
-                    MemoryContext.GetScope().SetLocal(
-                        details.Arguments[i],
-                        i < arguments.Length ? arguments[i] : WarValue.Null);
-                }
-
-                function.Statement!.Execute();
-            }
-            finally
-            {
-                MemoryContext.EndScope();
-                DefinitionContext.EndScope();
-                MemoryContext.EndScope();
-                ReturnContext.Reset();
-                HaltFlags &= ~HaltFlag.Return;
-
-                if (ExceptionContext.IsRaised())
-                    ExceptionContext.PrintStackTrace();
-
-                HaltFlags = HaltFlag.None;
-            }
+            if (EntryDepth <= 1) return ReportHostFault(e);
+            if (_pendingHostFault == null) _pendingHostFault = e;
+            if (ExceptionContext.IsRaised())
+                ExceptionContext.RescueException();
+            return ScriptResult.Failed(ScriptError.FromHostFault(e, ScriptName, InstanceLabel));
         }
+
+        /// <summary>The <c>HostFault</c> result of the outermost entry; it is logged when it halts the instance.</summary>
+        private ScriptResult ReportHostFault(System.Exception e)
+        {
+            LastHostFault = e;
+            _pendingHostFault = null;
+            if (ExceptionContext.IsRaised())
+                ExceptionContext.RescueException();
+            return ScriptResult.Failed(ScriptError.FromHostFault(e, ScriptName, InstanceLabel));
+        }
+
+        // ────────────────────────────────────────────────────────
+        //  Output and state hash
+        // ────────────────────────────────────────────────────────
+
+        /// <summary>Output of the <c>print</c> builtin: recorded for the state hash, then logged.</summary>
+        internal void Print(string line)
+        {
+            _printedHash = StateHash.AppendLine(_printedHash, line);
+            Logger?.Invoke(this, line);
+        }
+
+        /// <summary>
+        /// A 64-bit hash of everything the instance has printed since it was
+        /// created and of the current values of its user globals (host globals
+        /// such as <c>[WsConst]</c> values are excluded). Identical inputs give
+        /// identical hashes on every machine, so comparing them per tick
+        /// locates a desync. The encoding is fixed by the v2 plan, section 9.7.
+        /// </summary>
+        public ulong ComputeStateHash() => StateHash.Compute(_printedHash, _memoryScope);
 
         // ────────────────────────────────────────────────────────
         //  Function lookup
         // ────────────────────────────────────────────────────────
 
-        public FunctionDefinition? GetFunction(string functionName, int arguments)
+        /// <summary>
+        /// A handle to the function of this name and arity (plan T2.6), or
+        /// null when the instance does not define one now (before the script
+        /// is compiled, only natives are defined). The handle stays valid
+        /// across <see cref="Reload"/> and <see cref="LoadBytecode"/>: it
+        /// calls whatever the instance defines under that name and arity at
+        /// the time of the call.
+        /// </summary>
+        public FunctionHandle? GetFunction(string functionName, int arguments)
         {
-            return _definitionScope.GetFunction(functionName, arguments);
+            var definition = _definitionScope.GetFunction(functionName, arguments);
+            return definition == null ? null : new FunctionHandle(this, functionName, arguments, definition);
         }
+
+        /// <summary>The definition a name and arity resolve to now (script function or native), or null.</summary>
+        internal FunctionDefinition? FindFunction(string functionName, int arguments) =>
+            _definitionScope.GetFunction(functionName, arguments);
 
         public bool HasFunction(string functionName, int argumentsSize)
         {
@@ -616,7 +1129,6 @@ namespace WarScript
         public void SetYielded(YieldType type, F64 waitDuration)
         {
             IsYielded = true;
-            HaltFlags |= HaltFlag.Yield;
             YieldedType = type;
             YieldedWaitDuration = waitDuration;
         }
@@ -624,46 +1136,72 @@ namespace WarScript
         public void ClearYield()
         {
             IsYielded = false;
-            HaltFlags &= ~HaltFlag.Yield;
             YieldedType = YieldType.NextTick;
             YieldedWaitDuration = F64.Zero;
         }
 
         // ────────────────────────────────────────────────────────
-        //  Coroutine support (tree-walk — see note at field decl)
+        //  Coroutine support
         // ────────────────────────────────────────────────────────
 
-        public int StartCoroutine(string functionName, WarValue[] args, bool loop = false)
+        /// <summary>
+        /// Start a coroutine on a script function and run it to its first
+        /// yield; <paramref name="id"/> is its id, or -1 when there is no such
+        /// script function (an <c>Error</c> result: NameError, or TypeError for
+        /// a native function). The result is the first run's: <c>Ok</c> (null
+        /// value) when it yielded or completed, else its error, which also
+        /// ends the coroutine. Compiles the script if needed, so it can be
+        /// called before <see cref="Run"/> (the top-level code has then not
+        /// run); a compile error is an <c>Error</c> result, as from
+        /// <see cref="Run"/>. Started from a native while the instance runs,
+        /// an error (a missing function's, or the first run's) stays raised
+        /// for the calling script (PROP-1); from the host it halts the
+        /// instance (plan 6.4), and a halted instance returns <c>Halted</c>.
+        /// </summary>
+        public ScriptResult StartCoroutine(string functionName, WarValue[] args, bool loop, out int id) =>
+            StartCoroutine(functionName, new ReadOnlySpan<WarValue>(args), loop, out id);
+
+        /// <summary>
+        /// <see cref="StartCoroutine(string, WarValue[], bool, out int)"/>
+        /// taking the arguments as a span (plan 6.1, T2.7). The function is
+        /// looked up by the span's length. The coroutine copies the arguments
+        /// (a looping coroutine restarts with them), so the caller may reuse
+        /// its buffer as soon as this returns.
+        /// </summary>
+        public ScriptResult StartCoroutine(string functionName, ReadOnlySpan<WarValue> args, bool loop, out int id)
         {
-            var argCount = args?.Length ?? 0;
+            id = -1;
+            var refused = RefuseBeforeRunning();
+            if (refused != null) return refused.Value;
+            var argCount = args.Length;
             var function = _definitionScope.GetFunction(functionName, argCount);
             if (function == null)
+                return RefuseEntry(ScriptErrorKind.NameError,
+                    System.FormattableString.Invariant($"Coroutine function '{functionName}' with {argCount} arguments is not defined"));
+            if (function.Compiled == null)
             {
-                ExceptionContext.RaiseException(
-                    $"Coroutine function '{functionName}' with {argCount} arguments is not defined");
-                return -1;
+                // A native function: only script functions can be suspended.
+                return RefuseEntry(ScriptErrorKind.TypeError,
+                    System.FormattableString.Invariant($"Coroutine function '{functionName}' with {argCount} arguments has no bytecode"));
             }
 
-            var id = _nextCoroutineId++;
-            var safeArgs = args ?? Array.Empty<WarValue>();
+            id = _nextCoroutineId++;
+            var bco = new BytecodeCoroutine(
+                this, function.Compiled, _definitionScope, _memoryScope,
+                args.ToArray(), loop, id);
+            _coroutines.Add(bco);
+            return bco.Resume();
+        }
 
-            if (function.Compiled != null)
-            {
-                var bco = new BytecodeCoroutine(
-                    this, function.Compiled, _definitionScope, _memoryScope,
-                    safeArgs, loop, id);
-                _coroutines.Add(bco);
-                bco.Resume();
-            }
-            else
-            {
-                var coroutine = new Coroutine(
-                    this, function, _definitionScope, _memoryScope,
-                    safeArgs, loop, id);
-                _coroutines.Add(coroutine);
-                coroutine.Resume();
-            }
-
+        /// <summary>
+        /// <see cref="StartCoroutine(string, WarValue[], bool, out int)"/> for
+        /// a caller that only wants the id (-1: nothing started); an error
+        /// halts the instance (and is logged), or stays raised when started
+        /// from a native, but is not returned.
+        /// </summary>
+        public int StartCoroutine(string functionName, WarValue[] args, bool loop = false)
+        {
+            StartCoroutine(functionName, args, loop, out var id);
             return id;
         }
 
@@ -674,24 +1212,85 @@ namespace WarScript
                 if (_coroutines[i].Id == id)
                 {
                     _coroutines.RemoveAt(i);
+                    _coroutinesRemoved++;
                     return true;
                 }
             }
             return false;
         }
 
-        public void StopAllCoroutines() => _coroutines.Clear();
+        public void StopAllCoroutines() => ClearCoroutines();
 
-        public int TickCoroutines(F64 dt)
+        private void ClearCoroutines()
         {
-            for (var i = _coroutines.Count - 1; i >= 0; i--)
+            _coroutines.Clear();
+            _coroutinesRemoved++;
+        }
+
+        /// <summary>
+        /// Counts removals from <see cref="_coroutines"/> other than the
+        /// tick's own (stop, stop all, reload, load, halt), so a tick can tell
+        /// whether a resume stopped coroutines it has not reached yet.
+        /// </summary>
+        private int _coroutinesRemoved;
+
+        /// <summary>
+        /// Advance every coroutine's wait by <paramref name="dt"/> and resume
+        /// the ready ones, newest first (PROP-24); each resume is a host
+        /// entry. Returns <c>Ok</c> with the number of active coroutines as
+        /// its value, or the first error a resume ended with: the tick stops
+        /// there and the remaining coroutines do not run (PROP-3). From the
+        /// host such an error halts the instance, which clears every
+        /// coroutine; a halted instance returns <c>Halted</c>. Coroutines
+        /// started during the tick first run on the next one; coroutines
+        /// stopped during it (by a native, or a nested <see cref="Reload"/>)
+        /// are not resumed.
+        /// </summary>
+        public ScriptResult TickCoroutines(F64 dt)
+        {
+            if (IsHalted) return HaltedResult();
+            var count = _coroutines.Count;
+            if (count == 0) return ScriptResult.Ok(WarValue.FromNumeric(0));
+
+            // A resume may start, stop or clear coroutines (natives, nested
+            // entries), so walk a snapshot of the list as it was.
+            var snapshot = System.Buffers.ArrayPool<ICoroutine>.Shared.Rent(count);
+            ScriptResult? failed = null;
+            try
+            {
+                _coroutines.CopyTo(snapshot, 0);
+                var removedBefore = _coroutinesRemoved;
+                for (var i = count - 1; i >= 0; i--)
+                {
+                    var co = snapshot[i];
+                    if (co.IsComplete) continue;
+                    if (_coroutinesRemoved != removedBefore && !_coroutines.Contains(co)) continue;
+                    if (!co.IsReady(dt)) continue;
+                    var result = co.Resume();
+                    if (!result.IsOk)
+                    {
+                        failed = result;
+                        break;
+                    }
+                }
+            }
+            finally
+            {
+                System.Array.Clear(snapshot, 0, count);
+                System.Buffers.ArrayPool<ICoroutine>.Shared.Return(snapshot);
+            }
+
+            // Drop the coroutines that completed (in place, keeping the order).
+            var kept = 0;
+            for (var i = 0; i < _coroutines.Count; i++)
             {
                 var co = _coroutines[i];
-                if (!co.IsReady(dt)) continue;
-                co.Resume();
-                if (co.IsComplete) _coroutines.RemoveAt(i);
+                if (co.IsComplete) continue;
+                _coroutines[kept++] = co;
             }
-            return _coroutines.Count;
+            _coroutines.RemoveRange(kept, _coroutines.Count - kept);
+
+            return failed ?? ScriptResult.Ok(WarValue.FromNumeric(_coroutines.Count));
         }
 
         public int ActiveCoroutineCount => _coroutines.Count;

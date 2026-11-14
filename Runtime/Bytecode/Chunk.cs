@@ -1,7 +1,9 @@
 #nullable enable
 
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
+using WarScript.Exception;
 using WarScript.Expression.Value;
 
 namespace WarScript.Bytecode
@@ -14,7 +16,24 @@ namespace WarScript.Bytecode
     {
         public readonly List<byte> Code = new();
         public readonly List<WarValue> Constants = new();
-        public readonly List<int> Lines = new();
+        /// <summary>The source line and column of every code byte, run-length encoded (T1.7, 10.2, T3.1).</summary>
+        public readonly LineTable Lines = new();
+
+        /// <summary>
+        /// The column marked with every byte emitted from now on (T3.1), 0
+        /// when unknown: the compiler keeps it at the statement or
+        /// expression being compiled. A byte emitted with line 0 gets
+        /// column 0. Not serialized (the file's line table has no columns
+        /// until format v3, T3.11).
+        /// </summary>
+        internal int Column;
+
+        /// <summary>
+        /// The script the code was compiled from (the instance's script name or
+        /// an import path), for audit events (plan 8.1). Not serialized: null
+        /// for bytecode loaded with LoadBytecode or a BytecodeResolver.
+        /// </summary>
+        internal string? Source;
 
         /// <summary>
         /// Inline caches for property access. Each GetProperty/SetProperty/IndexSetProp
@@ -38,6 +57,21 @@ namespace WarScript.Bytecode
         public int Count => Code.Count;
 
         /// <summary>
+        /// At most this many constants per function (T1.8): adding the
+        /// 65,536th raises a <see cref="CompileError"/>.
+        /// </summary>
+        public const int MaxConstants = 65535;
+
+        /// <summary>The message for code, a jump or an address past 16 bits (T1.8).</summary>
+        internal const string FunctionTooLarge = "function too large (bytecode exceeds 65,535 bytes)";
+
+        /// <summary>
+        /// A <see cref="CompileError"/> for this chunk's script. The line is
+        /// left 0: the compiler fills in the statement being compiled.
+        /// </summary>
+        internal CompileError LimitError(string reason) => new CompileError(reason, Source, 0);
+
+        /// <summary>
         /// Byte offset of the last opcode emitted (not operand bytes).
         /// Used by the peephole optimizer to safely identify the last instruction.
         /// </summary>
@@ -53,6 +87,8 @@ namespace WarScript.Bytecode
 
         public int AddConstant(in WarValue value)
         {
+            // Raises before a new slot is added; a constant already in the
+            // pool is still found below.
             // Deduplicate identical constants so repeated literals and identifiers
             // (e.g. a function name emitted at every call site) share one pool slot.
             // A hash index makes this O(1) amortized.
@@ -66,6 +102,7 @@ namespace WarScript.Bytecode
                     _numericConstantIndex ??= new Dictionary<long, int>();
                     if (_numericConstantIndex.TryGetValue(key, out var existing))
                         return existing;
+                    CheckConstantRoom();
                     var idx = Constants.Count;
                     Constants.Add(value);
                     _numericConstantIndex[key] = idx;
@@ -77,15 +114,23 @@ namespace WarScript.Bytecode
                     _textConstantIndex ??= new Dictionary<string, int>(System.StringComparer.Ordinal);
                     if (_textConstantIndex.TryGetValue(key, out var existing))
                         return existing;
+                    CheckConstantRoom();
                     var idx = Constants.Count;
                     Constants.Add(value);
                     _textConstantIndex[key] = idx;
                     return idx;
                 }
                 default:
+                    CheckConstantRoom();
                     Constants.Add(value);
                     return Constants.Count - 1;
             }
+        }
+
+        private void CheckConstantRoom()
+        {
+            if (Constants.Count >= MaxConstants)
+                throw LimitError("too many constants in one function (more than 65,535)");
         }
 
         // ── Emit helpers ──
@@ -93,22 +138,42 @@ namespace WarScript.Bytecode
         public void EmitOp(OpCode op, int line)
         {
             LastOpOffset = Code.Count;
+            Mark(line);
             Code.Add((byte)op);
-            Lines.Add(line);
         }
 
         public void EmitByte(byte b, int line)
         {
+            Mark(line);
             Code.Add(b);
-            Lines.Add(line);
         }
 
         public void EmitU16(int value, int line)
         {
+            if (value < 0 || value > 0xFFFF)
+                throw LimitError("function too large (an operand exceeds 65,535)");
+            Mark(line);
             Code.Add((byte)((value >> 8) & 0xFF));
-            Lines.Add(line);
             Code.Add((byte)(value & 0xFF));
-            Lines.Add(line);
+        }
+
+        private void Mark(int line) => Lines.Mark(Code.Count, line, line > 0 ? Column : 0);
+
+        /// <summary>
+        /// Pops <paramref name="count"/> values: one <c>Pop</c>, or <c>PopN</c>
+        /// instructions of at most 255 each (T1.8; a <c>PopN</c> operand is
+        /// one byte).
+        /// </summary>
+        public void EmitPops(int count, int line)
+        {
+            if (count == 1) { EmitOp(OpCode.Pop, line); return; }
+            while (count > 0)
+            {
+                var n = count > 255 ? 255 : count;
+                EmitOp(OpCode.PopN, line);
+                EmitByte((byte)n, line);
+                count -= n;
+            }
         }
 
         public int EmitConstant(in WarValue value, int line)
@@ -130,6 +195,7 @@ namespace WarScript.Bytecode
         public void PatchJump(int offset)
         {
             var jump = Code.Count - offset - 2;
+            if (jump > 0xFFFF) throw LimitError(FunctionTooLarge);
             Code[offset]     = (byte)((jump >> 8) & 0xFF);
             Code[offset + 1] = (byte)(jump & 0xFF);
         }
@@ -138,7 +204,19 @@ namespace WarScript.Bytecode
         {
             EmitOp(OpCode.Loop, line);
             var offset = Code.Count - loopStart + 2;
+            if (offset > 0xFFFF) throw LimitError(FunctionTooLarge);
             EmitU16(offset, line);
+        }
+
+        /// <summary>
+        /// Writes the absolute code address <paramref name="address"/> into
+        /// the U16 operand at <paramref name="at"/> (handler addresses).
+        /// </summary>
+        public void PatchAddress(int at, int address)
+        {
+            if (address > 0xFFFF) throw LimitError(FunctionTooLarge);
+            Code[at]     = (byte)((address >> 8) & 0xFF);
+            Code[at + 1] = (byte)(address & 0xFF);
         }
 
         // ── Disassembly (debug) ──
@@ -146,95 +224,207 @@ namespace WarScript.Bytecode
         public string Disassemble(string name)
         {
             var sb = new StringBuilder();
-            sb.AppendLine($"=== {name} ===");
+            sb.AppendLine("=== " + name + " ===");
             int i = 0;
             while (i < Code.Count)
                 i = DisassembleInstruction(sb, i);
             return sb.ToString();
         }
 
+        /// <summary>
+        /// The offsets at which <see cref="Disassemble"/> starts an
+        /// instruction: each instruction's length comes from
+        /// <see cref="OpInfo"/>; an unknown opcode byte counts as one byte.
+        /// </summary>
+        internal List<int> InstructionStarts()
+        {
+            var starts = new List<int>();
+            int i = 0;
+            while (i < Code.Count)
+            {
+                starts.Add(i);
+                i += OpInfo.Get(Code[i])?.Length ?? 1;
+            }
+            return starts;
+        }
+
+        /// <summary>
+        /// One instruction, decoded through <see cref="OpInfo"/> (T1.7,
+        /// DX-5). Never throws on malformed code: an unknown opcode, an
+        /// instruction cut off by the end of the code or a constant index
+        /// out of range is written as such.
+        /// </summary>
         private int DisassembleInstruction(StringBuilder sb, int offset)
         {
-            sb.Append($"{offset:D4} ");
-            if (offset > 0 && offset < Lines.Count && Lines[offset] == Lines[offset - 1])
-                sb.Append("   | ");
-            else if (offset < Lines.Count)
-                sb.Append($"{Lines[offset],4} ");
-            else
+            sb.Append(offset.ToString("D4", CultureInfo.InvariantCulture)).Append(' ');
+            if (Lines.EntryCount == 0 || offset < Lines.OffsetAt(0))
                 sb.Append("   ? ");
+            else if (offset > Lines.OffsetAt(0) && Lines.GetLine(offset) == Lines.GetLine(offset - 1))
+                sb.Append("   | ");
+            else
+                sb.Append(Lines.GetLine(offset).ToString(CultureInfo.InvariantCulture).PadLeft(4)).Append(' ');
 
-            var op = (OpCode)Code[offset];
-            switch (op)
+            var info = OpInfo.Get(Code[offset]);
+            if (info == null)
             {
-                case OpCode.Constant:
-                    var ci = ReadU16(offset + 1);
-                    sb.AppendLine($"CONSTANT        {ci} ({Constants[ci]})");
-                    return offset + 3;
-                case OpCode.GetLocal: case OpCode.SetLocal:
-                    sb.AppendLine($"{op,-16}{ReadU16(offset + 1)}");
-                    return offset + 3;
-                case OpCode.GetGlobal: case OpCode.SetGlobal:
-                    var gi = ReadU16(offset + 1);
-                    sb.AppendLine($"{op,-16}{gi} ({Constants[gi]})");
-                    return offset + 3;
-                case OpCode.Jump: case OpCode.JumpIfFalse: case OpCode.JumpIfTrue:
-                    var fwd = ReadU16(offset + 1);
-                    sb.AppendLine($"{op,-16}{offset} -> {offset + 3 + fwd}");
-                    return offset + 3;
-                case OpCode.Loop:
-                    var bck = ReadU16(offset + 1);
-                    sb.AppendLine($"{op,-16}{offset} -> {offset + 3 - bck}");
-                    return offset + 3;
-                case OpCode.Call: case OpCode.TailCall: case OpCode.CallMethod:
-                    var ni = ReadU16(offset + 1);
-                    sb.AppendLine($"{op,-16}{Constants[ni]} ({Code[offset + 3]} args)");
-                    return offset + 4;
-                case OpCode.CallValue:
-                    sb.AppendLine($"CALL_VALUE      ({Code[offset + 1]} args)");
-                    return offset + 2;
-                case OpCode.NewArray:
-                    sb.AppendLine($"NEW_ARRAY       {ReadU16(offset + 1)}");
-                    return offset + 3;
-                case OpCode.NewInstance:
-                    var ii = ReadU16(offset + 1);
-                    sb.AppendLine($"NEW_INSTANCE    {Constants[ii]} ({Code[offset + 3]} args)");
-                    return offset + 4;
-                case OpCode.GetProperty: case OpCode.SetProperty:
-                case OpCode.IndexSetProp:
-                case OpCode.ThisGetProperty: case OpCode.ThisSetProperty:
-                    var pi = ReadU16(offset + 1);
-                    var cs = ReadU16(offset + 3);
-                    sb.AppendLine($"{op,-16}{Constants[pi]} (cache={cs})");
-                    return offset + 5;
-                case OpCode.LessJump: case OpCode.LessEqualJump:
-                case OpCode.GreaterJump: case OpCode.GreaterEqualJump:
-                case OpCode.EqualJump: case OpCode.NotEqualJump:
-                    var cjFwd = ReadU16(offset + 1);
-                    sb.AppendLine($"{op,-16}{offset} -> {offset + 3 + cjFwd}");
-                    return offset + 3;
-                case OpCode.CastAs: case OpCode.InstanceOf:
-                    var ci2 = ReadU16(offset + 1);
-                    sb.AppendLine($"{op,-16}{Constants[ci2]}");
-                    return offset + 3;
-                case OpCode.PopN:
-                    sb.AppendLine($"POP_N           {Code[offset + 1]}");
-                    return offset + 2;
-                case OpCode.Import:
-                    var mi = ReadU16(offset + 1);
-                    sb.AppendLine($"IMPORT          {Constants[mi]}");
-                    return offset + 3;
-                case OpCode.PushHandler:
-                    sb.AppendLine($"PUSH_HANDLER    rescue={ReadU16(offset+1)} ensure={ReadU16(offset+3)} end={ReadU16(offset+5)}");
-                    return offset + 7;
-                default:
-                    sb.AppendLine($"{op}");
-                    return offset + 1;
+                sb.Append("<invalid opcode ").Append(Code[offset].ToString(CultureInfo.InvariantCulture)).AppendLine(">");
+                return offset + 1;
             }
+            if (offset + info.Length > Code.Count)
+            {
+                sb.Append(info.Name).AppendLine(" <truncated>");
+                return Code.Count;
+            }
+
+            sb.Append(info.Name.PadRight(16));
+            int at = offset + 1;
+            int end = offset + info.Length;
+            for (int k = 0; k < info.Operands.Length; k++)
+            {
+                var kind = info.Operands[k];
+                int value = OpInfo.OperandSize(kind) == 1 ? Code[at] : ReadU16(at);
+                at += OpInfo.OperandSize(kind);
+                if (k > 0) sb.Append(' ');
+                switch (kind)
+                {
+                    case OperandKind.U16Const:
+                    case OperandKind.U16Name:
+                        sb.Append(value.ToString(CultureInfo.InvariantCulture));
+                        if (value < Constants.Count) sb.Append(" (").Append(Constants[value].Format(null)).Append(')');
+                        else sb.Append(" (out of range)");
+                        break;
+                    case OperandKind.U16JumpForward:
+                        sb.Append("-> ").Append((end + value).ToString(CultureInfo.InvariantCulture));
+                        break;
+                    case OperandKind.U16JumpBackward:
+                        sb.Append("-> ").Append((end - value).ToString(CultureInfo.InvariantCulture));
+                        break;
+                    case OperandKind.U16Address:
+                        sb.Append('@').Append(value.ToString(CultureInfo.InvariantCulture));
+                        break;
+                    case OperandKind.U16Local:
+                        sb.Append("slot ").Append(value.ToString(CultureInfo.InvariantCulture));
+                        break;
+                    case OperandKind.U16Cache:
+                        sb.Append("cache=").Append(value.ToString(CultureInfo.InvariantCulture));
+                        break;
+                    case OperandKind.U8Count:
+                    case OperandKind.U16Count:
+                        sb.Append('#').Append(value.ToString(CultureInfo.InvariantCulture));
+                        break;
+                    default:
+                        sb.Append(value.ToString(CultureInfo.InvariantCulture));
+                        break;
+                }
+            }
+            sb.AppendLine();
+            return end;
         }
 
         private int ReadU16(int offset)
         {
             return (Code[offset] << 8) | Code[offset + 1];
+        }
+    }
+
+    /// <summary>
+    /// The source line of each code byte, run-length encoded (v2 plan 10.2,
+    /// T1.7, DX-3): one entry, a code offset and a line, for each point where
+    /// the line changes, so a run of instructions on one line costs one
+    /// entry instead of one <c>int</c> per byte. The entry covering an offset
+    /// is the last one starting at or before it. A well-formed table
+    /// (<see cref="Problem"/>) starts at offset 0 and its offsets increase
+    /// strictly and stay below the code length.
+    /// </summary>
+    public sealed class LineTable
+    {
+        private readonly List<int> _offsets = new();
+        private readonly List<int> _lines = new();
+        private readonly List<int> _columns = new();
+
+        /// <summary>The number of (offset, line, column) entries.</summary>
+        public int EntryCount => _offsets.Count;
+
+        /// <summary>The code offset where entry <paramref name="index"/> starts.</summary>
+        public int OffsetAt(int index) => _offsets[index];
+
+        /// <summary>The line of entry <paramref name="index"/>.</summary>
+        public int LineAt(int index) => _lines[index];
+
+        /// <summary>The column of entry <paramref name="index"/>, from 1; 0 when unknown (T3.1).</summary>
+        public int ColumnAt(int index) => _columns[index];
+
+        /// <summary>
+        /// Records that the code byte at <paramref name="offset"/>, appended
+        /// after every byte marked before it, is on <paramref name="line"/>
+        /// at <paramref name="column"/> (T3.1; 0 = unknown): adds an entry
+        /// only when the line or the column changes.
+        /// </summary>
+        public void Mark(int offset, int line, int column = 0)
+        {
+            int n = _lines.Count;
+            if (n > 0 && _lines[n - 1] == line && _columns[n - 1] == column) return;
+            _offsets.Add(offset);
+            _lines.Add(line);
+            _columns.Add(column);
+        }
+
+        /// <summary>
+        /// Appends an entry as read from a file; <see cref="Problem"/> checks
+        /// the result. The file has no columns before format v3 (T3.11).
+        /// </summary>
+        internal void AddEntry(int offset, int line)
+        {
+            _offsets.Add(offset);
+            _lines.Add(line);
+            _columns.Add(0);
+        }
+
+        /// <summary>
+        /// The index of the entry covering <paramref name="offset"/>, or -1
+        /// when none does (an empty table, or an offset before the first entry).
+        /// </summary>
+        public int EntryIndex(int offset)
+        {
+            int lo = 0, hi = _offsets.Count - 1, found = -1;
+            while (lo <= hi)
+            {
+                int mid = lo + ((hi - lo) >> 1);
+                if (_offsets[mid] <= offset) { found = mid; lo = mid + 1; }
+                else hi = mid - 1;
+            }
+            return found;
+        }
+
+        /// <summary>The line of the code byte at <paramref name="offset"/>, or 0 when no entry covers it.</summary>
+        public int GetLine(int offset)
+        {
+            int index = EntryIndex(offset);
+            return index < 0 ? 0 : _lines[index];
+        }
+
+        /// <summary>The column of the code byte at <paramref name="offset"/>, or 0 when unknown (T3.1).</summary>
+        public int GetColumn(int offset)
+        {
+            int index = EntryIndex(offset);
+            return index < 0 ? 0 : _columns[index];
+        }
+
+        /// <summary>
+        /// Null when the table is well formed for code of
+        /// <paramref name="codeLength"/> bytes: no entries for empty code,
+        /// otherwise a first entry at offset 0 and strictly increasing
+        /// offsets below the length. Otherwise what is wrong.
+        /// </summary>
+        public string? Problem(int codeLength)
+        {
+            int n = _offsets.Count;
+            if (codeLength == 0) return n == 0 ? null : "line table has entries for empty code";
+            if (n == 0 || _offsets[0] != 0) return "line table does not start at offset 0";
+            for (int i = 1; i < n; i++)
+                if (_offsets[i] <= _offsets[i - 1]) return "line table offsets do not increase";
+            if (_offsets[n - 1] >= codeLength) return "line table runs past the code";
+            return null;
         }
     }
 

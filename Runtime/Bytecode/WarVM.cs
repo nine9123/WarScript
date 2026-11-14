@@ -2,8 +2,10 @@
 
 using System;
 using System.Collections.Generic;
+using WarScript.Audit;
 using WarScript.Context;
 using WarScript.Context.Definition;
+using WarScript.Exception;
 using WarScript.Expression;
 using WarScript.Expression.Value;
 using WarScript.Statement;
@@ -17,7 +19,7 @@ namespace WarScript.Bytecode
     /// </summary>
     public class WarVM
     {
-        private const int StackMax = 1024;
+        private const int StackMax = BytecodeVerifier.StackLimit; // 1,024: the verifier bounds loaded functions by it
         private const int FramesMax = 128;
         private const int HandlersMax = 32;
 
@@ -38,38 +40,31 @@ namespace WarScript.Bytecode
         /// </summary>
         private WarValue _topLevelResult;
 
-        // Pending exception: when an ensure-only handler runs during unwinding,
-        // the exception is stashed here and re-raised after ensure completes.
-        private WarValue _pendingException;
-        private bool _hasPendingException;
-        private int _pendingEndIP;
+        // Ensure blocks entered with something still to do when they finish:
+        // an exception to re-raise (an ensure-only handler caught it) or a
+        // value to return (a return left the begin body). Innermost last.
+        // Ensure blocks can nest (one inside another, or in a function called
+        // from one), so this is a stack. A record ends when its ensure block
+        // completes, or is discarded when control leaves the block another
+        // way: a return from its frame, an error caught outside it, or its
+        // frame being unwound (CRASH-7).
+        private PendingEnsure[] _pending = new PendingEnsure[8];
+        private int _pendingCount;
 
-        // Pending return: when Return fires inside a begin/ensure block,
-        // the return value is stashed and the ensure block runs first.
-        private WarValue _pendingReturnValue;
-        private bool _hasPendingReturn;
-        private int _pendingReturnEndIP;
+        // Instruction and memory budgets: shared by every VM of the instance
+        // and reset only when an outermost host entry starts (T1.5, PROP-2).
+        private readonly ExecutionBudget _budget;
 
-        // Scope depth tracking: PushScope increments, PopScope decrements.
-        // TryHandler saves it so DoHandleException can restore on unwind.
-        private int _scopeDepth;
-
-        // Instruction budgeting: decremented on every dispatch.
-        // When it hits 0, the VM raises an exception and stops.
-        // A value of 0 after Reset() means unlimited (no budgeting).
-        private int _budget;
+        // True while Execute() runs. A busy VM is never reset: a host entry
+        // that arrives meanwhile (a native calling back into the instance)
+        // runs on another VM (T1.5, DEC-16).
+        private bool _running;
 
         // ── Debugger state ──
         // Only accessed when _script.DebugHook != null (zero cost otherwise).
         private StepMode _stepMode;
         private int _stepFrameDepth;
         private int _lastDebugLine;
-
-        // ── Memory budgeting ──
-        // Tracks heap allocations (strings, arrays, class instances).
-        // 0 = unlimited. Raises "Memory budget exceeded" when hit.
-        private long _memoryUsed;
-        private long _memoryBudget;
 
         // ── Coroutine support ──
         // When the VM is used as a coroutine executor, yield opcodes
@@ -91,6 +86,17 @@ namespace WarScript.Bytecode
         /// <summary>True if the VM has finished executing (no more frames).</summary>
         public bool IsCompleted => _frameCount == 0 && !_yielded;
 
+        /// <summary>
+        /// No frames, empty value stack, no installed handlers and nothing
+        /// pending. Checked by the test invariants after every outermost
+        /// entry that did not yield.
+        /// </summary>
+        internal bool IsIdle => _frameCount == 0 && _sp == 0 && _handlerCount == 0
+                                && _pendingCount == 0 && !_yielded;
+
+        /// <summary>True while the VM is executing (see <c>_running</c>).</summary>
+        internal bool IsRunning => _running;
+
         private struct TryHandler
         {
             public int RescueIP;
@@ -99,51 +105,73 @@ namespace WarScript.Bytecode
             public int FrameIndex;
             public int SavedSP;
             public bool HasRescue;
-            public int SavedScopeDepth;
         }
+
+        private struct PendingEnsure
+        {
+            /// <summary>True: return <see cref="Value"/>; false: re-raise it.</summary>
+            public bool IsReturn;
+            public WarValue Value;
+            /// <summary>The error to re-raise (kind and call stack kept, T2.5); null for a return.</summary>
+            public Exception.Exception? Error;
+            public int FrameIndex;
+            /// <summary>End of the ensure block (exclusive).</summary>
+            public int EndIP;
+            /// <summary>
+            /// Handler count when the ensure block was entered. Handlers below
+            /// it enclose the block; an error caught by one of them leaves it.
+            /// </summary>
+            public int HandlerDepth;
+        }
+
+        // Context depths when the current entry (Run, RunFunction,
+        // InitCoroutine, ResumeCoroutine) started. A host fault restores them.
+        private int _entryMemoryDepth;
+        private int _entryDefinitionDepth;
+        private int _entryInstanceDepth;
 
         public WarVM(WarScriptLanguage script)
         {
             _script = script;
             _interner = script.Strings;
+            _budget = script.Budget;
         }
 
         private readonly StringInterner _interner;
 
         /// <summary>
         /// Reset all VM state for reuse. Avoids re-allocating the stack,
-        /// frame, and handler arrays on every Call() invocation.
+        /// frame, and handler arrays on every Call() invocation. The budgets
+        /// belong to the instance and are not touched (T1.5).
         /// </summary>
         private void Reset()
         {
+            if (_running)
+                throw new System.InvalidOperationException("WarVM reset while it is executing");
             _sp = 0;
             _frameCount = 0;
             _handlerCount = 0;
             _topLevelResult = default;
-            _hasPendingException = false;
-            _hasPendingReturn = false;
-            _scopeDepth = 0;
-            _budget = _script.InstructionBudget;
+            ClearPending(0);
             _yielded = false;
             _yieldType = YieldType.NextTick;
             _yieldWaitDuration = F64.Zero;
             _stepMode = StepMode.Continue;
             _stepFrameDepth = 0;
             _lastDebugLine = -1;
-            _memoryUsed = 0;
-            _memoryBudget = _script.MemoryBudget;
         }
 
         public void Run(CompiledFunction main)
         {
             Reset();
+            RecordEntryDepths();
+            if (!StackFits(0, 0, main)) return;
 
             _frames[0] = new CallFrame
             {
                 Function = main,
                 IP = 0,
-                StackBase = 0,
-                SavedScopeDepth = _scopeDepth
+                StackBase = 0
             };
             _frameCount = 1;
 
@@ -153,10 +181,13 @@ namespace WarScript.Bytecode
         /// <summary>
         /// Run a compiled function with pre-supplied arguments.
         /// Used by the Call() API for host→script invocations (tick loops, events).
+        /// The arguments are copied onto the VM stack; the span is not kept.
         /// </summary>
-        public WarValue RunFunction(CompiledFunction func, WarValue[] arguments)
+        public WarValue RunFunction(CompiledFunction func, ReadOnlySpan<WarValue> arguments)
         {
             Reset();
+            RecordEntryDepths();
+            if (!StackFits(0, 0, func)) return _topLevelResult;
 
             for (int i = 0; i < func.Arity; i++)
                 _stack[_sp++] = i < arguments.Length ? arguments[i] : WarValue.Null;
@@ -165,8 +196,7 @@ namespace WarScript.Bytecode
             {
                 Function = func,
                 IP = 0,
-                StackBase = 0,
-                SavedScopeDepth = _scopeDepth
+                StackBase = 0
             };
             _frameCount = 1;
 
@@ -183,6 +213,8 @@ namespace WarScript.Bytecode
         public void InitCoroutine(CompiledFunction func, WarValue[] arguments)
         {
             Reset();
+            RecordEntryDepths();
+            if (!StackFits(0, 0, func)) return;
 
             for (int i = 0; i < func.Arity; i++)
                 _stack[_sp++] = i < arguments.Length ? arguments[i] : WarValue.Null;
@@ -191,8 +223,7 @@ namespace WarScript.Bytecode
             {
                 Function = func,
                 IP = 0,
-                StackBase = 0,
-                SavedScopeDepth = _scopeDepth
+                StackBase = 0
             };
             _frameCount = 1;
 
@@ -205,12 +236,10 @@ namespace WarScript.Bytecode
         /// </summary>
         public void ResumeCoroutine()
         {
+            RecordEntryDepths();
             _yielded = false;
             _yieldType = YieldType.NextTick;
             _yieldWaitDuration = F64.Zero;
-            _budget = _script.InstructionBudget;
-            _memoryUsed = 0;
-            _memoryBudget = _script.MemoryBudget;
             Execute();
         }
 
@@ -218,33 +247,112 @@ namespace WarScript.Bytecode
         //  Main dispatch loop
         // ────────────────────────────────────────────────────────
 
+        private void RecordEntryDepths()
+        {
+            _entryMemoryDepth = _script.MemoryContext.Depth;
+            _entryDefinitionDepth = _script.DefinitionContext.Depth;
+            _entryInstanceDepth = _script.ClassInstanceContext.Depth;
+        }
+
         /// <summary>
-        /// Runs the dispatch loop, converting a value-stack overflow into a
-        /// catchable script exception. The push helper itself is branch-free
-        /// (hot path); the array's own bounds check is what detects overflow,
-        /// and the filter re-throws anything that is not an actual push past
-        /// the top of the stack so genuine VM bugs still surface.
+        /// Runs the dispatch loop: the VM's exception boundary (plan T1.3).
+        /// <list type="bullet">
+        /// <item>A <see cref="ScriptErrorException"/> (thrown by runtime code
+        /// on the VM's behalf) becomes a script error that <c>begin/rescue</c>
+        /// can catch. The push helper itself is branch-free (hot path): every
+        /// frame push checks the callee's verified <c>MaxStack</c> against
+        /// the room left (T1.7), so no push runs past the value stack.</item>
+        /// <item>An error no handler catches unwinds every frame, popping the
+        /// scopes and class contexts they pushed, and stays raised for the
+        /// caller (an enclosing VM or the host entry point).</item>
+        /// <item>Any other exception is a host fault: a VM bug or a failure of
+        /// the host. The context stacks go back to their depths at the start
+        /// of this entry, the VM is reset, and the exception propagates — out
+        /// of every enclosing VM — to the host entry point, which reports it
+        /// and stops. A <see cref="SyntaxException"/> from an imported file
+        /// is cleaned up the same way and reaches the host unchanged.</item>
+        /// </list>
         /// </summary>
         private void Execute()
+        {
+            if (_running)
+                throw new System.InvalidOperationException("WarVM entered while it is executing");
+            _running = true;
+            try { ExecuteGuarded(); }
+            finally { _running = false; }
+        }
+
+        private void ExecuteGuarded()
         {
             while (true)
             {
                 try
                 {
                     ExecuteLoop();
-                    return;
+                    break;
                 }
-                catch (System.IndexOutOfRangeException) when (_sp > StackMax)
+                catch (ScriptErrorException e)
                 {
-                    RuntimeError("Value stack overflow");
-                    int fi = _frameCount - 1;
-                    var code = _frames[fi].Function.Chunk.Code;
-                    var constants = _frames[fi].Function.Chunk.Constants;
-                    if (!DoHandleException(ref fi, ref code, ref constants))
-                        return;
-                    // Handled: loop and re-enter the dispatch loop.
+                    _script.ExceptionContext.RaiseException(e.Message, e.Kind);
+                    if (!HandleCaughtError()) break;
+                }
+                catch
+                {
+                    // Also a SyntaxException from compiling an import: it
+                    // propagates to the host as in v1 (imports become
+                    // compile-time in Phase 3), after the same cleanup.
+                    _running = false; // so the cleanup may reset the VM
+                    AbortAfterHostFault();
+                    throw;
                 }
             }
+
+            // Frames left behind without a yield mean an unhandled error.
+            if (_frameCount > 0 && !_yielded)
+                UnwindAll();
+        }
+
+        private bool HandleCaughtError()
+        {
+            if (_frameCount == 0) return false;
+            int fi = _frameCount - 1;
+            var code = _frames[fi].Function.Chunk.Code;
+            var constants = _frames[fi].Function.Chunk.Constants;
+            return DoHandleException(ref fi, ref code, ref constants);
+        }
+
+        /// <summary>
+        /// Pops every frame together with what it pushed on the context
+        /// stacks, after an error that no handler caught. The error itself
+        /// stays raised.
+        /// </summary>
+        private void UnwindAll()
+        {
+            while (_frameCount > 0)
+                PopFrame(_frameCount - 1);
+            _sp = 0;
+            _handlerCount = 0;
+            ClearPending(0);
+        }
+
+        /// <summary>
+        /// Puts the context stacks back where they were when this entry
+        /// started and resets the VM, after a C# exception escaped the
+        /// dispatch loop. The VM's own bookkeeping cannot be trusted at that
+        /// point (the exception may have hit half way through an instruction),
+        /// so this goes by the recorded depths, not by the frames.
+        /// </summary>
+        private void AbortAfterHostFault()
+        {
+            while (_script.MemoryContext.Depth > _entryMemoryDepth)
+                _script.MemoryContext.EndScope();
+            while (_script.DefinitionContext.Depth > _entryDefinitionDepth)
+                _script.DefinitionContext.EndScope();
+            while (_script.ClassInstanceContext.Depth > _entryInstanceDepth)
+                _script.ClassInstanceContext.PopValue();
+            if (_script.ExceptionContext.IsRaised())
+                _script.ExceptionContext.RescueException();
+            Reset();
         }
 
         private void ExecuteLoop()
@@ -254,13 +362,27 @@ namespace WarScript.Bytecode
             int fi = _frameCount - 1;
             List<byte> code = _frames[fi].Function.Chunk.Code;
             List<WarValue> constants = _frames[fi].Function.Chunk.Constants;
+            var budget = _budget;
 
             while (true)
             {
-                // ── Instruction budget ──
-                if (_budget > 0 && --_budget == 0)
+                // ── Instruction budget (shared by the instance's VMs, T1.5) ──
+                if (--budget.InstructionsLeft < 0)
                 {
-                    RuntimeError("Instruction budget exceeded");
+                    // The budget stays exhausted until the next outermost
+                    // entry (BUDGET-2, Q-11): every further instruction raises
+                    // again, so rescue and ensure bodies cannot run and the
+                    // error ends the entry whatever the script rescues.
+                    budget.InstructionsLeft = -1;
+                    // The same error each time, so it keeps where the budget
+                    // ran out (T2.5).
+                    if (budget.Exhausted != null)
+                        _script.ExceptionContext.Reraise(budget.Exhausted);
+                    else
+                    {
+                        RuntimeError(ScriptErrorKind.InstructionBudgetExceeded, "Instruction budget exceeded");
+                        budget.Exhausted = _script.ExceptionContext.Exception;
+                    }
                     if (DoHandleException(ref fi, ref code, ref constants))
                         continue;
                     return;
@@ -271,11 +393,10 @@ namespace WarScript.Bytecode
                 // When enabled: fires only on source-line changes.
                 if (_script.DebugHook != null)
                 {
-                    var lines = _frames[fi].Function.Chunk.Lines;
                     var ip = _frames[fi].IP;
-                    if (ip < lines.Count)
+                    if (ip < code.Count)
                     {
-                        var currentLine = lines[ip];
+                        var currentLine = _frames[fi].Function.Chunk.Lines.GetLine(ip);
                         if (currentLine != _lastDebugLine && currentLine > 0)
                         {
                             var shouldBreak = false;
@@ -338,19 +459,6 @@ namespace WarScript.Bytecode
                     case OpCode.Dup:  Push(Peek()); break;
 
                     // ══════════════════════════════════════════════
-                    //  Scope management
-                    // ══════════════════════════════════════════════
-
-                    case OpCode.PushScope:
-                        _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
-                        _scopeDepth++;
-                        break;
-                    case OpCode.PopScope:
-                        _script.MemoryContext.EndScope();
-                        _scopeDepth--;
-                        break;
-
-                    // ══════════════════════════════════════════════
                     //  Variables
                     // ══════════════════════════════════════════════
 
@@ -370,14 +478,29 @@ namespace WarScript.Bytecode
                     {
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
                         var name = constants[nameIdx].TextValue;
-                        Push(_script.MemoryContext.GetScope().Get(name));
+                        var global = _script.MemoryContext.GetScope().Get(name);
+                        if (_script.AuditSink != null) AuditGlobalRead(name, global.IsNull, fi);
+                        Push(global);
                         break;
                     }
                     case OpCode.SetGlobal:
                     {
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
                         var name = constants[nameIdx].TextValue;
-                        _script.MemoryContext.GetScope().Set(name, Peek());
+                        if (_script.AuditSink != null) AuditGlobalWrite(name, fi);
+                        // In a function, method or lambda every local is a
+                        // stack slot, and a class body writes its fields with
+                        // ThisSetProperty (T3.4): SetGlobal there is a write
+                        // to a name declared `global`, which goes to the
+                        // instance globals and creates the name there if
+                        // needed. At the top level it writes the scope chain
+                        // (globals, then host globals), creating the name in
+                        // the globals.
+                        var setScope = _script.MemoryContext.GetScope();
+                        if (setScope.Kind == MemoryScopeKind.FunctionLocal || setScope.Kind == MemoryScopeKind.MethodLocal
+                            || setScope.Kind == MemoryScopeKind.ClassInstance)
+                            setScope = _script.UserMemoryScope;
+                        setScope.Set(name, Peek());
                         break;
                     }
 
@@ -392,15 +515,27 @@ namespace WarScript.Bytecode
                             Push(WarValue.FromNumeric(a.Numeric + b.Numeric));
                         else if (a.IsArray || b.IsArray)
                         {
-                            var arr = AddArrays(a, b);
-                            TrackAlloc(EstimateArrayBytes(arr.ArrayValue.Count));
-                            Push(arr);
+                            if (a.IsArray != b.IsArray && _script.AuditSink != null)
+                                Audit(AuditKind.ArrayPlusValue, fi, Describe(a) + " + " + Describe(b));
+                            long length = (a.IsArray ? a.ArrayValue.Count : 1L) + (b.IsArray ? b.ArrayValue.Count : 1L);
+                            if (!CheckArrayLength(length) || !TrackAlloc(EstimateArrayBytes(length)))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
+                            Push(AddArrays(a, b));
                         }
                         else
                         {
-                            var s = _interner.Intern(a.ToString() + b.ToString());
-                            TrackAlloc(EstimateStringBytes(s));
-                            Push(WarValue.FromText(s));
+                            if (_script.AuditSink != null) AuditConcatenation(a, b, fi);
+                            var left = Text(a); var right = Text(b);
+                            long length = (long)left.Length + right.Length;
+                            if (!CheckTextLength(length) || !TrackAlloc(EstimateTextBytes(length)))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
+                            Push(WarValue.FromText(_interner.Intern(left + right)));
                         }
                         break;
                     }
@@ -411,8 +546,18 @@ namespace WarScript.Bytecode
                             Push(WarValue.FromNumeric(a.Numeric - b.Numeric));
                         else
                         {
-                            var s = _interner.Intern(a.ToString().Replace(b.ToString(), ""));
-                            TrackAlloc(EstimateStringBytes(s));
+                            if (_script.AuditSink != null)
+                                Audit(AuditKind.TextSubtraction, fi, Describe(a) + " - " + Describe(b));
+                            // The result is never longer than the left operand, so
+                            // there is no length check. 'text - ""' leaves the text
+                            // as it is (String.Replace rejects an empty pattern; T1.4).
+                            var left = Text(a); var right = Text(b);
+                            var s = _interner.Intern(right.Length == 0 ? left : left.Replace(right, ""));
+                            if (!TrackAlloc(EstimateTextBytes(s.Length)))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
                             Push(WarValue.FromText(s));
                         }
                         break;
@@ -422,21 +567,21 @@ namespace WarScript.Bytecode
                         var b = Pop(); var a = Pop();
                         if (a.IsNumeric && b.IsNumeric)
                             Push(WarValue.FromNumeric(a.Numeric * b.Numeric));
-                        else if (a.IsText && b.IsNumeric)
+                        else if (a.IsText && b.IsNumeric || b.IsText && a.IsNumeric)
                         {
-                            var s = _interner.Intern(WarValue.RepeatString(a.TextValue, WarValue.ToInt(b.Numeric)));
-                            TrackAlloc(EstimateStringBytes(s));
-                            Push(WarValue.FromText(s));
-                        }
-                        else if (b.IsText && a.IsNumeric)
-                        {
-                            var s = _interner.Intern(WarValue.RepeatString(b.TextValue, WarValue.ToInt(a.Numeric)));
-                            TrackAlloc(EstimateStringBytes(s));
-                            Push(WarValue.FromText(s));
+                            var text = a.IsText ? a.TextValue : b.TextValue;
+                            var count = WarValue.ToInt(a.IsText ? b.Numeric : a.Numeric);
+                            long length = count <= 0 ? 0 : (long)text.Length * count;
+                            if (!CheckTextLength(length) || !TrackAlloc(EstimateTextBytes(length)))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
+                            Push(WarValue.FromText(_interner.Intern(WarValue.RepeatString(text, count))));
                         }
                         else
                         {
-                            RuntimeError("Unable to multiply non-numeric values");
+                            RuntimeError(ScriptErrorKind.TypeError, "Unable to multiply non-numeric values");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -449,7 +594,7 @@ namespace WarScript.Bytecode
                         {
                             if (b.Numeric == F64.Zero)
                             {
-                                RuntimeError("Division by zero");
+                                RuntimeError(ScriptErrorKind.DivisionByZero, "Division by zero");
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -457,7 +602,7 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            RuntimeError("Unable to divide non-numeric values");
+                            RuntimeError(ScriptErrorKind.TypeError, "Unable to divide non-numeric values");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -470,7 +615,7 @@ namespace WarScript.Bytecode
                         {
                             if (b.Numeric == F64.Zero)
                             {
-                                RuntimeError("Modulo by zero");
+                                RuntimeError(ScriptErrorKind.DivisionByZero, "Modulo by zero");
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -478,15 +623,20 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            RuntimeError("Unable to perform modulo for non-numeric values");
+                            RuntimeError(ScriptErrorKind.TypeError, "Unable to perform modulo for non-numeric values");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
                         break;
                     }
                     case OpCode.Negate:
-                        Push(WarValue.FromNumeric(-Pop().Numeric));
+                    {
+                        var v = Pop();
+                        if (!v.IsNumeric && _script.AuditSink != null)
+                            Audit(AuditKind.NegateNonNumeric, fi, "-" + Describe(v));
+                        Push(WarValue.FromNumeric(-v.Numeric));
                         break;
+                    }
 
                     // ══════════════════════════════════════════════
                     //  Comparison
@@ -498,9 +648,17 @@ namespace WarScript.Bytecode
                         if (a.IsNull || b.IsNull)
                             Push(WarValue.FromLogical(a.IsNull && b.IsNull));
                         else if (a.Tag == b.Tag)
-                            Push(WarValue.FromLogical(a.Equals(b)));
+                        {
+                            var equal = a.Equals(b);
+                            if (equal && a.IsClass && _script.AuditSink != null) AuditClassEquality(a, b, "==", fi);
+                            Push(WarValue.FromLogical(equal));
+                        }
                         else
-                            Push(WarValue.FromLogical(a.ToString() == b.ToString()));
+                        {
+                            var equal = Text(a) == Text(b);
+                            if (_script.AuditSink != null) AuditMixedEquality(a, b, "==", equal, fi);
+                            Push(WarValue.FromLogical(equal));
+                        }
                         break;
                     }
                     case OpCode.NotEqual:
@@ -509,86 +667,54 @@ namespace WarScript.Bytecode
                         if (a.IsNull || b.IsNull)
                             Push(WarValue.FromLogical(!(a.IsNull && b.IsNull)));
                         else if (a.Tag == b.Tag)
-                            Push(WarValue.FromLogical(!a.Equals(b)));
+                        {
+                            var equal = a.Equals(b);
+                            if (equal && a.IsClass && _script.AuditSink != null) AuditClassEquality(a, b, "!=", fi);
+                            Push(WarValue.FromLogical(!equal));
+                        }
                         else
-                            Push(WarValue.FromLogical(a.ToString() != b.ToString()));
+                        {
+                            var equal = Text(a) == Text(b);
+                            if (_script.AuditSink != null) AuditMixedEquality(a, b, "!=", !equal, fi);
+                            Push(WarValue.FromLogical(!equal));
+                        }
                         break;
                     }
                     case OpCode.Less:
                     {
                         var b = Pop(); var a = Pop();
-                        Push(WarValue.FromLogical(a.CompareTo(b) < 0));
+                        Push(WarValue.FromLogical(Compare(a, b, fi) < 0));
                         break;
                     }
                     case OpCode.LessEqual:
                     {
                         var b = Pop(); var a = Pop();
-                        Push(WarValue.FromLogical(a.CompareTo(b) <= 0));
+                        Push(WarValue.FromLogical(Compare(a, b, fi) <= 0));
                         break;
                     }
                     case OpCode.Greater:
                     {
                         var b = Pop(); var a = Pop();
-                        Push(WarValue.FromLogical(a.CompareTo(b) > 0));
+                        Push(WarValue.FromLogical(Compare(a, b, fi) > 0));
                         break;
                     }
                     case OpCode.GreaterEqual:
                     {
                         var b = Pop(); var a = Pop();
-                        Push(WarValue.FromLogical(a.CompareTo(b) >= 0));
+                        Push(WarValue.FromLogical(Compare(a, b, fi) >= 0));
                         break;
                     }
 
-                    // ── Superinstructions: Compare + JumpIfFalse + Pop ──
+                    // ── Superinstruction: Less + JumpIfFalse + Pop ──
                     // Fuses three dispatches into one. Pops two operands,
-                    // compares, and jumps if the condition is false.
+                    // compares, and jumps if the first is not less.
                     // No intermediate boolean is pushed.
 
                     case OpCode.LessJump:
                     {
                         var offset = ReadU16(code, ref _frames[fi].IP);
                         var b = Pop(); var a = Pop();
-                        if (!(a.CompareTo(b) < 0))
-                            _frames[fi].IP += offset;
-                        break;
-                    }
-                    case OpCode.LessEqualJump:
-                    {
-                        var offset = ReadU16(code, ref _frames[fi].IP);
-                        var b = Pop(); var a = Pop();
-                        if (!(a.CompareTo(b) <= 0))
-                            _frames[fi].IP += offset;
-                        break;
-                    }
-                    case OpCode.GreaterJump:
-                    {
-                        var offset = ReadU16(code, ref _frames[fi].IP);
-                        var b = Pop(); var a = Pop();
-                        if (!(a.CompareTo(b) > 0))
-                            _frames[fi].IP += offset;
-                        break;
-                    }
-                    case OpCode.GreaterEqualJump:
-                    {
-                        var offset = ReadU16(code, ref _frames[fi].IP);
-                        var b = Pop(); var a = Pop();
-                        if (!(a.CompareTo(b) >= 0))
-                            _frames[fi].IP += offset;
-                        break;
-                    }
-                    case OpCode.EqualJump:
-                    {
-                        var offset = ReadU16(code, ref _frames[fi].IP);
-                        var b = Pop(); var a = Pop();
-                        if (!a.Equals(b))
-                            _frames[fi].IP += offset;
-                        break;
-                    }
-                    case OpCode.NotEqualJump:
-                    {
-                        var offset = ReadU16(code, ref _frames[fi].IP);
-                        var b = Pop(); var a = Pop();
-                        if (a.Equals(b))
+                        if (!(Compare(a, b, fi) < 0))
                             _frames[fi].IP += offset;
                         break;
                     }
@@ -653,7 +779,7 @@ namespace WarScript.Bytecode
                                 lambdaFunc = cf;
                             else
                             {
-                                RuntimeError($"Function '{funcName}' with {argCount} args is not defined");
+                                RuntimeError(ScriptErrorKind.NameError, System.FormattableString.Invariant($"Function '{funcName}' with {argCount} args is not defined"));
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -662,6 +788,11 @@ namespace WarScript.Bytecode
                         if (lambdaFunc != null)
                         {
                             // Call a function value (lambda or function reference)
+                            if (!StackFits(_sp - argCount, argCount, lambdaFunc))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
                             var arity = lambdaFunc.Arity;
                             while (argCount < arity)
                             {
@@ -669,12 +800,12 @@ namespace WarScript.Bytecode
                                 argCount++;
                             }
                             _script.MemoryContext.PushScope(
-                                _script.MemoryContext.NewScope(_script.UserMemoryScope));
+                                _script.MemoryContext.NewScope(_script.UserMemoryScope, MemoryScopeKind.FunctionLocal));
                             var newBase = _sp - argCount;
                             if (_frameCount >= FramesMax)
                             {
                                 _script.MemoryContext.EndScope();
-                                RuntimeError("Stack overflow");
+                                RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -683,8 +814,7 @@ namespace WarScript.Bytecode
                                 Function = lambdaFunc,
                                 IP = 0,
                                 StackBase = newBase,
-                                HasScope = true,
-                                SavedScopeDepth = _scopeDepth
+                                Kind = FrameKind.Function
                             };
                             _frameCount++;
                             fi = _frameCount - 1;
@@ -695,10 +825,10 @@ namespace WarScript.Bytecode
                         {
                             var args = CollectArgs(argCount);
                             WarValue result;
-                            try { result = nativeFn.NativeBody(args); }
+                            try { result = nativeFn.NativeBody(args); _script.ThrowPendingHostFault(); }
                             catch (System.Exception e)
                             {
-                                RuntimeError($"Native function '{funcName}' failed: {e.Message}");
+                                RaiseNativeFailure("Native function", funcName, e);
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -708,6 +838,11 @@ namespace WarScript.Bytecode
                         {
                             // Pad missing arguments with null for default parameters.
                             // The function body's desugared null-checks will assign defaults.
+                            if (!StackFits(_sp - argCount, argCount, def.Compiled))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
                             var arity = def.Compiled.Arity;
                             while (argCount < arity)
                             {
@@ -718,14 +853,14 @@ namespace WarScript.Bytecode
                             // Push a MemoryScope for function-local variables
                             // (parented to UserMemoryScope, matching tree-walker semantics)
                             _script.MemoryContext.PushScope(
-                                _script.MemoryContext.NewScope(_script.UserMemoryScope));
+                                _script.MemoryContext.NewScope(_script.UserMemoryScope, MemoryScopeKind.FunctionLocal));
 
                             // Arguments are already on the stack at sp-argCount .. sp-1
                             var newBase = _sp - argCount;
                             if (_frameCount >= FramesMax)
                             {
                                 _script.MemoryContext.EndScope();
-                                RuntimeError("Stack overflow");
+                                RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -734,8 +869,7 @@ namespace WarScript.Bytecode
                                 Function = def.Compiled,
                                 IP = 0,
                                 StackBase = newBase,
-                                HasScope = true,
-                                SavedScopeDepth = _scopeDepth
+                                Kind = FrameKind.Function
                             };
                             _frameCount++;
                             fi = _frameCount - 1;
@@ -744,7 +878,7 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            RuntimeError($"Function '{funcName}' is not compiled");
+                            RuntimeError(ScriptErrorKind.TypeError, $"Function '{funcName}' is not compiled");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -760,7 +894,13 @@ namespace WarScript.Bytecode
 
                         if (!(funcVal.IsNativeObject && funcVal.Ref is CompiledFunction lambdaCF))
                         {
-                            RuntimeError("Value is not callable");
+                            RuntimeError(ScriptErrorKind.TypeError, "Value is not callable");
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
+
+                        if (!StackFits(_sp - argCount - 1, argCount, lambdaCF))
+                        {
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -780,13 +920,13 @@ namespace WarScript.Bytecode
                         }
 
                         _script.MemoryContext.PushScope(
-                            _script.MemoryContext.NewScope(_script.UserMemoryScope));
+                            _script.MemoryContext.NewScope(_script.UserMemoryScope, MemoryScopeKind.FunctionLocal));
 
                         var cvNewBase = _sp - argCount;
                         if (_frameCount >= FramesMax)
                         {
                             _script.MemoryContext.EndScope();
-                            RuntimeError("Stack overflow");
+                            RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -795,8 +935,7 @@ namespace WarScript.Bytecode
                             Function = lambdaCF,
                             IP = 0,
                             StackBase = cvNewBase,
-                            HasScope = true,
-                            SavedScopeDepth = _scopeDepth
+                            Kind = FrameKind.Function
                         };
                         _frameCount++;
                         fi = _frameCount - 1;
@@ -822,7 +961,7 @@ namespace WarScript.Bytecode
                                 tailLambda = cf;
                             else
                             {
-                                RuntimeError($"Function '{funcName}' with {argCount} args is not defined");
+                                RuntimeError(ScriptErrorKind.NameError, System.FormattableString.Invariant($"Function '{funcName}' with {argCount} args is not defined"));
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -836,28 +975,38 @@ namespace WarScript.Bytecode
                             // Can't tail-call into native — call normally and return the result
                             var args = CollectArgs(argCount);
                             WarValue nResult;
-                            try { nResult = nativeTail.NativeBody(args); }
+                            try { nResult = nativeTail.NativeBody(args); _script.ThrowPendingHostFault(); }
                             catch (System.Exception e)
                             {
-                                RuntimeError($"Native function '{funcName}' failed: {e.Message}");
+                                RaiseNativeFailure("Native function", funcName, e);
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
                             // Behave as Return with this result
-                            // Pop excess scopes
-                            while (_scopeDepth > _frames[fi].SavedScopeDepth)
-                            {
-                                _script.MemoryContext.EndScope();
-                                _scopeDepth--;
-                            }
                             DoReturn(nResult, fi, ref code, ref constants, out fi);
                             if (_frameCount == 0) return;
                             code = _frames[fi].Function.Chunk.Code;
                             constants = _frames[fi].Function.Chunk.Constants;
                         }
+                        else if (tailTarget != null && _frames[fi].Kind == FrameKind.Constructor)
+                        {
+                            // The compiler emits TailCall only inside functions;
+                            // a constructor frame has no function scope to reuse.
+                            RuntimeError(ScriptErrorKind.TypeError, "Tail call in a constructor");
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         else if (tailTarget != null)
                         {
                             // ── True tail call: reuse the current frame ──
+
+                            // The arguments are padded where they are, then
+                            // moved down to the frame's base.
+                            if (!StackFits(_sp - argCount, argCount, tailTarget))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
 
                             // Pad missing arguments with null for default parameters.
                             var arity = tailTarget.Arity;
@@ -867,13 +1016,14 @@ namespace WarScript.Bytecode
                                 argCount++;
                             }
 
-                            // Pop old function's memory scope
-                            if (_frames[fi].HasScope)
+                            // Pop old function's memory scope (a method frame
+                            // keeps its class context and gets a new local scope)
+                            if (_frames[fi].Kind != FrameKind.Script)
                                 _script.MemoryContext.EndScope();
 
                             // Push fresh scope for the new function
                             _script.MemoryContext.PushScope(
-                                _script.MemoryContext.NewScope(_script.UserMemoryScope));
+                                _script.MemoryContext.NewScope(_script.UserMemoryScope, MemoryScopeKind.FunctionLocal));
 
                             // Move arguments down to the frame's stack base
                             var stackBase = _frames[fi].StackBase;
@@ -885,13 +1035,14 @@ namespace WarScript.Bytecode
                             // Reuse the frame — no _frameCount change
                             _frames[fi].Function = tailTarget;
                             _frames[fi].IP = 0;
-                            _frames[fi].HasScope = true;
+                            if (_frames[fi].Kind == FrameKind.Script)
+                                _frames[fi].Kind = FrameKind.Function;
                             code = tailTarget.Chunk.Code;
                             constants = tailTarget.Chunk.Constants;
                         }
                         else
                         {
-                            RuntimeError($"Function '{funcName}' is not compiled");
+                            RuntimeError(ScriptErrorKind.TypeError, $"Function '{funcName}' is not compiled");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -902,32 +1053,22 @@ namespace WarScript.Bytecode
                     {
                         var result = Pop();
 
+                        // A return leaves every ensure block of this frame it
+                        // is inside: whatever they were going to re-raise or
+                        // return is discarded (CRASH-7).
+                        DropPendingOfFrame(fi);
+
                         // Check if there are any handlers on this frame with ensure blocks.
                         while (_handlerCount > 0 && _handlers[_handlerCount - 1].FrameIndex == fi)
                         {
                             var handler = _handlers[--_handlerCount];
-                            while (_scopeDepth > handler.SavedScopeDepth)
-                            {
-                                _script.MemoryContext.EndScope();
-                                _scopeDepth--;
-                            }
                             if (handler.EnsureIP != handler.EndIP)
                             {
                                 _sp = handler.SavedSP;
-                                _hasPendingReturn = true;
-                                _pendingReturnValue = result;
-                                _pendingReturnEndIP = handler.EndIP;
+                                PushPending(true, result, fi, handler.EndIP);
                                 _frames[fi].IP = handler.EnsureIP;
                                 goto nextInstruction;
                             }
-                        }
-
-                        // Pop any remaining excess scopes (e.g. from rescue body PushScope
-                        // where the handler was already consumed during exception handling)
-                        while (_scopeDepth > _frames[fi].SavedScopeDepth)
-                        {
-                            _script.MemoryContext.EndScope();
-                            _scopeDepth--;
                         }
 
                         DoReturn(result, fi, ref code, ref constants, out fi);
@@ -953,7 +1094,7 @@ namespace WarScript.Bytecode
                         var instance = _stack[_sp - argCount - 1];
                         if (!instance.IsClass)
                         {
-                            RuntimeError($"Cannot call method '{methodName}' on non-class value");
+                            RuntimeError(ScriptErrorKind.TypeError, $"Cannot call method '{methodName}' on non-class value");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -962,13 +1103,19 @@ namespace WarScript.Bytecode
                         var classDef = FindClassWithMethod(classData.Definition, methodName, argCount);
                         if (classDef == null)
                         {
-                            RuntimeError($"Method '{methodName}' with {argCount} args not found");
+                            RuntimeError(ScriptErrorKind.NameError, System.FormattableString.Invariant($"Method '{methodName}' with {argCount} args not found"));
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
 
                         var methodDef = classDef.GetDefinitionScope().GetFunction(methodName, argCount)!;
                         var methodClassData = classData.GetRelation(classDef.ClassDetails.Name) ?? classData;
+
+                        if (methodDef.Compiled != null && !StackFits(_sp - argCount - 1, argCount, methodDef.Compiled))
+                        {
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
 
                         // Remove instance from under the args
                         var argBase = _sp - argCount - 1;
@@ -979,7 +1126,15 @@ namespace WarScript.Bytecode
                         if (methodDef is NativeFunctionDefinition nativeMethod)
                         {
                             var args = CollectArgs(argCount);
-                            Push(nativeMethod.NativeBody(args));
+                            WarValue mResult;
+                            try { mResult = nativeMethod.NativeBody(args); _script.ThrowPendingHostFault(); }
+                            catch (System.Exception e)
+                            {
+                                RaiseNativeFailure("Native method", methodName, e);
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
+                            Push(mResult);
                         }
                         else
                         {
@@ -998,8 +1153,13 @@ namespace WarScript.Bytecode
                                     argCount++;
                                 }
 
-                                // Push an inner scope for method-local variables
-                                _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
+                                // The method's own scope. Its parent is the
+                                // instance globals, not the instance's fields:
+                                // a bare name in a method is a local or a
+                                // global (T3.4, DEC-6, PROP-20); fields are
+                                // `@x` / `this :: x`.
+                                _script.MemoryContext.PushScope(
+                                    _script.MemoryContext.NewScope(_script.UserMemoryScope, MemoryScopeKind.MethodLocal));
 
                                 var newBase = _sp - argCount;
                                 if (_frameCount >= FramesMax)
@@ -1008,7 +1168,7 @@ namespace WarScript.Bytecode
                                     _script.DefinitionContext.EndScope();
                                     _script.MemoryContext.EndScope(); // class memory
                                     _script.ClassInstanceContext.PopValue();
-                                    RuntimeError("Stack overflow");
+                                    RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                                     if (DoHandleException(ref fi, ref code, ref constants)) break;
                                     return;
                                 }
@@ -1017,9 +1177,7 @@ namespace WarScript.Bytecode
                                     Function = methodDef.Compiled,
                                     IP = 0,
                                     StackBase = newBase,
-                                    IsMethodCall = true,
-                                    HasScope = true,
-                                    SavedScopeDepth = _scopeDepth
+                                    Kind = FrameKind.Method
                                 };
                                 _frameCount++;
                                 fi = _frameCount - 1;
@@ -1032,7 +1190,7 @@ namespace WarScript.Bytecode
                                 _script.DefinitionContext.EndScope();
                                 _script.MemoryContext.EndScope();
                                 _script.ClassInstanceContext.PopValue();
-                                RuntimeError($"Method '{methodName}' is not compiled");
+                                RuntimeError(ScriptErrorKind.TypeError, $"Method '{methodName}' is not compiled");
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
                             }
@@ -1047,29 +1205,37 @@ namespace WarScript.Bytecode
                     case OpCode.NewArray:
                     {
                         var count = ReadU16(code, ref _frames[fi].IP);
+                        if (!CheckArrayLength(count) || !TrackAlloc(EstimateArrayBytes(count)))
+                        {
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         var list = new List<WarValue>(count);
                         var arrBase = _sp - count;
                         for (int i = 0; i < count; i++)
                             list.Add(_stack[arrBase + i]);
                         _sp = arrBase;
-                        TrackAlloc(EstimateArrayBytes(count));
                         Push(WarValue.FromArray(list));
                         break;
                     }
                     case OpCode.IndexGet:
                     {
                         var index = Pop(); var target = Pop();
+                        WarValue element;
                         if (target.IsArray && index.IsNumeric)
-                            Push(target.GetArrayElement(WarValue.ToInt(index.Numeric)));
+                            element = target.GetArrayElement(WarValue.ToInt(index.Numeric));
                         else if (target.IsText && index.IsNumeric)
-                            Push(target.GetTextChar(WarValue.ToInt(index.Numeric)));
+                            element = target.GetTextChar(WarValue.ToInt(index.Numeric));
                         else
-                            Push(WarValue.Null);
+                            element = WarValue.Null;
+                        if (element.IsNull && _script.AuditSink != null) AuditIndexRead(target, index, fi);
+                        Push(element);
                         break;
                     }
                     case OpCode.IndexSet:
                     {
                         var value = Pop(); var index = Pop(); var target = Pop();
+                        if (_script.AuditSink != null) AuditIndexWrite(target, index, textWriteBack: false, fi);
                         if (target.IsArray && index.IsNumeric)
                             target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                         Push(value);
@@ -1081,11 +1247,18 @@ namespace WarScript.Bytecode
                         var slot = ReadU16(code, ref _frames[fi].IP);
                         var value = Pop(); var index = Pop();
                         var target = _stack[_frames[fi].StackBase + slot];
+                        if (_script.AuditSink != null) AuditIndexWrite(target, index, textWriteBack: true, fi);
                         if (target.IsArray && index.IsNumeric)
                             target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                         else if (target.IsText && index.IsNumeric)
                         {
-                            var newText = target.SetTextChar(WarValue.ToInt(index.Numeric), value.ToString());
+                            var replacement = Text(value);
+                            if (!TextWriteFits(target, index, replacement))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
+                            var newText = target.SetTextChar(WarValue.ToInt(index.Numeric), replacement);
                             _stack[_frames[fi].StackBase + slot] = newText;
                         }
                         Push(value);
@@ -1098,11 +1271,18 @@ namespace WarScript.Bytecode
                         var name = constants[nameIdx].TextValue;
                         var value = Pop(); var index = Pop();
                         var target = _script.MemoryContext.GetScope().Get(name);
+                        if (_script.AuditSink != null) AuditIndexWrite(target, index, textWriteBack: true, fi);
                         if (target.IsArray && index.IsNumeric)
                             target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                         else if (target.IsText && index.IsNumeric)
                         {
-                            var newText = target.SetTextChar(WarValue.ToInt(index.Numeric), value.ToString());
+                            var replacement = Text(value);
+                            if (!TextWriteFits(target, index, replacement))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
+                            var newText = target.SetTextChar(WarValue.ToInt(index.Numeric), replacement);
                             _script.MemoryContext.GetScope().Set(name, newText);
                         }
                         Push(value);
@@ -1135,17 +1315,27 @@ namespace WarScript.Bytecode
                                 }
                             }
 
+                            if (_script.AuditSink != null) AuditIndexWrite(propVal, index, textWriteBack: true, fi);
                             if (propVal.IsArray && index.IsNumeric)
                                 propVal.SetArrayElement(WarValue.ToInt(index.Numeric), value);
                             else if (propVal.IsText && index.IsNumeric)
                             {
-                                var newText = propVal.SetTextChar(WarValue.ToInt(index.Numeric), value.ToString());
+                                var replacement = Text(value);
+                                if (!TextWriteFits(propVal, index, replacement))
+                                {
+                                    if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                    return;
+                                }
+                                var newText = propVal.SetTextChar(WarValue.ToInt(index.Numeric), replacement);
                                 if (ReferenceEquals(cache.CachedType, details))
                                     cd.SetPropertyByIndex(cache.CachedIndex, newText);
                                 else
                                     cd.SetProperty(constants[nameIdx].TextValue, newText);
                             }
                         }
+                        else if (_script.AuditSink != null)
+                            Audit(AuditKind.IndexWriteInvalid, fi,
+                                  Describe(inst) + " :: " + constants[nameIdx].TextValue + "{" + Describe(index) + "} = ...: not an instance");
                         Push(value);
                         break;
                     }
@@ -1154,9 +1344,15 @@ namespace WarScript.Bytecode
                         var value = Pop(); var arr = Peek();
                         if (arr.IsArray)
                         {
-                            TrackAlloc(16); // one WarValue slot
+                            if (!CheckArrayLength(arr.ArrayValue.Count + 1L) || !TrackAlloc(16)) // one WarValue slot
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
                             arr.ArrayAppend(value);
                         }
+                        else if (_script.AuditSink != null)
+                            Audit(AuditKind.AppendToNonArray, fi, Describe(arr) + " << " + Describe(value));
                         break;
                     }
 
@@ -1183,15 +1379,19 @@ namespace WarScript.Bytecode
                         {
                             var cd = target.ClassValue;
                             var props = cd.Definition.ClassDetails.Properties;
+                            if (!TrackAlloc(EstimateArrayBytes(props.Count)))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
                             var list = new List<WarValue>(props.Count);
                             for (int i = 0; i < props.Count; i++)
                                 list.Add(cd.GetProperty(props[i]));
-                            TrackAlloc(EstimateArrayBytes(props.Count));
                             Push(WarValue.FromArray(list));
                         }
                         else
                         {
-                            RuntimeError($"Unable to iterate '{target}'");
+                            RuntimeError(ScriptErrorKind.TypeError, $"Unable to iterate '{target}'");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1208,12 +1408,11 @@ namespace WarScript.Bytecode
                         var argCount = code[_frames[fi].IP++];
                         var className = constants[nameIdx].TextValue;
                         var result = InstantiateClass(className, argCount);
-                        if (_script.ExceptionContext.IsRaised())
+                        if (_script.ExceptionContext.IsRaised() || !EnterConstructors(result, ref fi, ref code, ref constants))
                         {
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
-                        Push(result);
                         break;
                     }
                     case OpCode.NewNestedInstance:
@@ -1227,28 +1426,32 @@ namespace WarScript.Bytecode
                         var parent = Pop();
                         if (!parent.IsClass)
                         {
-                            RuntimeError("Cannot instantiate nested class on non-class value");
+                            RuntimeError(ScriptErrorKind.TypeError, "Cannot instantiate nested class on non-class value");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
 
-                        // Push parent's definition scope so the nested class can be found
+                        // Push parent's definition scope so the nested class (and
+                        // its base classes) can be found while allocating.
+                        WarValue result;
                         _script.DefinitionContext.PushScope(parent.ClassValue.Definition.GetDefinitionScope());
                         try
                         {
                             // Re-push args for InstantiateClass
                             foreach (var arg in args) Push(arg);
-                            var result = InstantiateClass(className, argCount);
-                            if (_script.ExceptionContext.IsRaised())
-                            {
-                                if (DoHandleException(ref fi, ref code, ref constants)) break;
-                                return;
-                            }
-                            Push(result);
+                            result = InstantiateClass(className, argCount);
                         }
                         finally
                         {
                             _script.DefinitionContext.EndScope();
+                        }
+                        // The constructor bodies look names up from their own
+                        // class's definition scope (the top of DefinitionContext
+                        // while they run), so they do not need the parent's.
+                        if (_script.ExceptionContext.IsRaised() || !EnterConstructors(result, ref fi, ref code, ref constants))
+                        {
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
                         }
                         break;
                     }
@@ -1282,7 +1485,7 @@ namespace WarScript.Bytecode
                         else
                         {
                             var propName = constants[nameIdx].TextValue;
-                            RuntimeError($"Cannot access property '{propName}' on non-class value");
+                            RuntimeError(ScriptErrorKind.TypeError, $"Cannot access property '{propName}' on non-class value");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1305,6 +1508,7 @@ namespace WarScript.Bytecode
                             else
                             {
                                 var propName = constants[nameIdx].TextValue;
+                                if (_script.AuditSink != null) AuditPropertyWrite(cd, propName, fi);
                                 cd.SetProperty(propName, value);
                                 if (details.PropertyIndex.TryGetValue(propName, out var idx))
                                 {
@@ -1313,13 +1517,16 @@ namespace WarScript.Bytecode
                                 }
                             }
                         }
+                        else if (_script.AuditSink != null)
+                            Audit(AuditKind.PropertyWriteOnNonInstance, fi,
+                                  Describe(inst) + " :: " + constants[nameIdx].TextValue + " = " + Describe(value));
                         Push(value);
                         break;
                     }
                     case OpCode.This:
                         if (!_script.ClassInstanceContext.HasValue)
                         {
-                            RuntimeError("'this' can only be used inside a class");
+                            RuntimeError(ScriptErrorKind.NameError, "'this' can only be used inside a class");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1333,7 +1540,7 @@ namespace WarScript.Bytecode
                         var cacheSlot = ReadU16(code, ref _frames[fi].IP);
                         if (!_script.ClassInstanceContext.HasValue)
                         {
-                            RuntimeError("'this' can only be used inside a class");
+                            RuntimeError(ScriptErrorKind.NameError, "'this' can only be used inside a class");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1363,7 +1570,7 @@ namespace WarScript.Bytecode
                         var value = Pop();
                         if (!_script.ClassInstanceContext.HasValue)
                         {
-                            RuntimeError("'this' can only be used inside a class");
+                            RuntimeError(ScriptErrorKind.NameError, "'this' can only be used inside a class");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1377,6 +1584,7 @@ namespace WarScript.Bytecode
                         else
                         {
                             var propName = constants[nameIdx].TextValue;
+                            if (_script.AuditSink != null) AuditPropertyWrite(cd, propName, fi);
                             cd.SetProperty(propName, value);
                             if (details.PropertyIndex.TryGetValue(propName, out var idx))
                             {
@@ -1420,16 +1628,21 @@ namespace WarScript.Bytecode
                     // ══════════════════════════════════════════════
 
                     case OpCode.Print:
-                        _script.Logger?.Invoke(_script, Pop().ToString());
+                    {
+                        var printed = Pop();
+                        if (_script.AuditSink != null && ContainsLogical(printed, 0))
+                            Audit(AuditKind.LogicalFormatted, fi, "print " + Describe(printed));
+                        _script.Print(Text(printed));
                         break;
+                    }
 
                     case OpCode.Assert:
                     {
                         if (!IsTruthy(Pop()))
                         {
-                            var line = _frames[fi].IP > 0 && _frames[fi].IP - 1 < _frames[fi].Function.Chunk.Lines.Count
-                                ? _frames[fi].Function.Chunk.Lines[_frames[fi].IP - 1] : 0;
-                            RuntimeError($"Assertion error at line {line}");
+                            var line = _frames[fi].IP > 0 && _frames[fi].IP - 1 < code.Count
+                                ? _frames[fi].Function.Chunk.Lines.GetLine(_frames[fi].IP - 1) : 0;
+                            RuntimeError(ScriptErrorKind.AssertionFailed, System.FormattableString.Invariant($"Assertion error at line {line}"));
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1448,7 +1661,7 @@ namespace WarScript.Bytecode
                         var hasRescue = code[_frames[fi].IP++] != 0;
                         if (_handlerCount >= HandlersMax)
                         {
-                            RuntimeError("Exception handler stack overflow (begin blocks nested too deeply)");
+                            RuntimeError(ScriptErrorKind.LimitExceeded, "Exception handler stack overflow (begin blocks nested too deeply)");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -1459,14 +1672,24 @@ namespace WarScript.Bytecode
                             EndIP = endIP,
                             FrameIndex = fi,
                             SavedSP = _sp,
-                            HasRescue = hasRescue,
-                            SavedScopeDepth = _scopeDepth
+                            HasRescue = hasRescue
                         };
                         break;
                     }
                     case OpCode.PopHandler:
                         if (_handlerCount > 0) _handlerCount--;
                         break;
+                    case OpCode.DropPending:
+                    {
+                        // 'break'/'next' leaves an ensure block: what it was
+                        // going to re-raise or return is discarded (Q-12),
+                        // as 'return' and 'raise' inside it already do.
+                        var endIP = ReadU16(code, ref _frames[fi].IP);
+                        if (_pendingCount > 0 && _pending[_pendingCount - 1].FrameIndex == fi
+                            && _pending[_pendingCount - 1].EndIP == endIP)
+                            ClearPending(_pendingCount - 1);
+                        break;
+                    }
 
                     case OpCode.Raise:
                     {
@@ -1514,50 +1737,45 @@ namespace WarScript.Bytecode
                         }
                         break;
                     }
+
+                    // An opcode byte that is not an instruction (T1.7): a host
+                    // fault. The loader's verifier is meant to make this
+                    // unreachable; until it does, it stops misaligned execution.
+                    default:
+                        throw new System.InvalidOperationException(System.FormattableString.Invariant(
+                            $"Invalid opcode {(byte)instruction} at offset {_frames[fi].IP - 1} in '{_frames[fi].Function.Name}'"));
                 }
 
-                // Check for pending exception (after ensure-only block completes)
-                if (_hasPendingException && _frames[fi].IP >= _pendingEndIP)
+                // An ensure block entered with a re-raise or return to finish
+                // has completed: finish it.
+                if (_pendingCount > 0 && _pending[_pendingCount - 1].FrameIndex == fi
+                    && _frames[fi].IP >= _pending[_pendingCount - 1].EndIP)
                 {
-                    _hasPendingException = false;
-                    _script.ExceptionContext.Enable();
-                    if (DoHandleException(ref fi, ref code, ref constants))
-                        continue;
-                    return;
-                }
+                    var pending = _pending[--_pendingCount];
+                    _pending[_pendingCount] = default;
 
-                // Check for pending return (after ensure block runs before return)
-                if (_hasPendingReturn && _frames[fi].IP >= _pendingReturnEndIP)
-                {
-                    _hasPendingReturn = false;
-                    var result = _pendingReturnValue;
-                    _pendingReturnValue = default;
+                    if (!pending.IsReturn)
+                    {
+                        if (pending.Error != null) _script.ExceptionContext.Reraise(pending.Error);
+                        else _script.ExceptionContext.RaiseException(pending.Value);
+                        if (DoHandleException(ref fi, ref code, ref constants))
+                            continue;
+                        return;
+                    }
+
+                    var result = pending.Value;
 
                     // Check for more handlers on this frame
                     while (_handlerCount > 0 && _handlers[_handlerCount - 1].FrameIndex == fi)
                     {
                         var h = _handlers[--_handlerCount];
-                        while (_scopeDepth > h.SavedScopeDepth)
-                        {
-                            _script.MemoryContext.EndScope();
-                            _scopeDepth--;
-                        }
                         if (h.EnsureIP != h.EndIP)
                         {
                             _sp = h.SavedSP;
-                            _hasPendingReturn = true;
-                            _pendingReturnValue = result;
-                            _pendingReturnEndIP = h.EndIP;
+                            PushPending(true, result, fi, h.EndIP);
                             _frames[fi].IP = h.EnsureIP;
                             goto continueLoop;
                         }
-                    }
-
-                    // Pop excess scopes before returning
-                    while (_scopeDepth > _frames[fi].SavedScopeDepth)
-                    {
-                        _script.MemoryContext.EndScope();
-                        _scopeDepth--;
                     }
 
                     DoReturn(result, fi, ref code, ref constants, out fi);
@@ -1581,25 +1799,22 @@ namespace WarScript.Bytecode
         private void DoReturn(in WarValue result, int fi,
             ref List<byte> code, ref List<WarValue> constants, out int newFi)
         {
-            var wasMethod = _frames[fi].IsMethodCall;
-            var hasScope = _frames[fi].HasScope;
+            var kind = _frames[fi].Kind;
 
             _sp = _frames[fi].StackBase;
             _frameCount--;
+            DropPendingOfFrame(fi);
+            PopFrameContexts(fi, kind);
 
-            if (wasMethod)
+            // A constructor's value is discarded: the instance it initialized
+            // is already on the stack, below the frame (T1.1).
+            if (kind != FrameKind.Constructor)
             {
-                _script.DefinitionContext.EndScope();
-                _script.MemoryContext.EndScope();
-                _script.ClassInstanceContext.PopValue();
+                if (_frameCount > 0)
+                    Push(result);
+                else
+                    _topLevelResult = result;
             }
-            if (hasScope)
-                _script.MemoryContext.EndScope();
-
-            if (_frameCount > 0)
-                Push(result);
-            else
-                _topLevelResult = result;
 
             newFi = _frameCount - 1;
         }
@@ -1616,8 +1831,8 @@ namespace WarScript.Bytecode
             {
                 var frame = _frames[i];
                 var frameIP = frame.IP > 0 ? frame.IP - 1 : 0;
-                var frameLine = frameIP < frame.Function.Chunk.Lines.Count
-                    ? frame.Function.Chunk.Lines[frameIP] : 0;
+                var frameLine = frameIP < frame.Function.Chunk.Code.Count
+                    ? frame.Function.Chunk.Lines.GetLine(frameIP) : 0;
                 callStack.Add(new DebugContext.StackEntry(frame.Function.Name, frameLine));
             }
             // Update the current frame's line to the accurate one
@@ -1633,7 +1848,7 @@ namespace WarScript.Bytecode
             for (int i = 0; i < localCount; i++)
             {
                 var name = i < func.LocalNames.Length ? func.LocalNames[i] : null;
-                if (name == null || name.StartsWith("$")) continue;
+                if (name == null || name.StartsWith("$", System.StringComparison.Ordinal)) continue;
                 locals[name] = _stack[stackBase + i];
             }
 
@@ -1670,60 +1885,124 @@ namespace WarScript.Bytecode
             return args;
         }
 
-        private void RuntimeError(string message)
+        /// <summary>
+        /// Whether a frame of <paramref name="function"/> whose
+        /// <paramref name="argCount"/> arguments start at
+        /// <paramref name="stackBase"/> fits in the value stack (T1.7, SEC-2):
+        /// the verifier bounds every height the function reaches by its
+        /// <see cref="CompiledFunction.MaxStack"/>, counted from its arity
+        /// (the null padding included). Arguments beyond the arity stay in the
+        /// frame under everything the function pushes, so they are added. When
+        /// it does not fit, raises "Value stack overflow" for the caller,
+        /// before anything was pushed.
+        /// </summary>
+        private bool StackFits(int stackBase, int argCount, CompiledFunction function)
         {
-            _script.ExceptionContext.RaiseException(message);
+            int surplus = argCount > function.Arity ? argCount - function.Arity : 0;
+            if (stackBase + surplus + function.MaxStack <= StackMax) return true;
+            RuntimeError(ScriptErrorKind.LimitExceeded, "Value stack overflow");
+            return false;
+        }
+
+        private void RuntimeError(ScriptErrorKind kind, string message)
+        {
+            _script.ExceptionContext.RaiseException(message, kind);
+        }
+
+        /// <summary>
+        /// Raises the script error for an exception thrown by a native body
+        /// (plan 6.9, PROP-13): a <see cref="ScriptErrorException"/> keeps its
+        /// own message (a <see cref="NativeArgumentException"/> from
+        /// <see cref="NativeHelper"/> keeps v1's, naming the native, with its
+        /// own kind); anything else is a NativeError naming the native. A
+        /// host fault recorded by an entry nested inside the native is
+        /// rethrown instead, as this VM's own host fault.
+        /// </summary>
+        private void RaiseNativeFailure(string what, string name, System.Exception e)
+        {
+            // A host fault in an entry the native made (plan 6.3, T2.4):
+            // this VM stops too, whatever the native did with the result.
+            _script.ThrowPendingHostFault();
+            if (e is NativeArgumentException argumentError)
+                _script.ExceptionContext.RaiseException($"{what} '{name}' failed: {e.Message}", argumentError.Kind);
+            else if (e is ScriptErrorException scriptError)
+                _script.ExceptionContext.RaiseException(e.Message, scriptError.Kind);
+            else
+                _script.ExceptionContext.RaiseException($"{what} '{name}' failed: {e.Message}", ScriptErrorKind.NativeError);
         }
 
         /// <summary>
         /// Track a heap allocation. Returns true if within budget.
         /// If over budget, raises "Memory budget exceeded" and returns false.
-        /// Caller must check the return value and handle the exception.
+        /// Call it before allocating; on false, allocate nothing and handle
+        /// the exception (T1.4).
         /// </summary>
         private bool TrackAlloc(long bytes)
         {
-            if (_memoryBudget <= 0) return true;
-            _memoryUsed += bytes;
-            if (_memoryUsed <= _memoryBudget) return true;
-            RuntimeError("Memory budget exceeded");
+            var budget = _budget;
+            if (budget.MemoryLimit <= 0) return true;
+            budget.MemoryUsed += bytes;
+            if (budget.MemoryUsed <= budget.MemoryLimit) return true;
+            RuntimeError(ScriptErrorKind.MemoryBudgetExceeded, "Memory budget exceeded");
             return false;
         }
 
+        /// <summary>
+        /// Allocation guard (T1.4): raises "Text too long" and returns false
+        /// when a text of <paramref name="length"/> characters would exceed
+        /// <see cref="WarScriptLanguage.MaxTextLength"/>. Call before allocating.
+        /// </summary>
+        private bool CheckTextLength(long length)
+        {
+            if (length <= _script.MaxTextLength) return true;
+            RuntimeError(ScriptErrorKind.LimitExceeded, "Text too long");
+            return false;
+        }
+
+        /// <summary>
+        /// Allocation guard (T1.4): raises "Array too long" and returns false
+        /// when an array of <paramref name="length"/> elements would exceed
+        /// <see cref="WarScriptLanguage.MaxArrayLength"/>. Call before allocating.
+        /// </summary>
+        private bool CheckArrayLength(long length)
+        {
+            if (length <= _script.MaxArrayLength) return true;
+            RuntimeError(ScriptErrorKind.LimitExceeded, "Array too long");
+            return false;
+        }
+
+        /// <summary>
+        /// Whether <c>text{index} = replacement</c> stays within the text
+        /// limit. An index out of range changes nothing, so it always fits.
+        /// </summary>
+        private bool TextWriteFits(in WarValue text, in WarValue index, string replacement)
+        {
+            var i = WarValue.ToInt(index.Numeric);
+            var length = text.TextValue.Length;
+            if (i < 0 || i >= length) return true;
+            return CheckTextLength(length - 1L + replacement.Length);
+        }
+
         /// <summary>Estimate heap cost of a string (UTF-16 + object overhead).</summary>
-        private static long EstimateStringBytes(string s) => s.Length * 2L + 40;
+        private static long EstimateTextBytes(long length) => length * 2L + 40;
 
         /// <summary>Estimate heap cost of a new array.</summary>
-        private static long EstimateArrayBytes(int count) => count * 16L + 64;
+        private static long EstimateArrayBytes(long count) => count * 16L + 64;
 
         /// <summary>Estimate heap cost of a class instance.</summary>
         private static long EstimateClassBytes(int propertyCount) => propertyCount * 16L + 96;
 
         private bool DoHandleException(ref int fi, ref List<byte> code, ref List<WarValue> constants)
         {
+            CaptureCallStack();
             while (_handlerCount > 0)
             {
                 var handler = _handlers[_handlerCount - 1];
 
                 if (handler.FrameIndex != fi)
                 {
-                    // Unwind this frame — pop excess scopes first
-                    while (_scopeDepth > _frames[fi].SavedScopeDepth)
-                    {
-                        _script.MemoryContext.EndScope();
-                        _scopeDepth--;
-                    }
-                    var wasMethod = _frames[fi].IsMethodCall;
-                    var hasScope = _frames[fi].HasScope;
-                    _sp = _frames[fi].StackBase;
-                    _frameCount--;
-                    if (wasMethod)
-                    {
-                        _script.DefinitionContext.EndScope();
-                        _script.MemoryContext.EndScope();
-                        _script.ClassInstanceContext.PopValue();
-                    }
-                    if (hasScope)
-                        _script.MemoryContext.EndScope();
+                    // Unwind this frame
+                    PopFrame(fi);
                     if (_frameCount == 0) return false;
                     fi = _frameCount - 1;
                     code = _frames[fi].Function.Chunk.Code;
@@ -1732,39 +2011,153 @@ namespace WarScript.Bytecode
                 }
 
                 _handlerCount--;
+                // The error leaves every ensure block entered inside this
+                // handler's begin body: what they were going to re-raise or
+                // return is superseded by this error (CRASH-7).
+                DropPendingAbove(_handlerCount);
                 var errorVal = _script.ExceptionContext.Exception?.Value ?? WarValue.Null;
                 _sp = handler.SavedSP;
-
-                // Pop any MemoryContext scopes pushed since the handler was installed
-                while (_scopeDepth > handler.SavedScopeDepth)
-                {
-                    _script.MemoryContext.EndScope();
-                    _scopeDepth--;
-                }
 
                 if (handler.HasRescue)
                 {
                     // Has rescue: clear exception, push error, jump to rescue.
-                    // Rescue code falls through to ensure.
+                    // With an ensure block, the rescue body runs under the
+                    // same handler without its rescue, so leaving it by
+                    // return, raise or an error still runs the ensure block
+                    // (Q-14, SEM-13); the compiler's PopHandler at its end
+                    // removes it. Without one it runs under no handler of
+                    // the block (nothing to run, and recursion from it is
+                    // not limited by HandlersMax). Either way the code falls
+                    // through to the ensure block.
                     _script.ExceptionContext.RescueException();
+                    if (handler.EnsureIP != handler.EndIP)
+                    {
+                        handler.HasRescue = false;
+                        _handlers[_handlerCount++] = handler;
+                    }
                     Push(errorVal);
                     _frames[fi].IP = handler.RescueIP;
                     return true;
                 }
                 else
                 {
-                    // No rescue, but ensure must run.
-                    // Temporarily disable the exception, stash it, run ensure.
-                    // When ensure finishes (IP reaches endIP), re-raise.
-                    _script.ExceptionContext.Disable();
-                    _hasPendingException = true;
-                    _pendingException = errorVal;
-                    _pendingEndIP = handler.EndIP;
+                    // No rescue, but ensure must run: clear the exception,
+                    // keep it, run ensure, re-raise it when ensure ends.
+                    var raised = _script.ExceptionContext.Exception;
+                    _script.ExceptionContext.RescueException();
+                    PushPending(false, errorVal, fi, handler.EndIP, raised);
                     _frames[fi].IP = handler.EnsureIP;
                     return true;
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// Records where the raised error is, before any frame is unwound
+        /// (plan T2.5): this VM's frames, innermost first, with the line of
+        /// the instruction each one is executing. An error that a nested
+        /// entry left raised already has the frames of the VM it was raised
+        /// in, and gets this VM's added below them as it continues from the
+        /// native call site; one this VM recorded already (re-raised by an
+        /// ensure block) keeps its stack.
+        /// </summary>
+        private void CaptureCallStack()
+        {
+            var raised = _script.ExceptionContext.Exception;
+            if (raised == null || ReferenceEquals(raised.StackOwner, this)) return;
+            var stack = raised.BeginFrames(this);
+            for (int i = _frameCount - 1; i >= 0; i--)
+            {
+                var function = _frames[i].Function;
+                var chunk = function.Chunk;
+                var ip = _frames[i].IP > 0 ? _frames[i].IP - 1 : 0;
+                var line = ip < chunk.Code.Count ? chunk.Lines.GetLine(ip) : 0;
+                var column = ip < chunk.Code.Count ? chunk.Lines.GetColumn(ip) : 0;
+                stack.Add(new ScriptFrame(function.Name, chunk.Source ?? _script.ScriptName, line, column));
+            }
+        }
+
+        /// <summary>
+        /// Pops frame <paramref name="fi"/> (the top one) during unwinding,
+        /// with the function scope and class context it pushed
+        /// and any ensure records it owns. Its stack values are dropped.
+        /// </summary>
+        private void PopFrame(int fi)
+        {
+            var kind = _frames[fi].Kind;
+            _sp = _frames[fi].StackBase;
+            _frameCount--;
+            DropPendingOfFrame(fi);
+            PopFrameContexts(fi, kind);
+        }
+
+        /// <summary>
+        /// Pops what a frame of <paramref name="kind"/> pushed on the context
+        /// stacks when it was entered (see <see cref="FrameKind"/>).
+        /// </summary>
+        private void PopFrameContexts(int fi, FrameKind kind)
+        {
+            switch (kind)
+            {
+                case FrameKind.Function:
+                    _script.MemoryContext.EndScope();
+                    break;
+                case FrameKind.Method:
+                    _script.MemoryContext.EndScope(); // method-local
+                    _script.DefinitionContext.EndScope();
+                    _script.MemoryContext.EndScope(); // instance
+                    _script.ClassInstanceContext.PopValue();
+                    break;
+                case FrameKind.Constructor:
+                    _script.DefinitionContext.EndScope();
+                    _script.MemoryContext.EndScope(); // instance
+                    _script.ClassInstanceContext.PopValue();
+                    _frames[fi].Instance = null;
+                    break;
+            }
+        }
+
+        // ── Pending ensure records ──
+
+        /// <summary>Records an ensure block being entered with a return or re-raise to finish.</summary>
+        private void PushPending(bool isReturn, in WarValue value, int fi, int endIP,
+            Exception.Exception? error = null)
+        {
+            if (_pendingCount == _pending.Length)
+                System.Array.Resize(ref _pending, _pending.Length * 2);
+            _pending[_pendingCount++] = new PendingEnsure
+            {
+                IsReturn = isReturn,
+                Value = value,
+                Error = error,
+                FrameIndex = fi,
+                EndIP = endIP,
+                HandlerDepth = _handlerCount
+            };
+        }
+
+        /// <summary>Discards the records of frame <paramref name="fi"/> and of any frame above it.</summary>
+        private void DropPendingOfFrame(int fi)
+        {
+            var count = _pendingCount;
+            while (count > 0 && _pending[count - 1].FrameIndex >= fi) count--;
+            ClearPending(count);
+        }
+
+        /// <summary>Discards the records of ensure blocks entered while more than <paramref name="handlerCount"/> handlers were installed.</summary>
+        private void DropPendingAbove(int handlerCount)
+        {
+            var count = _pendingCount;
+            while (count > 0 && _pending[count - 1].HandlerDepth > handlerCount) count--;
+            ClearPending(count);
+        }
+
+        private void ClearPending(int newCount)
+        {
+            for (int i = newCount; i < _pendingCount; i++)
+                _pending[i] = default;
+            _pendingCount = newCount;
         }
 
         // ── Array concatenation ──
@@ -1790,60 +2183,150 @@ namespace WarScript.Bytecode
             return WarValue.FromArray(list2);
         }
 
-        // ── Class instantiation ──
+        // ── Class instantiation (T1.1) ──
+        //
+        // 'new' happens in two steps. The allocation step builds the whole
+        // instance graph (the derived ClassData, one ClassData per base class
+        // in Relations, the ValueReferences shared with base classes, the
+        // property values from the arguments) without running any code, and
+        // lists the constructor bodies to run in execution order: base
+        // classes depth-first in BaseTypes order, then the derived class.
+        // EnterConstructors then pushes the instance as the expression's value
+        // and one Constructor frame per body on this VM, so constructors are
+        // ordinary frames: they count against FramesMax and the budgets, and
+        // their errors unwind to the code that executed 'new'.
+
+        // Constructors to run for the instance being allocated, in execution
+        // order. Filled by the allocation step, emptied by EnterConstructors.
+        private readonly List<ClassData> _constructors = new List<ClassData>();
+
+        // Classes on the current base-class path of the allocation step, to
+        // detect a class that inherits from itself (CRASH-5).
+        private readonly List<ClassDefinition> _allocationPath = new List<ClassDefinition>();
+
+        // Fields of the instance being allocated that a base-class parameter
+        // created without binding them to an argument (Q-16: two such
+        // parameters of one name are one field, not a conflict).
+        private readonly HashSet<ValueReference> _unboundRefs = new HashSet<ValueReference>();
+
+        /// <summary>
+        /// The Q-16 error: base class <paramref name="baseClass"/> binds its
+        /// parameter <paramref name="name"/> to an argument other than the one
+        /// the field of that name of a <paramref name="className"/> instance
+        /// is already bound to. Shared by the compiler and the VM.
+        /// </summary>
+        internal static string BoundTwiceMessage(string name, string className, string baseClass) =>
+            $"'{name}' is bound twice in class '{className}': base class '{baseClass}' binds its parameter '{name}' to a different argument";
+
+        /// <summary>
+        /// Allocation step for <c>new className [args]</c>. Returns the
+        /// instance, or default with an error raised (and nothing queued).
+        /// </summary>
         private WarValue InstantiateClass(string className, int argCount)
         {
             var args = CollectArgs(argCount);
             var definition = _script.DefinitionContext.GetScope().GetClass(className);
             if (definition == null)
             {
-                RuntimeError($"Class '{className}' is not defined");
+                RuntimeError(ScriptErrorKind.NameError, $"Class '{className}' is not defined");
                 return default;
             }
-            return InstantiateClassDef(definition, args, new Dictionary<string, ClassData>());
-        }
-
-        private WarValue InstantiateClassDef(ClassDefinition definition, List<WarValue> args,
-            Dictionary<string, ClassData> relations)
-        {
-            return InstantiateClassDefShared(definition, args, relations, null);
+            _constructors.Clear();
+            _allocationPath.Clear();
+            var classData = AllocateInstance(definition, args, new Dictionary<string, ClassData>(), null, null);
+            _allocationPath.Clear();
+            _unboundRefs.Clear();
+            if (classData == null)
+            {
+                _constructors.Clear();
+                return default;
+            }
+            return WarValue.FromClass(classData);
         }
 
         /// <summary>
-        /// Instantiate a class, optionally sharing ValueReferences from a derived class.
-        /// When sharedRefs is non-null, property slots map to the derived class's refs.
+        /// Allocates one class part of an instance and, recursively, its base
+        /// classes, queuing their constructor bodies in execution order.
+        /// Every part shares the instance's one field scope
+        /// (<paramref name="fields"/>, created for the derived class: T3.4,
+        /// 5.7), so a field one class body assigns is a field of the whole
+        /// instance. When sharedRefs is non-null (a base class), parameter i
+        /// is bound to sharedRefs[i], the ValueReference of the derived-class
+        /// parameter passed in that position, or to nothing (null) when that
+        /// argument is not a parameter of the derived class. A base parameter
+        /// named like a field that is already bound to something else raises
+        /// the rescuable TypeError of Q-16 (the compiler rejects it where it
+        /// knows the base classes). Returns null with an error raised on
+        /// failure.
         /// </summary>
-        private WarValue InstantiateClassDefShared(ClassDefinition definition, List<WarValue> args,
-            Dictionary<string, ClassData> relations, ValueReference[]? sharedRefs)
+        private ClassData? AllocateInstance(ClassDefinition definition, List<WarValue> args,
+            Dictionary<string, ClassData> relations, ValueReference?[]? sharedRefs, MemoryScope? fields)
         {
             var propCount = definition.ClassDetails.Properties.Count;
-            TrackAlloc(EstimateClassBytes(propCount));
+            if (!TrackAlloc(EstimateClassBytes(propCount))) return null;
 
+            // The instance's fields. Their parent is the instance globals, so a
+            // bare read in a class body finds a field first, then a global
+            // (T3.4, 5.7, PROP-20).
+            fields ??= new MemoryScope(_script, _script.UserMemoryScope, false, MemoryScopeKind.ClassInstance);
             var valueRefs = new ValueReference[propCount];
             for (int i = 0; i < propCount; i++)
             {
-                if (sharedRefs != null && i < sharedRefs.Length && sharedRefs[i] != null)
-                    valueRefs[i] = sharedRefs[i]; // share the same reference
-                else
+                var name = definition.ClassDetails.Properties[i];
+                if (sharedRefs == null)
+                {
+                    // The class being instantiated: its parameters take the arguments.
                     valueRefs[i] = ValueReference.InstanceOf(i < args.Count ? args[i] : WarValue.Null);
+                    fields.SetLocal(name, valueRefs[i]);
+                    continue;
+                }
+                // A derived-class parameter that is itself bound to nothing
+                // passes nothing on.
+                var bound = i < sharedRefs.Length ? sharedRefs[i] : null;
+                var unbound = bound == null || _unboundRefs.Contains(bound);
+                var existing = fields.GetLocalReference(name);
+                if (existing == null)
+                {
+                    if (bound == null)
+                    {
+                        bound = ValueReference.InstanceOf(WarValue.Null);
+                        _unboundRefs.Add(bound);
+                    }
+                    fields.SetLocal(name, bound);
+                    valueRefs[i] = bound;
+                }
+                else if (unbound ? _unboundRefs.Contains(existing) : ReferenceEquals(existing, bound))
+                    valueRefs[i] = existing; // the same binding: one field
+                else
+                {
+                    RuntimeError(ScriptErrorKind.TypeError, BoundTwiceMessage(name, _allocationPath[0].ClassDetails.Name,
+                        definition.ClassDetails.Name));
+                    return null;
+                }
             }
 
-            var classScope = new MemoryScope(_script, null, poolable: false);
-            var classData = new ClassData(definition, classScope, relations);
+            var classData = new ClassData(definition, fields, relations);
             classData.PropertyValues = valueRefs;
             relations[definition.ClassDetails.Name] = classData;
 
             // Base classes: pass shared ValueReferences
+            _allocationPath.Add(definition);
             foreach (var baseType in definition.BaseTypes)
             {
                 var baseDef = _script.DefinitionContext.GetScope().GetClass(baseType.Name);
                 if (baseDef == null) continue;
+                if (_allocationPath.Contains(baseDef))
+                {
+                    // Q-11: a rescuable error at 'new', not a compile error.
+                    RuntimeError(ScriptErrorKind.TypeError, $"Class '{baseDef.ClassDetails.Name}' inherits from itself");
+                    return null;
+                }
 
                 // baseType.Properties lists derived-class property names passed to the
                 // base constructor. The mapping is positional:
                 //   baseType.Properties[i] → baseDef.ClassDetails.Properties[i]
                 var basePropCount = baseDef.ClassDetails.Properties.Count;
-                var baseShared = new ValueReference[basePropCount];
+                var baseShared = new ValueReference?[basePropCount];
                 for (int i = 0; i < baseType.Properties.Count && i < basePropCount; i++)
                 {
                     var derivedPropName = baseType.Properties[i];
@@ -1852,37 +2335,71 @@ namespace WarScript.Bytecode
                         baseShared[i] = valueRefs[derivedIdx];
                 }
 
-                var baseArgs = new List<WarValue>();
-                for (int i = 0; i < basePropCount; i++)
-                    baseArgs.Add(baseShared[i] != null ? baseShared[i].Value : WarValue.Null);
-
-                InstantiateClassDefShared(baseDef, baseArgs, relations, baseShared);
+                if (AllocateInstance(baseDef, args, relations, baseShared, fields) == null) return null;
             }
+            _allocationPath.RemoveAt(_allocationPath.Count - 1);
 
-            _script.MemoryContext.PushScope(classScope);
-            _script.ClassInstanceContext.PushValue(classData);
-            try
+            // No tree-walk fallback: the AST is discarded after compilation.
+            // Classes loaded via LoadBytecode have CompiledConstructor or nothing.
+            if (definition.CompiledConstructor != null)
+                _constructors.Add(classData);
+            return classData;
+        }
+
+        /// <summary>
+        /// Second step of <c>new</c>: pushes <paramref name="instance"/> as
+        /// the expression's value, then one Constructor frame per queued
+        /// constructor body, in reverse execution order so that the first to
+        /// run is on top. Each frame pushes its class context now; frames and
+        /// contexts are both last-in first-out, so each body runs with its own
+        /// context on top. Returns false, with "Stack overflow" raised and
+        /// the stack unchanged, when the frames do not all fit.
+        /// </summary>
+        private bool EnterConstructors(in WarValue instance,
+            ref int fi, ref List<byte> code, ref List<WarValue> constants)
+        {
+            var count = _constructors.Count;
+            if (_frameCount + count > FramesMax)
             {
-                for (int i = 0; i < propCount; i++)
-                    classScope.SetLocal(definition.ClassDetails.Properties[i], valueRefs[i]);
-
-                // Execute constructor
-                if (definition.CompiledConstructor != null)
+                _constructors.Clear();
+                RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
+                return false;
+            }
+            // Every constructor frame's base is just above the instance.
+            for (int i = 0; i < count; i++)
+            {
+                if (!StackFits(_sp + 1, 0, _constructors[i].Definition.CompiledConstructor))
                 {
-                    _script.DefinitionContext.PushScope(definition.GetDefinitionScope());
-                    try { new WarVM(_script).Run(definition.CompiledConstructor); }
-                    finally { _script.DefinitionContext.EndScope(); }
+                    _constructors.Clear();
+                    return false;
                 }
-                // No tree-walk fallback — AST is discarded after compilation.
-                // Classes loaded via LoadBytecode have CompiledConstructor or nothing.
-            }
-            finally
-            {
-                _script.MemoryContext.EndScope();
-                _script.ClassInstanceContext.PopValue();
             }
 
-            return WarValue.FromClass(classData);
+            Push(instance);
+            if (count == 0) return true;
+
+            for (int i = count - 1; i >= 0; i--)
+            {
+                var part = _constructors[i];
+                var definition = part.Definition;
+                _script.DefinitionContext.PushScope(definition.GetDefinitionScope());
+                _script.MemoryContext.PushScope(part.MemoryScope);
+                _script.ClassInstanceContext.PushValue(part);
+                _frames[_frameCount++] = new CallFrame
+                {
+                    Function = definition.CompiledConstructor,
+                    IP = 0,
+                    StackBase = _sp,
+                    Kind = FrameKind.Constructor,
+                    Instance = part
+                };
+            }
+            _constructors.Clear();
+
+            fi = _frameCount - 1;
+            code = _frames[fi].Function.Chunk.Code;
+            constants = _frames[fi].Function.Chunk.Constants;
+            return true;
         }
 
         private static ClassDefinition? FindClassWithMethod(ClassDefinition classDef, string name, int arity)
@@ -1899,10 +2416,218 @@ namespace WarScript.Bytecode
             return null;
         }
 
+        // ── Ordering ──
+
+        /// <summary>
+        /// <see cref="WarValue.CompareTo"/>, with the number case first and
+        /// the audit events for the cases v2 rejects (plan 8.1).
+        /// </summary>
+        private int Compare(in WarValue a, in WarValue b, int fi)
+        {
+            if (a.IsNumeric && b.IsNumeric) return a.Numeric.CompareTo(b.Numeric);
+            if (_script.AuditSink != null && !(a.IsText && b.IsText))
+            {
+                if (a.IsLogical && b.IsLogical)
+                    Audit(AuditKind.LogicalOrdering, fi, Describe(a) + " <=> " + Describe(b));
+                else
+                    Audit(AuditKind.MixedTypeOrdering, fi, Describe(a) + " <=> " + Describe(b) + " (compared as text)");
+            }
+            return a.CompareTo(b);
+        }
+
+        // ── Audit mode (plan 8.1, T0.8; temporary) ──
+        // Every caller checks _script.AuditSink != null first, so with no
+        // sink attached the cost is that one check.
+
+        private void Audit(AuditKind kind, int fi, string detail)
+        {
+            var sink = _script.AuditSink;
+            if (sink == null) return;
+            var function = _frames[fi].Function;
+            var line = AuditLine(function.Chunk, _frames[fi].IP - 1);
+            sink(new AuditEvent(kind, function.Chunk.Source ?? _script.ScriptName, line, function.Name, detail));
+        }
+
+        /// <summary>
+        /// The line of the instruction at <paramref name="ip"/>. v1 records
+        /// line 0 for many expression instructions (T1.10), so fall back to
+        /// the next instruction that has a line, normally the statement the
+        /// expression belongs to (its opcode comes after its operands), and
+        /// then to the previous one.
+        /// </summary>
+        private static int AuditLine(Chunk chunk, int ip)
+        {
+            if (ip < 0 || ip >= chunk.Code.Count) return 0;
+            var lines = chunk.Lines;
+            int at = lines.EntryIndex(ip);
+            if (at < 0) return 0;
+            for (var i = at; i < lines.EntryCount; i++)
+                if (lines.LineAt(i) > 0) return lines.LineAt(i);
+            for (var i = at - 1; i >= 0; i--)
+                if (lines.LineAt(i) > 0) return lines.LineAt(i);
+            return 0;
+        }
+
+        /// <summary>
+        /// A value as text for <c>print</c> and the text operators: the
+        /// canonical format (T1.6), with the instance's native formatters.
+        /// A formatter is host code and may call back into the instance: a
+        /// host fault in that nested entry stops this VM too (plan 6.3),
+        /// whether the formatter returned or threw.
+        /// </summary>
+        private string Text(in WarValue v)
+        {
+            try { return v.Format(_script.NativeFormatters); }
+            finally { _script.ThrowPendingHostFault(); }
+        }
+
+        /// <summary>
+        /// A value for an audit detail: its type and a short form. Never calls
+        /// ToString on an array, instance or native object (a cyclic array
+        /// would recurse, CRASH-1; host objects are not formatted, R1).
+        /// </summary>
+        private static string Describe(in WarValue v)
+        {
+            switch (v.Tag)
+            {
+                case ValueTag.Null: return "null";
+                case ValueTag.Numeric:
+                    return "number " + WarValue.FormatNumber(v.Numeric); // culture-invariant (T1.6)
+                case ValueTag.Logical: return "logical " + (v.LogicalValue ? "true" : "false");
+                case ValueTag.Text:
+                    var t = v.TextValue;
+                    return "text \"" + (t.Length <= 40 ? t : t.Substring(0, 37) + "...") + "\"";
+                case ValueTag.Array: return "array of " + v.ArrayValue.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                case ValueTag.Class: return v.ClassValue.Definition.ClassDetails.Name + " instance";
+                case ValueTag.NativeObject: return "native " + (v.Ref?.GetType().Name ?? "null");
+                default: return v.Tag.ToString();
+            }
+        }
+
+        /// <summary>True if formatting <paramref name="v"/> writes a logical value (inside arrays too, to a fixed depth).</summary>
+        private static bool ContainsLogical(in WarValue v, int depth)
+        {
+            if (v.IsLogical) return true;
+            if (!v.IsArray || depth >= 8) return false;
+            foreach (var element in v.ArrayValue)
+                if (ContainsLogical(element, depth + 1)) return true;
+            return false;
+        }
+
+        private void AuditMixedEquality(in WarValue a, in WarValue b, string op, bool result, int fi) =>
+            Audit(AuditKind.MixedTypeEquality, fi,
+                  Describe(a) + " " + op + " " + Describe(b) + " (v1: " + (result ? "true" : "false") + ")");
+
+        private void AuditClassEquality(in WarValue a, in WarValue b, string op, int fi)
+        {
+            if (ReferenceEquals(a.Ref, b.Ref)) return;
+            Audit(AuditKind.ClassStructuralEquality, fi,
+                  Describe(a) + " " + op + " " + Describe(b) + ": two instances, structurally equal");
+        }
+
+        private void AuditConcatenation(in WarValue a, in WarValue b, int fi)
+        {
+            if (!a.IsText && !b.IsText)
+                Audit(AuditKind.NonTextConcatenation, fi, Describe(a) + " + " + Describe(b));
+            if (a.IsLogical || b.IsLogical)
+                Audit(AuditKind.LogicalFormatted, fi, Describe(a) + " + " + Describe(b));
+        }
+
+        private void AuditIndexRead(in WarValue target, in WarValue index, int fi)
+        {
+            string why;
+            if (!target.IsArray && !target.IsText) why = "not indexable";
+            else if (!index.IsNumeric) why = "index is not a number";
+            else
+            {
+                var i = WarValue.ToInt(index.Numeric);
+                var count = target.IsArray ? target.ArrayValue.Count : target.TextValue.Length;
+                if (i >= 0 && i < count) return; // an element that is null
+                why = "out of bounds";
+            }
+            Audit(AuditKind.IndexReadInvalid, fi, Describe(target) + "{" + Describe(index) + "}: " + why);
+        }
+
+        /// <param name="textWriteBack">The opcode writes a changed text back to its variable or property.</param>
+        private void AuditIndexWrite(in WarValue target, in WarValue index, bool textWriteBack, int fi)
+        {
+            var site = Describe(target) + "{" + Describe(index) + "} = ...";
+            if (target.IsArray && index.IsNumeric)
+            {
+                var i = WarValue.ToInt(index.Numeric);
+                if (i < 0 || i >= target.ArrayValue.Count)
+                    Audit(AuditKind.IndexWriteInvalid, fi, site + ": out of bounds, ignored");
+            }
+            else if (textWriteBack && target.IsText && index.IsNumeric)
+            {
+                var i = WarValue.ToInt(index.Numeric);
+                var ignored = i < 0 || i >= target.TextValue.Length;
+                Audit(AuditKind.TextIndexAssign, fi, site + (ignored ? ": out of bounds, ignored" : ": text rewritten"));
+            }
+            else
+            {
+                var why = !index.IsNumeric && (target.IsArray || target.IsText) ? "index is not a number" : "not indexable";
+                Audit(AuditKind.IndexWriteInvalid, fi, site + ": " + why + ", ignored");
+            }
+        }
+
+        /// <summary>A property write on an instance that misses the inline cache: does it create an undeclared field?</summary>
+        private void AuditPropertyWrite(ClassData cd, string name, int fi)
+        {
+            if (cd.Definition.ClassDetails.PropertyIndex.ContainsKey(name) || cd.MemoryScope.HasLocal(name)) return;
+            // Assignments in the class body (the constructor) declare fields.
+            if (_frames[fi].Function.Name.EndsWith("#ctor", StringComparison.Ordinal)) return;
+            Audit(AuditKind.DynamicPropertyCreated, fi,
+                  cd.Definition.ClassDetails.Name + " :: " + name + ": not a field of the class");
+        }
+
+        /// <summary>
+        /// A global read: a method reading a field by its bare name, or a null
+        /// that is undefined, a global hidden from a class, or a variable of
+        /// an ended block.
+        /// </summary>
+        private void AuditGlobalRead(string name, bool readNull, int fi)
+        {
+            var start = _script.MemoryContext.GetScope();
+            if (!readNull && start.Kind != MemoryScopeKind.MethodLocal) return;
+            var holder = start.Resolve(name);
+            if (holder != null)
+            {
+                if (start.Kind == MemoryScopeKind.MethodLocal && holder.Kind == MemoryScopeKind.ClassInstance)
+                    Audit(AuditKind.FieldAccessViaBareName, fi, "read " + name);
+                return; // a variable that holds null
+            }
+
+            if ((start.Kind == MemoryScopeKind.MethodLocal || start.Kind == MemoryScopeKind.ClassInstance)
+                && _script.UserMemoryScope.Resolve(name) != null)
+                Audit(AuditKind.GlobalShadowedInClass, fi,
+                      name + ": null here, global value " + Describe(_script.UserMemoryScope.Get(name)));
+            else
+                Audit(AuditKind.UndefinedRead, fi, name);
+        }
+
+        /// <summary>A global write, before it happens: from a function into a global, or from a method into a field?</summary>
+        private void AuditGlobalWrite(string name, int fi)
+        {
+            var start = _script.MemoryContext.GetScope();
+            // In a function, method or lambda SetGlobal writes a name
+            // declared `global` (T3.4): v2 behavior, nothing to report.
+            if (start.Kind == MemoryScopeKind.FunctionLocal || start.Kind == MemoryScopeKind.MethodLocal
+                || start.Kind == MemoryScopeKind.ClassInstance) return;
+            if (start.HasLocal(name)) return;
+            var holder = start.Resolve(name);
+            if (holder == null) return; // creates a local of the current scope
+            if (start.Kind == MemoryScopeKind.FunctionLocal
+                && (holder.Kind == MemoryScopeKind.User || holder.Kind == MemoryScopeKind.Native))
+                Audit(AuditKind.GlobalWriteFromFunction, fi, name);
+            else if (start.Kind == MemoryScopeKind.MethodLocal && holder.Kind == MemoryScopeKind.ClassInstance)
+                Audit(AuditKind.FieldAccessViaBareName, fi, "write " + name);
+        }
+
         // ── Import ──
         private void ExecuteImport(string path)
         {
-            if (_script.ImportStack.Contains(path)) { RuntimeError($"Circular import: '{path}'"); return; }
+            if (_script.ImportStack.Contains(path)) { RuntimeError(ScriptErrorKind.NameError, $"Circular import: '{path}'"); return; }
             if (_script.ImportCache.TryGetValue(path, out var cached))
             {
                 cached.CopyLocalDefinitionsTo(_script.DefinitionContext.GetScope());
@@ -1919,10 +2644,10 @@ namespace WarScript.Bytecode
             string? source = null;
             if (precompiled == null)
             {
-                if (_script.FileResolver == null) { RuntimeError($"Cannot import '{path}': no file resolver"); return; }
+                if (_script.FileResolver == null) { RuntimeError(ScriptErrorKind.NameError, $"Cannot import '{path}': no file resolver"); return; }
                 try { source = _script.FileResolver(path); }
-                catch (System.Exception e) { RuntimeError($"Failed to read import '{path}': {e.Message}"); return; }
-                if (source == null) { RuntimeError($"Import '{path}' not found"); return; }
+                catch (System.Exception e) { RuntimeError(ScriptErrorKind.NameError, $"Failed to read import '{path}': {e.Message}"); return; }
+                if (source == null) { RuntimeError(ScriptErrorKind.NameError, $"Import '{path}' not found"); return; }
             }
 
             _script.ImportStack.Add(path);
@@ -1933,10 +2658,18 @@ namespace WarScript.Bytecode
                 var compiled = precompiled;
                 if (compiled == null)
                 {
-                    var tokens = LexicalParser.Parse(source!);
-                    var importStmt = new CompositeStatement(_script, null, path);
-                    StatementParser.Parse(_script, tokens, importStmt);
-                    compiled = Compiler.CompileScript(_script, importStmt, importDefScope);
+                    try
+                    {
+                        var tokens = LexicalParser.Parse(source!);
+                        var module = StatementParser.ParseModule(_script, tokens, path);
+                        compiled = Compiler.CompileScript(_script, module.TopLevel, importDefScope);
+                    }
+                    catch (SyntaxException e)
+                    {
+                        // Its position is in the imported file (T3.1).
+                        e.LocateIn(path, source);
+                        throw;
+                    }
                 }
                 new WarVM(_script).Run(compiled);
                 if (!_script.ExceptionContext.IsRaised())

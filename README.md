@@ -69,8 +69,8 @@ using WarScript;
 using WarScript.Context.Definition;
 using WarScript.Expression.Value;
 
-// 1. Create the script. The logger receives everything `print` emits and any
-//    uncaught error's stack trace.
+// 1. Create the script. The logger receives everything `print` emits and the
+//    runtime's own log lines (an uncaught error with its call stack, warnings).
 var script = new WarScriptLanguage(
     scriptName:   "example",
     sourceCode:   sourceCode,
@@ -83,18 +83,30 @@ WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
 
 // 3. Run() parses, compiles to bytecode, and executes all top-level statements.
 //    This is also what makes functions callable — always call it first.
-script.Run();
+//    No entry point throws for a script error: check the ScriptResult.
+ScriptResult run = script.Run();
+if (!run.IsOk) Debug.LogError(run.Error);    // "example:3:0: DivisionByZero: Division by zero"
 
 // 4. Call into the script. Functions are looked up by (name, argument count).
-var tick = script.GetFunction("tick", 1);
-script.Call(tick, WarValue.FromNumeric(F64.Ratio(1, 60)));
+FunctionHandle tick = script.GetFunction("tick", 1);   // null if there is no tick[dt]
+ScriptResult r = script.Call(tick, WarValue.FromNumeric(F64.Ratio(1, 60)));
+// r.Value is tick's return value when r.IsOk
 
 // 5. If your scripts use `yield`, drive coroutines once per tick.
 script.TickCoroutines(F64.Ratio(1, 60));
+
+// 6. Optional, for lockstep games: a 64-bit hash of everything the script has
+//    printed and of its globals' current values. Compare it across machines
+//    (for example once per tick) to locate a desync.
+ulong stateHash = script.ComputeStateHash();
 ```
 
-There is **no separate compile step to opt into** — `Run()` always compiles the script to bytecode,
-and every language feature (including `yield`) runs on the bytecode VM. Saving/loading bytecode
+`Run()` compiles the script to bytecode if it has not been compiled yet. To find compile errors
+without running anything, call `Compile()` first: it returns a `CompileResult` (`Success` and
+`Diagnostics`, each with a severity, message, script name and line) instead of throwing, and later
+calls return the same result. The entry points (`Run`, `Call`, `StartCoroutine`, `TickCoroutines`)
+return a `ScriptResult` — see [Results and errors](#results-and-errors); on a script that does not
+compile they return an `Error` result of kind `CompileError` and run nothing. Every language feature (including `yield`) runs on the bytecode VM. Saving/loading bytecode
 files is an optional build-time optimisation, not a requirement. See
 [Bytecode serialization](#bytecode-serialization).
 
@@ -379,6 +391,39 @@ print fib [10]       # → 55
 Functions are resolved by **(name, argument count)** — two functions with the same name and
 different arities are distinct.
 
+#### Locals and globals
+
+Inside a function, method or lambda, every name the body assigns is a **local of the whole body**
+(an `if` does not start a new scope), and globals are read freely. Writing a global takes a
+`global` declaration, placed before any use of the name in that body; assigning a declared global
+creates it if it does not exist yet. At the top level every assignment writes a global, inside an
+`if`, a loop or a `begin` block too (only `loop` and `rescue` variables are limited to their block).
+
+```ruby
+count = 0
+label = "hits"
+
+fun bump [n]
+    global count          # required to write the global
+    total = n * 2         # a local of bump
+    count = count + total
+    return label + ": " + count     # reading a global needs no declaration
+end
+print bump [3]            # → hits: 6
+```
+
+The compiler rejects what would otherwise be a silent mistake:
+
+- reading a local before its first assignment in the source (`count = count + 1` in a function
+  without `global count`) — *variable 'count' is read before it is assigned*;
+- a `loop` or `rescue` variable with the name of a parameter, a local, a declared global or an
+  enclosing loop/rescue variable of the same body (those variables exist only inside their block);
+- `global x` after `x` was used, or for a parameter `x`.
+
+Methods follow the same rules: a bare name in a method is a local or a global, and the instance's
+fields are reached with `@x` / `this :: x`. In a class body a bare assignment declares a field
+(unless the name is declared `global`), and a bare read finds a field first, then a global.
+
 #### Default parameters
 
 Trailing parameters may have defaults. The function is registered at every valid arity.
@@ -446,7 +491,8 @@ f = ops{0}
 print f [3, 4]       # → 7
 ```
 
-**Lambdas do not close over enclosing locals.** They see their own parameters and globals only:
+**Lambdas do not close over enclosing locals.** They see their own parameters and locals and the
+globals; reading a parameter, local or loop variable of the code around them is a compile error:
 
 ```ruby
 factor = 3                              # global
@@ -455,10 +501,9 @@ print f [5]                             # → 15   ✔ globals work
 
 fun outer []
     n = 10                              # local to `outer`
-    g = fun [x] return x + n end
+    g = fun [x] return x + n end        # ✘ compile error: closures are not supported: 'n' ...
     return g [1]
 end
-print outer []                          # → 1null   ✘ `n` is null inside the lambda
 ```
 
 ### Constants
@@ -531,6 +576,37 @@ print p :: magnitude []    # → 5.000000085681677   (fixed-point sqrt)
 
 p :: x = 10                # properties are assignable
 print p :: x               # → 10
+```
+
+Inside a class, `@x` is shorthand for `this :: x`: `return sqrt [@x * @x + @y * @y]`. A lambda has
+no `this`, so `this` and `@x` cannot be used in one, and a class body cannot `yield` (it runs as the
+constructor; a function it calls still can).
+
+`global` is a reserved word. `global a, b` declares, in a function, method, lambda or class body,
+that `a` and `b` are the instance's globals; at the top level it is an error (see
+[Locals and globals](#locals-and-globals)). In a method, a bare name is a local or a global, never a
+field: use `@x`.
+
+The **fields** of a class are its constructor parameters, the names its body assigns (bare or as
+`@x = ...`) and the fields of its base classes. `@x` / `this :: x` in a method or the class body is
+checked against them when the script compiles: `'shield' is not a field of class 'Unit'`. A method
+cannot add a field. An instance has one field per name, shared by every class of its inheritance
+chain, so two base classes may not bind parameters of the same name to different arguments:
+`class C [p, q] : Sub [q, p], Mul [p, q]` with `Sub [a, b]` and `Mul [a, b]` is a compile error
+(`'a' is bound twice in class 'C'`); name the base parameters differently. *(v2 in progress: when a
+base class comes from an import, the field check is skipped and the binding error is a rescuable
+TypeError at `new`.)*
+
+```ruby
+g = 5
+class Unit [hp]
+    armor = 2                  # a field
+    seen = g                   # reads the global g
+    fun hit [d]
+        @hp = @hp - (d - @armor)
+        return @hp
+    end
+end
 ```
 
 #### Inheritance
@@ -714,9 +790,13 @@ start_coroutine ["greet", {"hero"}]
 ### Import
 
 ```ruby
+# comments may come first
 import "utils"
 import "ai/patrol"
 ```
+
+Imports come first in a file: an `import` after any other statement or definition, or inside a
+block or a function, is a compile error.
 
 The path is resolved by the `fileResolver` delegate you pass to the constructor; WarScript never
 touches the filesystem itself. Return the imported script's source, or `null` if it cannot be found.
@@ -846,17 +926,132 @@ var fn = script.GetFunction("tick", 1);  // lookup is by (name, argument count)
 script.Call(fn, WarValue.FromNumeric(dt));
 ```
 
+`GetFunction` returns a `FunctionHandle` (`Name`, `Arity`, `Instance`, `IsDefined`), or null when the
+instance defines no such function yet — compile first (`Run()` or `Compile()`). The handle names the
+function rather than holding its bytecode: every `Call` runs what the instance defines under that name
+and arity at that moment, so a handle obtained once keeps working after `Reload()` and
+`LoadBytecode()`. Calling a handle whose function the new source removed returns an `Error` result of
+kind `NameError` (and, from the host, halts the instance like any other error). A handle belongs to
+the instance that returned it; passing it to another instance throws `ArgumentException`.
+
+`Call(fn, params WarValue[])` allocates the argument array on every call. For a per-frame hot path,
+keep one buffer and pass a span of it — `Call(FunctionHandle, ReadOnlySpan<WarValue>)` copies the
+arguments onto the VM stack, keeps nothing, and allocates nothing of its own:
+
+```csharp
+_args[0] = WarValue.FromNumeric(dt);                 // WarValue[] _args = new WarValue[1], allocated once
+script.Call(fn, new ReadOnlySpan<WarValue>(_args));  // or _args.AsSpan(0, n)
+```
+
+Missing arguments (a span shorter than the arity) are null, so default parameters apply; extra ones
+are ignored.
+
 `Run()` compiles on first use and caches; calling it again re-executes the top-level statements. The
-AST is discarded after compilation — the bytecode is the source of truth.
+AST is discarded after compilation — the bytecode is the source of truth. `Compile()` does the
+compile step on its own and reports errors as diagnostics:
+
+```csharp
+var compiled = script.Compile();         // lex + parse + compile; runs nothing; idempotent
+if (!compiled.Success)
+    foreach (var d in compiled.Diagnostics)
+        Debug.LogError(d);               // "example:4:1: error: more than 255 arguments in a call"
+```
+
+A diagnostic has the line and column of the error (columns count from 1; a tab is one column). The
+`CompileError` result's `ScriptError` has them too, plus the source line (`SourceLine`), and its
+text shows that line with a caret under the column:
+
+```
+example:2:10: CompileError: Unexpected character '?' at line 2
+    if x ?
+         ^
+```
+
+An error in an imported file names that file, and the line and column in it.
+
+The constructor no longer lexes, so a malformed source shows up in `Compile()` (or as the
+`CompileError` result of `Run()`), not in `new WarScriptLanguage(...)`. Register natives and
+`[WsConst]`/`[WsEnum]` bindings before compiling: assignments to constants are checked at parse time.
+
+### Results and errors
+
+`Run()`, `Call()`, `StartCoroutine(..., out id)` and `TickCoroutines(dt)` return a `ScriptResult`
+and never throw for a script error:
+
+```csharp
+ScriptResult r = script.Call(script.GetFunction("compute", 2)!,
+                             WarValue.FromNumeric(F64.FromInt(3)),
+                             WarValue.FromNumeric(F64.FromInt(4)));
+if (r.IsOk)
+    Debug.Log(r.Value);                  // the function's return value (Run: null)
+else
+    Debug.LogError(r.Error);             // "file:line:column: Kind: message"
+```
+
+| `Status` | Meaning | `Value` | `Error` |
+|---|---|---|---|
+| `Ok` | The entry completed. | The return value (`TickCoroutines`: the number of active coroutines) | null |
+| `Error` | A script error escaped the entry, or the script does not compile (`Kind` `CompileError`). The instance is now halted. | null | The error |
+| `Halted` | The instance was already halted, so nothing ran. | null | The fault that halted it |
+| `HostFault` | A C# exception occurred inside the VM (a VM bug or a host failure). The instance is now halted. | null | The error, with `HostException` set |
+
+A `ScriptError` has a `Kind`, a `Message`, the raised `Value`, a `ScriptName`, a `Line` and a
+`CallStack`, innermost frame first. Every runtime error has its kind: `DivisionByZero`, `TypeError`
+(an operation on the wrong kind of value), `NameError` (an undefined function, method, class or
+import), `AssertionFailed`, `LimitExceeded` (stack overflow, text or array too long, nesting),
+`InstructionBudgetExceeded`, `MemoryBudgetExceeded`, `NativeError` (a native threw), `ArgumentError`
+and `TypeError` from `NativeHelper`'s argument checks, and `Raised` for a `raise` statement. Its
+`ToString()` prints the source line with a caret, then the frames:
+
+```
+main:2:14: DivisionByZero: Division by zero
+    return x / 0
+             ^
+  at inner (main:2:14)
+  at outer (main:6:12)
+  at <script> (main:8:1)
+```
+
+Frames are named after the compiled function: `<script>` for top-level code, `Unit#ctor` for a
+constructor, `<lambda>`, and a method by its own name. A frame's column is that of the operator,
+call, `new` or index being executed when it is on the statement's line, otherwise the statement's.
+The source line is shown for errors in the instance's own script, not in an import; code loaded
+from a bytecode file has no columns (0) and no source line. Scripts still see a
+rescued error as its message text. A native raises a specific kind by throwing
+`ScriptErrorException(kind, message)`; any other exception it throws is a `NativeError`.
+
+A native that calls back into its own instance gets the callback's error as its
+result, and the error also continues in the calling script, where `begin/rescue` can catch it; a
+host fault in such a callback stops the calling script too.
+
+**Halting.** An error (or host fault) that escapes the outermost entry halts the instance: its
+coroutines are cleared, `IsHalted` becomes true and `Fault` holds the error, the error is logged as
+`[WarScript] ` + `ScriptError.ToString()` (unless `LogUnhandledErrors` is false), and the `Faulted`
+event fires. From then on every entry returns `Halted` at once, without running anything, until the
+host calls `ClearFault()` or `Reload(...)`. Neither undoes state the script changed before the
+fault. Halting is deterministic, so every peer halts the same instance at the same point.
+
+```csharp
+script.Faulted += (instance, error) => Debug.LogError($"{instance.ScriptName} halted: {error}");
+// ...later, once the host has dealt with it:
+script.ClearFault();
+```
+
+**Instance label.** Many instances can run the same script, so `ScriptName` alone does not say
+which one failed. Set `script.InstanceLabel = "unit-42"` (any text; null by default): every
+`ScriptError` the instance reports carries it as `error.InstanceLabel` (as it was when the error was
+reported), and every line the runtime itself logs starts with `[unit-42] `, e.g.
+`[unit-42] [WarScript] patrol:12:0: DivisionByZero: Division by zero`. `print` output is the
+script's and is not prefixed; `ScriptError.ToString()` does not include the label.
 
 ### Passing values in and out
 
-`Call()` returns `void`. To get a result back, have the script write a global and read it from the
-host:
+`Call()` returns the function's return value in its result's `Value`. Globals are the other way:
+have the script write a global and read it from the host:
 
 ```csharp
 // script:  result = 0
-//          fun compute [a, b] result = a + b return result end
+//          fun compute [a, b] global result result = a + b return result end
 script.Call(script.GetFunction("compute", 2)!,
             WarValue.FromNumeric(F64.FromInt(3)),
             WarValue.FromNumeric(F64.FromInt(4)));
@@ -903,7 +1098,7 @@ public class WarScriptHost : MonoBehaviour
     private static readonly F64 Dt = F64.Ratio(1, 60);   // exact 1/60, no float involved
 
     private WarScriptLanguage _script;
-    private FunctionDefinition _tick;
+    private FunctionHandle _tick;
 
     void Awake()
     {
@@ -916,6 +1111,8 @@ public class WarScriptHost : MonoBehaviour
 
     void FixedUpdate()
     {
+        if (_script.IsHalted) return;   // an earlier error stopped this instance; see Fault
+
         if (_tick != null)
             _script.Call(_tick, WarValue.FromNumeric(Dt));
 
@@ -924,20 +1121,30 @@ public class WarScriptHost : MonoBehaviour
 }
 ```
 
+Skipping a halted instance is optional — every entry of a halted instance returns `Halted` at once —
+but it makes the intent explicit. Errors are logged through the logger as they halt the instance; a
+host that wants more (a UI message, a telemetry event) subscribes to `Faulted`.
+
 ### Coroutine API
 
 ```csharp
-int id    = script.StartCoroutine("patrol", new[] { WarValue.FromText("A") });
-int id2   = script.StartCoroutine("pulse", Array.Empty<WarValue>(), loop: true);
+ScriptResult started = script.StartCoroutine("patrol", new[] { WarValue.FromText("A") }, false, out int id);
+int id2   = script.StartCoroutine("pulse", Array.Empty<WarValue>(), loop: true);   // id only
+ScriptResult s2 = script.StartCoroutine("patrol", buffer.AsSpan(0, 1), false, out int id3); // span overload
 bool ok   = script.StopCoroutine(id);
 script.StopAllCoroutines();
-int alive = script.TickCoroutines(dt);        // resume all ready coroutines; returns the live count
+ScriptResult tick = script.TickCoroutines(dt);  // resume all ready coroutines; Ok: Value = the live count
 int count = script.ActiveCoroutineCount;
 ```
 
-`StartCoroutine` runs the function immediately up to its first `yield`, then returns. It returns
-`-1` if the function could not be found. Each call creates an independent coroutine with its own
-state, so the same function can run several times concurrently.
+`StartCoroutine` runs the function immediately up to its first `yield`, then returns the result of
+that first run. The id is `-1` (and the result an `Error`) if the function could not be found.
+`TickCoroutines` resumes the ready coroutines newest first and stops at the first error a resumed
+coroutine ends with, returning it; the remaining coroutines do not run, and the error halts the
+instance (see [Results and errors](#results-and-errors)). Each call creates an independent coroutine with its own
+state, so the same function can run several times concurrently. A coroutine keeps a copy of its arguments (a
+looping one restarts with them), so the caller may reuse its array or span buffer once
+`StartCoroutine` returns.
 
 ### Adding native functions
 
@@ -996,14 +1203,19 @@ model an optional numeric as `WarValue x = default` and read
 ### Safety budgets
 
 ```csharp
-script.InstructionBudget = 100_000;     // max bytecode instructions per Run()/Call()/coroutine resume
-script.MemoryBudget      = 1_000_000;   // max tracked heap bytes per Run()/Call()/coroutine resume
+script.InstructionBudget = 100_000;     // max bytecode instructions per host entry
+script.MemoryBudget      = 1_000_000;   // max tracked heap bytes per host entry
 ```
 
-`0` (the default) means unlimited. Both are enforced per host invocation, so a coroutine gets a
-fresh budget on every resume.
+`0` (the default) means unlimited. A budget is reset at every **outermost** host entry — `Run()`,
+`Call()`, each coroutine resume in `TickCoroutines` — and shared by everything that runs inside it:
+callbacks a native makes into the same instance, imports, constructors and coroutines the script
+starts all draw from the same budget.
 
-`Instruction budget exceeded` is raised as a normal script error and is reliably catchable:
+An exhausted **instruction budget** is not recoverable from script. Once it runs out, every further
+instruction raises the same error again, so no `rescue` or `ensure` body runs: the entry ends with
+an `Error` result of kind `InstructionBudgetExceeded` (its line and call stack are where the budget
+ran out), and the instance halts like for any other unhandled error.
 
 ```ruby
 begin
@@ -1011,15 +1223,15 @@ begin
         x = i
     end
 rescue err
-    print "caught: " + err     # → caught: Instruction budget exceeded
+    print "caught: " + err     # never runs: the entry ends with InstructionBudgetExceeded
 end
-print "still running"
 ```
 
-`Memory budget exceeded` is raised at allocation sites (strings, arrays, class instances) but is
-**only catchable at some of them** — for example `s = s + s` can be rescued, while
-`arr << "data"` currently escapes `begin`/`rescue` and stops the script with an uncaught error.
-Treat the memory budget as a hard backstop rather than a recoverable condition.
+`Memory budget exceeded` (kind `MemoryBudgetExceeded`) is raised at allocation sites — strings,
+arrays, class instances — before anything is allocated, and `begin`/`rescue` can catch it. The
+memory already counted stays counted until the next outermost entry, so a rescue body that
+allocates again (`print "caught: " + err`) can exceed the budget a second time. Treat the memory
+budget as a backstop rather than a recoverable condition.
 
 ### Debugger
 
@@ -1045,11 +1257,15 @@ current frames as `FunctionName:Line` entries.
 ```csharp
 LexicalParser.ClearCache();       // the lexer caches globally by source string
 script.Reload(newSource);
-tickFunc = script.GetFunction("tick", 1);   // old handles are stale — re-acquire
+script.Call(tickFunc, dt);                 // handles survive: this runs the new tick
 ```
 
 Global variables survive; function and class definitions are replaced; **all coroutines are
 stopped** (they hold bytecode that no longer exists), and top-level statements are *not* re-executed.
+`Reload` also clears a fault, so a halted instance runs again. Unlike the entry points, it
+**throws** a `SyntaxException` when the new source does not compile; `Compile()` then returns its
+diagnostics. The old definitions are gone at that point, so the next entry returns the
+`CompileError` result until a `Reload` with source that compiles.
 
 ```
 counter = 5; bump[] → 6         # before reload
@@ -1075,14 +1291,18 @@ var tick = script.GetFunction("tick", 1);
 ```
 
 Coroutines and `yield` behave identically whether the bytecode came from `Run()` or `LoadBytecode()`.
+`LoadBytecode` does not clear a fault (only `Reload` and `ClearFault` do), and does not run the
+top-level statements.
 
 `LoadBytecode` covers the entry point. To skip the front end for what the entry point imports as
 well, give the constructor a `bytecodeResolver` — see
 [Importing precompiled bytecode](#importing-precompiled-bytecode).
 
-> The serialized format version is `1`, but numeric constants are stored as the 64-bit **F64 raw**.
-> Files produced before the fixed-point migration share the version byte yet are binary
-> incompatible — regenerate them from source.
+> A `.wsbc` file starts with a format version (currently `5`) and a hash of the opcode table, and
+> the loader accepts only an exact match, so bytecode written by another WarScript version must be
+> regenerated from source. The loader verifies everything it reads: a truncated, corrupt or
+> mismatched file makes `LoadBytecode` throw `InvalidDataException` and leaves the instance
+> unchanged.
 
 ## Coroutines: making `yield` work
 
@@ -1104,12 +1324,12 @@ ingredients:
 | Code up to the first `yield` runs once, and calling the function again restarts it from the top | The function was invoked with `script.Call(fn)` instead of being started as a coroutine. `Call()` executes until the first `yield`, then returns — the suspended state is discarded. | `script.StartCoroutine("fn", args)` |
 | Code up to the first `yield` runs, then nothing ever happens again | The host never calls `TickCoroutines(dt)`. | Call `script.TickCoroutines(dt)` every tick |
 | `yield` advances but `yield wait N` never completes | `dt` is zero (paused game), or is not in seconds. | Pass real elapsed seconds as `F64` — e.g. `F64.Ratio(1, 60)` |
-| `StartCoroutine` returns `-1` and nothing runs | The function name/arity does not resolve: called **before `Run()`**, wrong argument count, or the name is a **class method** (only top-level functions can be coroutines). | Call `Run()` first; match the arity; move the body to a top-level function |
-| Nothing in the script runs at all, and the log shows `Coroutine function 'x' ... is not defined` | `StartCoroutine` was called before `Run()`. The failure leaves a raised error pending, which then aborts the following `Run()` before its first statement. | Always `Run()` before starting coroutines |
+| `StartCoroutine` returns `-1` and nothing runs | The function name/arity does not resolve: wrong argument count, or the name is a **class method** (only top-level functions can be coroutines). The result's `Error` says which (a `NameError`). Like any error at a host entry, it also halts the instance. | Match the arity; move the body to a top-level function; `ClearFault()` |
 | Log shows `Function 'start_coroutine' with 1 args is not defined` | Native functions match on exact arity. | `start_coroutine ["name", {}]` — pass the args array even when empty |
 | A `loop`+`yield` coroutine only advances one iteration per tick | Correct by design: one resume per coroutine per `TickCoroutines` call, regardless of how large `dt` is. | Tick more often, or don't `yield` in the inner loop |
 | A looping coroutine seems to skip a tick between repetitions | Also by design: `loop: true` restarts the function on the *next* tick after it completes. | — |
-| The coroutine vanished silently | An uncaught error inside a coroutine logs its message and drops that coroutine (`ActiveCoroutineCount` decreases). Or the code path ran `Reload()` / `LoadBytecode()`, both of which stop all coroutines. | Check the logger output; restart coroutines after a reload |
+| Every coroutine stopped, and nothing runs any more | An uncaught error inside a coroutine ended it, and — because `TickCoroutines` is a host entry — halted the instance, which clears all coroutines. `TickCoroutines` returned that error, `IsHalted` is true and `Fault` holds it. | Check the logger output or the result; `ClearFault()` and restart them |
+| A coroutine vanished | The code path ran `Reload()` / `LoadBytecode()`, both of which stop all coroutines, or a script called `stop_coroutine`. | Restart coroutines after a reload |
 | `script.IsYielded` is stuck `true` | `Call()`ing a function that hits a `yield` sets this script-level flag and nothing clears it. It is not a reliable signal. | Use `ActiveCoroutineCount`; call `script.ClearYield()` if you need the flag reset |
 
 ### A correct, minimal end-to-end example
@@ -1155,7 +1375,7 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 - `grid{0}{1}` does not chain — assign the inner array to a temporary first.
 - There is no postfix call on an index expression (`arr{0}[args]`) — use a temporary.
 - A `fun` nested inside another `fun` is not callable from the outer body; use a lambda value.
-- `this` outside a class method throws a host-level exception rather than a script error.
+- `this` outside a class method is a `NameError` (`'this' can only be used inside a class`).
 - A raw `"""..."""` literal cannot contain a run of three quotes, and does not interpolate.
 - An unknown escape sequence, an unterminated literal, and an unterminated `{` interpolation are
   all syntax errors — they used to be accepted silently.
@@ -1167,7 +1387,8 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 **Semantics**
 
 - Reading an undefined variable, or an out-of-range array index, yields `null` silently.
-- Lambdas have no closures — parameters and globals only.
+- Lambdas have no closures — their own parameters and locals, and globals; reading a local of the
+  code around one is a compile error.
 - Default parameters cannot distinguish an omitted argument from an explicit `null`.
 - Functions are keyed by `(name, arity)`; native functions require an exact arity match.
 - Comparison coerces to text across types, so `1 == "1"` is `True`.
@@ -1181,12 +1402,15 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 
 **Host**
 
-- `Call()` returns `void` — pass results back through a global.
+- `Run()`, `Call()`, `StartCoroutine()` and `TickCoroutines()` never throw for a script error; they
+  return a `ScriptResult`. An unhandled error halts the instance until `ClearFault()` or `Reload()`.
+  `Reload()` and `LoadBytecode()` do throw (`SyntaxException`, `InvalidDataException`).
 - Register libraries and bindings **before** `Run()`.
 - `LexicalParser` caches globally by source string; call `LexicalParser.ClearCache()` for hot reload.
-- `Reload()` and `LoadBytecode()` stop all coroutines and invalidate previously obtained
-  `FunctionDefinition` handles.
-- `MemoryBudget` is not reliably catchable from script (see [Safety budgets](#safety-budgets)).
+- `Reload()` and `LoadBytecode()` stop all coroutines. `FunctionHandle`s survive them and call the
+  new definitions; a handle whose function is gone returns a `NameError` result.
+- An exhausted `InstructionBudget` cannot be rescued from script, and an exhausted `MemoryBudget`
+  stays exhausted for the rest of the entry (see [Safety budgets](#safety-budgets)).
 
 ## License
 

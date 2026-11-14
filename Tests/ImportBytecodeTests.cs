@@ -247,69 +247,6 @@ namespace Tests
             Assert.AreEqual("20", output[0]);
         }
 
-        // ── The tree-walk statement, which predates the VM ──
-
-        /// <summary>
-        /// <see cref="WarScript.Statement.ImportStatement"/> is what the AST
-        /// interpreter runs; the compiler turns an import into an opcode, so
-        /// nothing in a normal Run() reaches it. It resolves bytecode the same
-        /// way, and runs it on a VM because only a VM can.
-        /// </summary>
-        private static List<string> RunTreeWalkImport(
-            string path,
-            Dictionary<string, byte[]> bytecode,
-            Dictionary<string, string> files = null)
-        {
-            var output = new List<string>();
-            var script = new WarScriptLanguage("tree_walk", "",
-                files == null ? (System.Func<string, string>)null
-                    : p => files.TryGetValue(p, out var src) ? src : null,
-                (s, msg) => output.Add(msg),
-                p => bytecode.TryGetValue(p, out var bytes) ? bytes : null);
-            WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
-
-            script.DefinitionContext.PushScope(script.GlobalDefinitionScope);
-            script.MemoryContext.PushScope(script.GlobalMemoryScope);
-            try
-            {
-                new WarScript.Statement.ImportStatement(script, 1, "tree_walk", path).Execute();
-            }
-            finally
-            {
-                script.DefinitionContext.EndScope();
-                script.MemoryContext.EndScope();
-            }
-
-            return output;
-        }
-
-        [Test]
-        public void TreeWalkImport_LoadsBytecode()
-        {
-            var bytecode = new Dictionary<string, byte[]>
-            {
-                ["lib"] = Compile("print \"loaded from bytecode\"")
-            };
-            Assert.AreEqual(new[] { "loaded from bytecode" }, RunTreeWalkImport("lib", bytecode));
-        }
-
-        [Test]
-        public void TreeWalkImport_UnusableBytecode_WarnsAndCompilesSource()
-        {
-            var bytecode = new Dictionary<string, byte[]>
-            {
-                ["lib"] = new byte[] { 1, 2, 3, 4, 5 }
-            };
-            var files = new Dictionary<string, string>
-            {
-                ["lib"] = "print \"loaded from source\""
-            };
-            var output = RunTreeWalkImport("lib", bytecode, files);
-
-            StringAssert.Contains("could not be loaded", output[0]);
-            Assert.AreEqual("loaded from source", output[1]);
-        }
-
         [Test]
         public void MissingFromBothResolvers_IsScriptError()
         {

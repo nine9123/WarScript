@@ -64,29 +64,58 @@ namespace WarScript.Expression.Value
 
         public bool StructuralEquals(ClassData other)
         {
+            WarValue.EqualityMemo? memo = null;
+            return StructuralEquals(other, 0, ref memo, out _);
+        }
+
+        /// <summary>
+        /// Structural equality of an instance nested <paramref name="depth"/>
+        /// arrays or instances deep: its properties are compared one level
+        /// deeper, so the <see cref="WarValue.MaxValueDepth"/> guard of
+        /// <see cref="WarValue"/> equality applies (T1.2; DEC-9 removes
+        /// structural class equality in T3.6). <paramref name="memo"/> and
+        /// <paramref name="height"/> are as in
+        /// <see cref="WarValue.Equals(in WarValue, int, ref WarValue.EqualityMemo?, out int)"/>.
+        /// </summary>
+        internal bool StructuralEquals(ClassData other, int depth, ref WarValue.EqualityMemo? memo, out int height)
+        {
+            height = 1;
             if (ReferenceEquals(this, other)) return true;
             if (other == null) return false;
+            if (memo != null && memo.TryGet(this, other, depth, out height)) return true;
 
             var properties = Definition.ClassDetails.Properties;
+            var below = 0;
             for (int i = 0; i < properties.Count; i++)
             {
                 var prop = properties[i];
                 var thisVal = MemoryScope.GetLocal(prop);
                 var otherVal = other.MemoryScope.GetLocal(prop);
-                if (!thisVal.Equals(otherVal))
+                if (!thisVal.Equals(otherVal, depth + 1, ref memo, out var h))
                     return false;
+                if (h > below) below = h;
             }
+            height = below + 1;
+            if (below > 0) WarValue.EqualityMemo.Add(ref memo, this, other, height);
             return true;
         }
 
-        public int StructuralHashCode()
+        public int StructuralHashCode() => StructuralHashCode(0);
+
+        /// <summary>
+        /// Hash of an instance nested <paramref name="depth"/> deep: at most
+        /// its first 8 properties, hashed one level deeper (see
+        /// <see cref="WarValue.GetHashCode()"/>).
+        /// </summary>
+        internal int StructuralHashCode(int depth)
         {
             var hash = 17;
             var properties = Definition.ClassDetails.Properties;
-            for (int i = 0; i < properties.Count; i++)
+            var n = System.Math.Min(properties.Count, 8);
+            for (int i = 0; i < n; i++)
             {
                 var val = MemoryScope.GetLocal(properties[i]);
-                hash = hash * 31 + val.GetHashCode();
+                hash = hash * 31 + val.GetHashCode(depth + 1);
             }
             return hash;
         }

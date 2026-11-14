@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Child-process runner for '# isolate' goldens (plan 9.5, T0.5). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Run on whatever newer .NET runtime is installed when 8.0 itself is not. -->
+    <RollForward>Major</RollForward>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>WarScript.Runner</AssemblyName>
+    <RootNamespace>WarScript.Runner</RootNamespace>
+    <NoWarn>CS8632</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <!-- The NUnit-free parts of the test code: golden directives, execution, invariants, result JSON. -->
+    <Compile Include="$(WarScriptRoot)/Tests/Golden/GoldenFile.cs" />
+    <Compile Include="$(WarScriptRoot)/Tests/Golden/IsolatedRun.cs" />
+    <Compile Include="$(WarScriptRoot)/Tests/Invariants.Checks.cs" />
+    <ProjectReference Include="../Runtime/WarScript.Runtime.csproj" />
+  </ItemGroup>
+</Project>

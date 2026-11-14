@@ -105,9 +105,10 @@ namespace WarScript.Context.Definition
                 functionDefinition.Details.Arguments.Count);
     
             if (existing is NativeFunctionDefinition)
-                _script.Logger?.Invoke(_script, $"Shadowing native function '{functionDefinition.Details.Name}'");
+                _script.Log($"Shadowing native function '{functionDefinition.Details.Name}'");
             
             Functions.Add(functionDefinition);
+            _script.DefinitionsChanged();
             _functionIndex[(functionDefinition.Details.Name, functionDefinition.Details.Arguments.Count)] = functionDefinition;
 
             // Register at reduced arities for default parameters.
@@ -145,6 +146,7 @@ namespace WarScript.Context.Definition
             _classes.Clear();
             Functions.Clear();
             _functionIndex.Clear();
+            _script.DefinitionsChanged();
         }
     }
 }

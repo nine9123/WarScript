@@ -134,13 +134,57 @@ namespace Tests
                 () => Run("import \"broken\"", files));
         }
 
-        [Test]
-        public void Import_MissingFile_IsCatchableInScript()
+        // v1 allowed an import anywhere, so a missing file could be rescued;
+        // v2 allows imports only at the top of a file (T3.3, 5.8).
+        [TestCase("begin\nimport \"lib\"\nrescue e\nend", "'import' is allowed only at the top of a file")]
+        [TestCase("fun f []\n    import \"lib\"\nend", "'import' is allowed only at the top of a file")]
+        [TestCase("print 1\nimport \"lib\"", "'import' must come before every other statement")]
+        [TestCase("fun f [] return 1 end\nimport \"lib\"", "'import' must come before every other statement")]
+        public void Import_AnywhereButTheTopOfTheFile_IsASyntaxError(string source, string message)
         {
+            var files = new Dictionary<string, string> { ["lib"] = "x = 1" };
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() => Run(source, files));
+            StringAssert.Contains(message, e.Message);
+        }
+
+        [Test]
+        public void Import_AfterComments_IsAccepted()
+        {
+            var files = new Dictionary<string, string> { ["lib"] = "fun helper [x] return x * 10 end" };
+            var (_, output) = Run("# header\n\n# more\nimport \"lib\"\nimport \"lib\"\nprint helper [3]", files);
+            Assert.AreEqual("30", output[0]);
+        }
+
+        [Test]
+        public void Import_BaseParameterBoundTwice_IsARescuableTypeErrorAtNew()
+        {
+            // Q-16: the bases come from an import, so the compiler cannot
+            // check the bindings; 'new' raises the error instead.
+            var files = new Dictionary<string, string>
+            {
+                ["ops"] = "class Sub [a, b]\nend\nclass Mul [a, b]\nend"
+            };
             var (_, output) = Run(
-                "begin\nimport \"nope\"\nrescue e\nprint \"caught\"\nend",
-                new Dictionary<string, string>());
-            Assert.AreEqual("caught", output[0]);
+                "import \"ops\"\n" +
+                "class Calculator [p, q] : Sub [q, p], Mul [p, q]\nend\n" +
+                "begin\n    c = new Calculator [2, 10]\nrescue e\n    print e\nend",
+                files);
+            Assert.AreEqual(new[] { "'a' is bound twice in class 'Calculator': base class 'Mul' binds its parameter 'a' to a different argument" }, output);
+        }
+
+        [Test]
+        public void Import_BaseParameterBoundOnce_IsOneField()
+        {
+            var files = new Dictionary<string, string>
+            {
+                ["animal"] = "class Animal [name]\n    legs = 4\n    fun describe []\n        return \"{@name} has {@legs} legs\"\n    end\nend"
+            };
+            var (_, output) = Run(
+                "import \"animal\"\n" +
+                "class Bird [name] : Animal [name]\n    @legs = 2\nend\n" +
+                "print (new Bird [\"Tweety\"]) :: describe []",
+                files);
+            Assert.AreEqual(new[] { "Tweety has 2 legs" }, output);
         }
     }
 }

@@ -25,13 +25,13 @@ class Stack []
 
     fun push [ item ]
         this :: arr << item
-        n = n + 1
+        @n = @n + 1
     end
 
     fun pop []
-        n = n - 1
-        item = arr { n }
-        arr { n } = null
+        @n = @n - 1
+        item = @arr { @n }
+        @arr { @n } = null
         return item
     end
 

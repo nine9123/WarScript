@@ -102,7 +102,7 @@ namespace WarScript.Bytecode
                 Line = line;
             }
 
-            public override string ToString() => $"{FunctionName}:{Line}";
+            public override string ToString() => System.FormattableString.Invariant($"{FunctionName}:{Line}");
         }
     }
 }

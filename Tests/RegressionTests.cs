@@ -9,37 +9,6 @@ namespace Tests
     [TestFixture]
     public class RegressionTests
     {
-        private static void RunAssertOnlyScript(string resourceName)
-        {
-            var (script, output) = TestHelper.RunFile(resourceName);
-            Assert.IsFalse(script.ExceptionContext.IsRaised(),
-                $"Script '{resourceName}' raised an unhandled exception. " +
-                $"Output:\n{string.Join("\n", output)}");
-            Assert.IsEmpty(output,
-                $"Script '{resourceName}' produced unexpected output:\n{string.Join("\n", output)}");
-        }
-
-        private static void RunAssertOnlyScriptWithUtilityLib(string resourceName)
-        {
-            var (script, output) = TestHelper.RunFile(resourceName,
-                delegate(WarScriptLanguage s, DefinitionScope scope)
-                {
-                    WarScript.Native.UtilityLibrary.Register(s, scope);
-                });
-            Assert.IsFalse(script.ExceptionContext.IsRaised(),
-                $"Script '{resourceName}' raised an unhandled exception. " +
-                $"Output:\n{string.Join("\n", output)}");
-            Assert.IsEmpty(output,
-                $"Script '{resourceName}' produced unexpected output:\n{string.Join("\n", output)}");
-        }
-
-        // Bug 1: TextValue.SetValue
-        [Test]
-        public void Bug1_TextValue_SetValue_ShouldReplaceNotInsert()
-        {
-            RunAssertOnlyScript("test_regression_textvalue_setvalue.ws");
-        }
-
         [Test]
         public void Bug1_TextValue_SetValue_Direct()
         {
@@ -51,13 +20,6 @@ namespace Tests
             Assert.AreEqual(1, output.Count);
             Assert.AreEqual("abZde", output[0],
                 "SetValue should replace the character at the index, not insert before it");
-        }
-
-        // Bug 2: is_null
-        [Test]
-        public void Bug2_IsNull_ShouldDetectWarScriptNull()
-        {
-            RunAssertOnlyScriptWithUtilityLib("test_regression_is_null.ws");
         }
 
         [Test]
@@ -73,7 +35,7 @@ namespace Tests
             var isNullFn = script.GetFunction("is_null", 1);
             Assert.IsNotNull(isNullFn, "is_null function should be registered");
 
-            var nativeFn = (NativeFunctionDefinition)isNullFn;
+            var nativeFn = (NativeFunctionDefinition)isNullFn.Definition;
             var resultNull = nativeFn.NativeBody(new List<WarValue> { WarValue.Null });
             Assert.IsTrue(resultNull.IsLogical);
             Assert.IsTrue(resultNull.LogicalValue, "is_null[null] should return true");
@@ -81,13 +43,6 @@ namespace Tests
             var resultNum = nativeFn.NativeBody(new List<WarValue> { WarValue.FromNumeric(42) });
             Assert.IsTrue(resultNum.IsLogical);
             Assert.IsFalse(resultNum.LogicalValue, "is_null[42] should return false");
-        }
-
-        // Bug 3: ForLoop counter leaks
-        [Test]
-        public void Bug3_ForLoop_CounterShouldNotLeakToOuterScope()
-        {
-            RunAssertOnlyScript("test_regression_forloop_scope.ws");
         }
 
         [Test]
@@ -102,13 +57,6 @@ namespace Tests
             Assert.AreEqual(1, output.Count);
             Assert.AreEqual("100", output[0],
                 "Outer variable 'i' should be 100 after loop, not clobbered by loop counter");
-        }
-
-        // Bug 4: Equals/NotEquals asymmetry
-        [Test]
-        public void Bug4_EqualsNotEquals_ShouldBeSymmetric()
-        {
-            RunAssertOnlyScript("test_regression_equals_symmetry.ws");
         }
 
         [Test]

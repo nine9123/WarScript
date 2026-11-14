@@ -11,16 +11,5 @@ namespace WarScript.Statement
         {
             _expression = expression;
         }
-
-        public override void Execute()
-        {
-            var result = _expression.Evaluate();
-            if (_script.HaltFlags == 0)
-            {
-                _script.ReturnContext.GetScope().Invoke(result);
-                _script.HaltFlags |= WarScriptLanguage.HaltFlag.Return;
-            }
-            _script.ExceptionContext.AddTracedStatement(this);
-        }
     }
 }

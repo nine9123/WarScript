@@ -1,36 +1,39 @@
+# Each base class names its parameters differently (Q-16): an instance has
+# one field per name, so two bases may not bind a parameter of the same name
+# to different arguments (Sub [q, p] and Mul [p, q] binding 'a' both ways).
 class Add [x, y]
     fun sum
-        return x + y
+        return @x + @y
     end
 end
 
-class Mul [a, b]
+class Mul [ma, mb]
     fun mul
-        return a * b
+        return @ma * @mb
     end
 end
 
-class Sub [a, b]
+class Sub [sa, sb]
     fun sub
-        return a - b
+        return @sa - @sb
     end
 end
 
-class Div [m, n]
+class Div [dm, dn]
     fun div
-        return m / n
+        return @dm / @dn
     end
 end
 
-class Exp [m, n]
+class Exp [em, en]
     fun exp
-        return pow[m, n]
+        return pow[@em, @en]
     end
 end
 
-class Fib [ n ]
+class Fib [ fn ]
     fun fib
-        return fib [ n ]
+        return fib [ @fn ]
     end
 
     fun fib [ n ]

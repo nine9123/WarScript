@@ -21,97 +21,15 @@ namespace Tests
     public class GapFillTests
     {
         // ────────────────────────────────────────────────
-        //  Helpers
-        // ────────────────────────────────────────────────
-
-        private static void RunAssertOnly(string resourceName)
-        {
-            var (script, output) = TestHelper.RunFile(resourceName);
-            Assert.IsFalse(script.ExceptionContext.IsRaised(),
-                $"'{resourceName}' raised exception. Output:\n{string.Join("\n", output)}");
-            Assert.IsEmpty(output,
-                $"'{resourceName}' produced unexpected output:\n{string.Join("\n", output)}");
-        }
-
-        private static void RunAssertOnlyWithAllLibs(string resourceName)
-        {
-            var (script, output) = TestHelper.RunFile(resourceName,
-                delegate(WarScriptLanguage s, DefinitionScope scope)
-                {
-                    WarScriptLibraryRegistry.RegisterAll(s, scope);
-                });
-            Assert.IsFalse(script.ExceptionContext.IsRaised(),
-                $"'{resourceName}' raised exception. Output:\n{string.Join("\n", output)}");
-            Assert.IsEmpty(output,
-                $"'{resourceName}' produced unexpected output:\n{string.Join("\n", output)}");
-        }
-
-        // ────────────────────────────────────────────────
-        //  String mutation (completely untested before)
-        // ────────────────────────────────────────────────
-
-        [Test]
-        public void GapFill_StringMutation()
-        {
-            RunAssertOnly("test_gapfill_string_mutation.ws");
-        }
-
-        // ────────────────────────────────────────────────
-        //  Native function coverage (is_null was untested)
-        // ────────────────────────────────────────────────
-
-        [Test]
-        public void GapFill_NativeFunctions()
-        {
-            RunAssertOnlyWithAllLibs("test_gapfill_native_functions.ws");
-        }
-
-        // ────────────────────────────────────────────────
-        //  Scope isolation (same-name conflict was untested)
-        // ────────────────────────────────────────────────
-
-        [Test]
-        public void GapFill_ScopeIsolation()
-        {
-            RunAssertOnly("test_gapfill_scope_isolation.ws");
-        }
-
-        // ────────────────────────────────────────────────
-        //  Equality symmetry (!=  on equal values was untested)
-        // ────────────────────────────────────────────────
-
-        [Test]
-        public void GapFill_EqualitySymmetry()
-        {
-            RunAssertOnlyWithAllLibs("test_gapfill_equality_symmetry.ws");
-        }
-
-        // ────────────────────────────────────────────────
-        //  Cross-feature interactions
-        // ────────────────────────────────────────────────
-
-        [Test]
-        public void GapFill_CrossFeature()
-        {
-            RunAssertOnlyWithAllLibs("test_gapfill_cross_feature.ws");
-        }
-
-        // ────────────────────────────────────────────────
         //  AST caching — run same script multiple times
         // ────────────────────────────────────────────────
-
-        [Test]
-        public void GapFill_ASTCaching_SingleScript()
-        {
-            RunAssertOnly("test_gapfill_ast_caching.ws");
-        }
 
         [Test]
         public void GapFill_ASTCaching_MultipleRuns()
         {
             // Run the same script 5 times, each should produce identical results
             var source = System.IO.File.ReadAllText(
-                GetResourcePath("test_gapfill_ast_caching.ws"));
+                System.IO.Path.Combine(Golden.GoldenRunner.GoldenRoot(), "gapfill", "test_gapfill_ast_caching.ws"));
 
             var output = new List<string>();
             var script = new WarScriptLanguage("ast_cache_test", source, null,
@@ -295,21 +213,6 @@ assert v :: y == 4
             Assert.AreEqual("False", output[1], "is_null[0] should be False");
             Assert.AreEqual("False", output[2], "is_null[\"\"] should be False");
             Assert.AreEqual("True", output[3], "is_null[x] where x=null should be True");
-        }
-
-        // ────────────────────────────────────────────────
-        //  Helpers
-        // ────────────────────────────────────────────────
-
-        private static string GetResourcePath(string name,
-            [System.Runtime.CompilerServices.CallerFilePath] string sourceFilePath = "")
-        {
-            var testDir = System.IO.Path.GetDirectoryName(sourceFilePath)!;
-            var path = System.IO.Path.Combine(testDir, "resources", name);
-            if (System.IO.File.Exists(path)) return path;
-            path = System.IO.Path.Combine("resources", name);
-            if (System.IO.File.Exists(path)) return path;
-            throw new System.IO.FileNotFoundException($"Resource '{name}' not found");
         }
     }
 }

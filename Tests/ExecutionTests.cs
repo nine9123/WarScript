@@ -265,7 +265,7 @@ namespace Tests
             var (_, output) = TestHelper.Run("test", @"
                 class Vec2 [x, y]
                     fun length []
-                        return pow[pow[x, 2] + pow[y, 2], 0.5]
+                        return pow[pow[@x, 2] + pow[@y, 2], 0.5]
                     end
                 end
                 v = new Vec2 [3, 4]
@@ -296,7 +296,7 @@ namespace Tests
             var (_, output) = TestHelper.Run("test", @"
                 class Animal [name]
                     fun speak []
-                        return name + "" speaks""
+                        return @name + "" speaks""
                     end
                 end
                 class Dog [name] : Animal [name]
@@ -495,6 +495,7 @@ namespace Tests
             var (script, output) = TestHelper.Run("test", @"
                 counter = 0
                 fun tick []
+                    global counter
                     counter = counter + 1
                     print counter
                 end
@@ -531,6 +532,7 @@ namespace Tests
             var (script, output) = TestHelper.Run("test", @"
                 sum = 0
                 fun add [n]
+                    global sum
                     sum = sum + n
                 end
                 fun get_sum []
@@ -546,7 +548,7 @@ namespace Tests
             var getSum = script.GetFunction("get_sum", 0);
             script.Call(getSum);
 
-            // get_sum returns via ReturnContext, not print — 
+            // get_sum returns its value, which Call() does not hand back (until T2.3) —
             // check that no exceptions were raised and the script is healthy
             Assert.IsFalse(script.ExceptionContext.IsRaised());
         }
@@ -1057,6 +1059,7 @@ namespace Tests
             var (script, output) = TestHelper.Run("test", @"
                 counter = 0
                 fun increment []
+                    global counter
                     counter += 1
                 end
                 fun wait_for_five []

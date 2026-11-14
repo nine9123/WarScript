@@ -3,27 +3,70 @@ using WarScript.Expression.Value;
 
 namespace WarScript.Context
 {
+    /// <summary>
+    /// What a <see cref="MemoryScope"/> was created for. Only the audit mode
+    /// (plan 8.1, T0.8) reads it, to tell e.g. a function writing a global
+    /// from a top-level block doing so.
+    /// </summary>
+    internal enum MemoryScopeKind
+    {
+        /// <summary>A scope not classified below (block scopes went with <c>PushScope</c>, T3.5).</summary>
+        Block,
+        /// <summary>The host globals (<see cref="WarScriptLanguage.GlobalMemoryScope"/>).</summary>
+        Native,
+        /// <summary>The script's globals (<see cref="WarScriptLanguage.UserMemoryScope"/>).</summary>
+        User,
+        /// <summary>A function's or lambda's locals.</summary>
+        FunctionLocal,
+        /// <summary>A class instance part's fields; the class body runs in it. Its parent is the globals (T3.4).</summary>
+        ClassInstance,
+        /// <summary>A method's call scope; its parent is the globals, not the instance's fields (T3.4).</summary>
+        MethodLocal,
+    }
+
     public class MemoryScope
     {
         private readonly Dictionary<string, ValueReference> _variables;
         private MemoryScope _parent;
         private readonly WarScriptLanguage _script;
         internal bool Poolable;
+        internal MemoryScopeKind Kind;
 
         public MemoryScope(WarScriptLanguage script, MemoryScope parent, bool poolable = true)
+            : this(script, parent, poolable, MemoryScopeKind.Block)
+        {
+        }
+
+        internal MemoryScope(WarScriptLanguage script, MemoryScope parent, bool poolable, MemoryScopeKind kind)
         {
             _script = script;
             _variables = new Dictionary<string, ValueReference>();
             _parent = parent;
             Poolable = poolable;
+            Kind = kind;
         }
 
-        internal void Reset(MemoryScope parent)
+        internal void Reset(MemoryScope parent, MemoryScopeKind kind)
         {
             _variables.Clear();
             _parent = parent;
             Poolable = true;
+            Kind = kind;
         }
+
+        /// <summary>The scope in this one's parent chain that holds <paramref name="name"/>, or null (audit mode).</summary>
+        internal MemoryScope Resolve(string name)
+        {
+            for (var scope = this; scope != null; scope = scope._parent)
+                if (scope._variables.ContainsKey(name))
+                    return scope;
+            return null;
+        }
+
+        internal MemoryScope Parent => _parent;
+
+        /// <summary>True if this scope itself (not a parent) holds <paramref name="name"/>.</summary>
+        internal bool HasLocal(string name) => _variables.ContainsKey(name);
 
         public WarValue Get(string name)
         {
@@ -55,6 +98,10 @@ namespace WarScript.Context
             }
             _variables.Add(name, ValueReference.InstanceOf(value));
         }
+
+        /// <summary>The reference this scope itself (not a parent) holds for <paramref name="name"/>, or null.</summary>
+        internal ValueReference? GetLocalReference(string name) =>
+            _variables.TryGetValue(name, out var variable) ? variable : null;
 
         public void SetLocal(string name, ValueReference variable)
         {

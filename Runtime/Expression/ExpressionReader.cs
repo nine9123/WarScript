@@ -14,6 +14,19 @@ namespace WarScript.Expression
     {
         private readonly Stack<IExpression> _operands;
         private readonly Stack<Operator.Operator> _operators;
+
+        /// <summary>
+        /// The token of each operator on <see cref="_operators"/>, in step
+        /// with it: the expression an operator builds, and errors about it,
+        /// are positioned there (T3.1).
+        /// </summary>
+        private readonly Stack<Token.Token> _operatorTokens;
+
+        /// <summary>
+        /// The token-list index of each operator on <see cref="_operators"/>,
+        /// in step with it, for <see cref="WarScriptLanguage.ExpressionSpans"/>.
+        /// </summary>
+        private readonly Stack<int> _operatorIndexes;
         public TokensStack Tokens { get; private set; }
 
         private WarScriptLanguage _script;
@@ -31,6 +44,8 @@ namespace WarScript.Expression
             _script = script;
             _operands = new Stack<IExpression>();
             _operators = new Stack<Operator.Operator>();
+            _operatorTokens = new Stack<Token.Token>();
+            _operatorIndexes = new Stack<int>();
             Tokens = tokens;
         }
 
@@ -71,6 +86,8 @@ namespace WarScript.Expression
             // even if ReadExpression threw mid-parse.
             reader._operands.Clear();
             reader._operators.Clear();
+            reader._operatorTokens.Clear();
+            reader._operatorIndexes.Clear();
             reader._script = null!;
             reader.Tokens = null!;
             (_pool ??= new Stack<ExpressionReader>()).Push(reader);
@@ -105,10 +122,12 @@ namespace WarScript.Expression
         private IExpression ReadExpression()
         {
             var lastWasOperand = false;
+            var lastRow = 0;
 
             while (HasNextToken())
             {
                 var token = Tokens.Next();
+                lastRow = token.RowNumber;
                 switch (token.Type)
                 {
                     case TokenType.Operator:
@@ -121,6 +140,8 @@ namespace WarScript.Expression
                         {
                             case Operator.Operator.LeftParen:
                                 _operators.Push(op);
+                                _operatorTokens.Push(token);
+                                _operatorIndexes.Push(Tokens.Position - 1);
                                 lastWasOperand = false;
                                 break;
                             case Operator.Operator.RightParen:
@@ -128,8 +149,13 @@ namespace WarScript.Expression
                                     ApplyTopOperator();
                                 if (_operators.Count == 0)
                                     throw new SyntaxException(
-                                        $"Unbalanced ')' at line {token.RowNumber}");
+                                        System.FormattableString.Invariant($"Unbalanced ')' at line {token.RowNumber}"), token.RowNumber, token.Column);
                                 _operators.Pop();
+                                _operatorTokens.Pop();
+                                var leftParen = _operatorIndexes.Pop();
+                                // A parenthesized operand spans its parentheses.
+                                if (_operands.Count > 0)
+                                    Span(_operands.Peek(), leftParen, Tokens.Position - 1);
                                 lastWasOperand = true;
                                 break;
                             default:
@@ -138,6 +164,8 @@ namespace WarScript.Expression
                                        && _operators.Peek().GreaterThan(op))
                                     ApplyTopOperator();
                                 _operators.Push(op);
+                                _operatorTokens.Push(token);
+                                _operatorIndexes.Push(Tokens.Position - 1);
                                 lastWasOperand = false;
                                 break;
                         }
@@ -149,9 +177,10 @@ namespace WarScript.Expression
                         // operand would be silently discarded.
                         if (lastWasOperand)
                             throw new SyntaxException(
-                                $"Unexpected `{token.Value}` at line {token.RowNumber}: expected an operator or end of expression");
+                                System.FormattableString.Invariant($"Unexpected `{token.Value}` at line {token.RowNumber}: expected an operator or end of expression"), token.RowNumber, token.Column);
 
                         var value = token.Value;
+                        var first = Tokens.Position - 1;
                         IExpression operand;
                         switch (token.Type)
                         {
@@ -169,10 +198,10 @@ namespace WarScript.Expression
                                 // allow indexing on string literals: "hello"{0}
                                 if (Tokens.PeekSameLine(TokenType.GroupDivider, "{"))
                                 {
-                                    Tokens.Next(TokenType.GroupDivider, "{");
+                                    var brace = Tokens.Next(TokenType.GroupDivider, "{");
                                     var textIndex = ReadExpression(_script, this);
                                     Tokens.Next(TokenType.GroupDivider, "}");
-                                    operand = new ArrayValueOperator(_script, operand, textIndex);
+                                    operand = At(new ArrayValueOperator(_script, operand, textIndex), brace);
                                 }
                                 break;
                             case TokenType.GroupDivider when token.Value == "{":
@@ -182,6 +211,9 @@ namespace WarScript.Expression
                                 operand = _script.NullExpr;
                                 break;
                             case TokenType.This:
+                                // A lambda has no `this` (T3.3, PROP-16); `@x` is lexed as `this :: x`.
+                                if (_script.ParsingBody == ParseBody.Lambda && !_script.ParsingV1)
+                                    throw new SyntaxException("'this' and '@' fields cannot be used in a lambda", token.RowNumber, token.Column);
                                 operand = _script.ThisExpr;
                                 break;
                             case TokenType.Variable:
@@ -195,9 +227,10 @@ namespace WarScript.Expression
                                 else if (Tokens.PeekSameLine(TokenType.GroupDivider, "{"))
                                     operand = ReadArrayValue(token);
                                 else
-                                    operand = new VariableExpression(_script, value);
+                                    operand = new VariableExpression(_script, value) { Line = token.RowNumber, Column = token.Column };
                                 break;
                         }
+                        Span(operand, first, Tokens.Position - 1);
                         _operands.Push(operand);
                         lastWasOperand = true;
                         break;
@@ -205,7 +238,15 @@ namespace WarScript.Expression
             }
 
             while (_operators.Count > 0)
+            {
+                // A '(' still open when the expression ends (`x = (1]`) is
+                // not an operator to apply (CRASH-6).
+                if (_operators.Peek() == Operator.Operator.LeftParen)
+                    throw new SyntaxException(
+                        System.FormattableString.Invariant($"Unbalanced '(' at line {lastRow}: missing ')'"),
+                        _operatorTokens.Peek().RowNumber, _operatorTokens.Peek().Column);
                 ApplyTopOperator();
+            }
 
             return _operands.Count == 0 ? _script.NullExpr : _operands.Pop();
         }
@@ -216,24 +257,63 @@ namespace WarScript.Expression
                 throw new SyntaxException("Malformed expression: unexpected operator (missing operand?)");
 
             var op = _operators.Pop();
+            var token = _operatorTokens.Pop();
+            var index = _operatorIndexes.Pop();
 
             if (_operands.Count == 0)
-                throw new SyntaxException($"Malformed expression: operator '{op}' has no operands");
+                throw new SyntaxException($"Malformed expression: operator '{op}' has no operands", token.RowNumber, token.Column);
 
             var left = _operands.Pop();
 
             if (op.IsBinary())
             {
                 if (_operands.Count == 0)
-                    throw new SyntaxException($"Malformed expression: binary operator '{op}' missing left-hand operand");
+                    throw new SyntaxException($"Malformed expression: binary operator '{op}' missing left-hand operand", token.RowNumber, token.Column);
 
+                // The names are swapped: `left` was popped first, so it is the
+                // right-hand operand, and `right` the left-hand one.
                 var right = _operands.Pop();
-                _operands.Push(op.ToBinaryExpression(_script, right, left));
+                var binary = At(op.ToBinaryExpression(_script, right, left), token);
+                var spans = _script.ExpressionSpans;
+                if (spans != null && spans.TryGetValue(right, out var leftSpan) && spans.TryGetValue(left, out var rightSpan))
+                    Span(binary, leftSpan.First, rightSpan.Last);
+                _operands.Push(binary);
             }
             else
             {
-                _operands.Push(op.ToUnaryExpression(_script, left));
+                // Every unary operator is a prefix: it spans from its token.
+                var unary = At(op.ToUnaryExpression(_script, left), token);
+                var spans = _script.ExpressionSpans;
+                if (spans != null && spans.TryGetValue(left, out var operandSpan))
+                    Span(unary, index, operandSpan.Last);
+                _operands.Push(unary);
             }
+        }
+
+        /// <summary>
+        /// Records the tokens <paramref name="first"/> to <paramref name="last"/>
+        /// (token-list indexes) as the source of <paramref name="expression"/>,
+        /// when the instance records spans (the migration tool, T3.2).
+        /// </summary>
+        private void Span(IExpression expression, int first, int last)
+        {
+            var spans = _script.ExpressionSpans;
+            if (spans != null) spans[expression] = new ExpressionSpan(first, last);
+        }
+
+        // Position an expression at a token (T3.1).
+        private static BinaryOperatorExpression At(BinaryOperatorExpression e, Token.Token token)
+        {
+            e.Line = token.RowNumber;
+            e.Column = token.Column;
+            return e;
+        }
+
+        private static UnaryOperatorExpression At(UnaryOperatorExpression e, Token.Token token)
+        {
+            e.Line = token.RowNumber;
+            e.Column = token.Column;
+            return e;
         }
 
         private ClassExpression ReadClassInstance(Token.Token token)
@@ -252,7 +332,7 @@ namespace WarScript.Expression
                 }
                 Tokens.Next(TokenType.GroupDivider, "]");
             }
-            return new ClassExpression(_script, token.Value, properties);
+            return new ClassExpression(_script, token.Value, properties) { Line = token.RowNumber, Column = token.Column };
         }
 
         private FunctionExpression ReadFunctionInvocation(Token.Token token)
@@ -326,7 +406,7 @@ namespace WarScript.Expression
                     }
                 }
             }
-            return new FunctionExpression(_script, token.Value, arguments);
+            return new FunctionExpression(_script, token.Value, arguments) { Line = token.RowNumber, Column = token.Column };
         }
 
         /// <summary>
@@ -374,18 +454,18 @@ namespace WarScript.Expression
 
             if (Tokens.TryPeek(out var next))
                 throw new SyntaxException(
-                    $"Unexpected `{next.Value}` at line {next.RowNumber}: expected an expression, ',' or '{closing}'");
+                    System.FormattableString.Invariant($"Unexpected `{next.Value}` at line {next.RowNumber}: expected an expression, ',' or '{closing}'"), next.RowNumber, next.Column);
 
             throw new SyntaxException($"Unexpected end of script: expected '{closing}'");
         }
 
         private ArrayValueOperator ReadArrayValue(Token.Token token)
         {
-            var array = new VariableExpression(_script, token.Value);
-            Tokens.Next(TokenType.GroupDivider, "{");
+            var array = new VariableExpression(_script, token.Value) { Line = token.RowNumber, Column = token.Column };
+            var brace = Tokens.Next(TokenType.GroupDivider, "{");
             var arrayIndex = ReadExpression(_script, this);
             Tokens.Next(TokenType.GroupDivider, "}");
-            return new ArrayValueOperator(_script, array, arrayIndex);
+            return (ArrayValueOperator)At(new ArrayValueOperator(_script, array, arrayIndex), brace);
         }
 
         /// <summary>
@@ -412,7 +492,7 @@ namespace WarScript.Expression
             var bodyScope = _script.DefinitionContext.NewScope();
             StatementParser.ParseLambdaBody(_script, Tokens, body, bodyScope);
 
-            return new LambdaExpression(_script, parameters, body, funToken.RowNumber);
+            return new LambdaExpression(_script, parameters, body, funToken.RowNumber, funToken.Column);
         }
     }
 }

@@ -1,22 +1,28 @@
 using System;
 using System.Collections.Generic;
 using FixMath;
+using WarScript.Exception;
 using WarScript.Expression.Value;
 
 namespace WarScript
 {
+    /// <summary>
+    /// Argument extraction for native functions. A failed check throws
+    /// <see cref="NativeArgumentException"/> (plan 6.9, T2.5): ArgumentError
+    /// when the argument is missing, TypeError when it has the wrong type.
+    /// </summary>
     public static class NativeHelper
     {
         public static WarValue Arg(List<WarValue> args, int index, ValueTag expectedTag)
         {
             if (index >= args.Count)
-                throw new ArgumentException(
-                    $"Expected argument at position {index}, but only {args.Count} were provided");
+                throw new NativeArgumentException(ScriptErrorKind.ArgumentError,
+                    System.FormattableString.Invariant($"Expected argument at position {index}, but only {args.Count} were provided"));
 
             var val = args[index];
             if (val.Tag != expectedTag)
-                throw new ArgumentException(
-                    $"Argument {index} expected {expectedTag}, got {val.Tag}");
+                throw new NativeArgumentException(ScriptErrorKind.TypeError,
+                    System.FormattableString.Invariant($"Argument {index} expected {expectedTag}, got {val.Tag}"));
 
             return val;
         }
@@ -45,14 +51,14 @@ namespace WarScript
         public static T NativeArg<T>(List<WarValue> args, int index)
         {
             if (index >= args.Count)
-                throw new ArgumentException(
-                    $"Expected argument at position {index}, but only {args.Count} were provided");
+                throw new NativeArgumentException(ScriptErrorKind.ArgumentError,
+                    System.FormattableString.Invariant($"Expected argument at position {index}, but only {args.Count} were provided"));
 
             if (args[index].IsNativeObject && args[index].Ref is T typed)
                 return typed;
 
-            throw new ArgumentException(
-                $"Argument {index} expected {typeof(T).Name}, got {args[index].Tag}");
+            throw new NativeArgumentException(ScriptErrorKind.TypeError,
+                System.FormattableString.Invariant($"Argument {index} expected {typeof(T).Name}, got {args[index].Tag}"));
         }
     }
 }

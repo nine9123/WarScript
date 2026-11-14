@@ -261,7 +261,9 @@ namespace Tests
             script.Call(func);
             Assert.IsTrue(output.Exists(o => o.Contains("Memory budget exceeded")));
 
-            // Generous budget — should succeed
+            // Generous budget — should succeed (once the host has cleared
+            // the fault that halted the instance, T2.4)
+            script.ClearFault();
             script.MemoryBudget = 1000000;
             output.Clear();
             script.Call(func);

@@ -404,6 +404,44 @@ namespace Tests
         }
 
         [Test]
+        public void YieldInsideConstructorSuspendsTheCaller()
+        {
+            // T1.1: constructor bodies are frames of the coroutine's VM, so a
+            // 'yield' under a base constructor suspends the whole 'new' and the
+            // derived constructor runs on the next tick, in its own context.
+            // A class body cannot yield itself (T3.3, PROP-21), but a function
+            // it calls can.
+            var (script, output) = TestHelper.Run("test", @"
+                fun pause []
+                    yield
+                end
+                class Base [hp]
+                    print ""base "" + hp
+                    pause []
+                    hp = hp + 1
+                end
+                class Unit [hp] : Base [hp]
+                    print ""unit "" + hp
+                end
+                fun spawn []
+                    label = ""spawned""
+                    u = new Unit [10]
+                    print label + "" "" + u :: hp
+                end
+            ");
+
+            var before = Invariants.Capture(script);
+            script.StartCoroutine("spawn", System.Array.Empty<WarValue>());
+            Assert.AreEqual(new[] { "base 10" }, output);
+            Assert.AreEqual(1, script.ActiveCoroutineCount);
+
+            script.TickCoroutines(F64.FromDouble(0.016));
+            Assert.AreEqual(new[] { "base 10", "unit 11", "spawned 11" }, output);
+            Assert.AreEqual(0, script.ActiveCoroutineCount);
+            Invariants.Check(script, before);
+        }
+
+        [Test]
         public void YieldInsideCalledFunctionDoesNotLeakIntoHostCalls()
         {
             var (script, output) = TestHelper.Run("test", @"
@@ -436,6 +474,7 @@ namespace Tests
             var (script, output) = TestHelper.Run("test", @"
                 counter = 0
                 fun increment []
+                    global counter
                     counter += 1
                 end
                 fun wait_for_five []
@@ -534,6 +573,7 @@ namespace Tests
             var (script, output) = TestHelper.Run("test", @"
                 hp = 100
                 fun drain []
+                    global hp
                     hp -= 10
                 end
                 fun monitor []

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using WarScript.Context.Definition;
+using WarScript.Exception;
 using WarScript.Expression.Value;
 
 namespace WarScript.Native
@@ -95,6 +96,8 @@ namespace WarScript.Native
                     var index = NativeHelper.IntArg(args, 1);
                     var value = args[2];
                     var list = arr.ArrayValue;
+                    if (list.Count >= script.MaxArrayLength)
+                        throw new WarScriptLimitException("Array too long");
                     if (index < 0) index = 0;
                     if (index > list.Count) index = list.Count;
                     list.Insert(index, value);
