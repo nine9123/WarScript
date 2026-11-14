@@ -29,15 +29,14 @@ namespace WarScript
         private readonly bool _loop;
 
         private readonly WarVM _vm;
-        private readonly MemoryScope _coroutineScope;
         private bool _started;
         private bool _faulted;
 
-        // Scopes the VM pushed for calls still in flight when it yielded
-        // (function locals, a method's or constructor's class scopes). They are set
-        // aside between ticks and pushed back on resume, so the VM's frames
-        // find them where they left them. Stored top-of-stack first.
-        private readonly List<MemoryScope> _suspendedMemory = new();
+        // Definition scopes the VM pushed for method and constructor calls
+        // still in flight when it yielded. They are set aside between ticks
+        // and pushed back on resume, so the VM's frames find them where they
+        // left them. Stored top-of-stack first. (Frames push no memory scopes
+        // since T3.5: names resolve through the frame.)
         private readonly List<DefinitionScope> _suspendedDefinitions = new();
 
         // Yield timing
@@ -62,8 +61,6 @@ namespace WarScript
             Id = id;
 
             _vm = new WarVM(script);
-            _coroutineScope = script.MemoryContext.NewScope(memoryScope, MemoryScopeKind.FunctionLocal);
-            _coroutineScope.Poolable = false;
         }
 
         public bool IsReady(F64 dt)
@@ -101,20 +98,14 @@ namespace WarScript
             if (!_script.BeginEntry()) return _script.FinishEntry(_script.EntryResult(WarValue.Null));
             ScriptResult result = ScriptResult.Ok(WarValue.Null);
 
-            // Push scopes so the VM's SetGlobal writes to our coroutine scope
             _script.DefinitionContext.PushScope(_definitionScope);
             _script.MemoryContext.PushScope(_memoryScope);
-            _script.MemoryContext.PushScope(_coroutineScope);
             _script.ClearYield();
 
-            int memoryBase = _script.MemoryContext.Depth;
             int definitionBase = _script.DefinitionContext.Depth;
 
-            for (int i = _suspendedMemory.Count - 1; i >= 0; i--)
-                _script.MemoryContext.PushScope(_suspendedMemory[i]);
             for (int i = _suspendedDefinitions.Count - 1; i >= 0; i--)
                 _script.DefinitionContext.PushScope(_suspendedDefinitions[i]);
-            _suspendedMemory.Clear();
             _suspendedDefinitions.Clear();
 
             try
@@ -147,18 +138,12 @@ namespace WarScript
                 // Take off whatever the VM left above our own scopes: keep it
                 // for the next resume if suspended, otherwise discard it.
                 bool suspended = _vm.IsYielded;
-                while (_script.MemoryContext.Depth > memoryBase)
-                {
-                    if (suspended) _suspendedMemory.Add(_script.MemoryContext.DetachScope());
-                    else _script.MemoryContext.EndScope();
-                }
                 while (_script.DefinitionContext.Depth > definitionBase)
                 {
                     var scope = _script.DefinitionContext.DetachScope();
                     if (suspended) _suspendedDefinitions.Add(scope);
                 }
 
-                _script.MemoryContext.EndScope();  // coroutine scope
                 _script.MemoryContext.EndScope();  // user memory scope
                 _script.DefinitionContext.EndScope();
 

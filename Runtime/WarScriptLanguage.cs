@@ -1007,9 +1007,6 @@ namespace WarScript
             if (!BeginEntry()) return EntryResult(WarValue.Null);
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
-            // Push a scope for function-local variables accessed via SetGlobal.
-            // Parented to _memoryScope, matching the VM's OP_CALL behavior.
-            MemoryContext.PushScope(MemoryContext.NewScope(UserMemoryScope, MemoryScopeKind.FunctionLocal));
 
             ScriptResult result;
             try
@@ -1021,7 +1018,6 @@ namespace WarScript
             }
             finally
             {
-                MemoryContext.EndScope();  // function-local scope
                 DefinitionContext.EndScope();
                 MemoryContext.EndScope();
                 EndEntry();

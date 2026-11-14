@@ -475,7 +475,7 @@ namespace WarScript.Bytecode
                     {
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
                         var name = constants[nameIdx].TextValue;
-                        var global = _script.MemoryContext.GetScope().Get(name);
+                        var global = NameScope(fi).Get(name);
                         if (_script.AuditSink != null) AuditGlobalRead(name, global.IsNull, fi);
                         Push(global);
                         break;
@@ -484,20 +484,13 @@ namespace WarScript.Bytecode
                     {
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
                         var name = constants[nameIdx].TextValue;
-                        if (_script.AuditSink != null) AuditGlobalWrite(name, fi);
                         // In a function, method or lambda every local is a
                         // stack slot, and a class body writes its fields with
                         // ThisSetProperty (T3.4): SetGlobal there is a write
-                        // to a name declared `global`, which goes to the
-                        // instance globals and creates the name there if
-                        // needed. At the top level it writes the scope chain
-                        // (globals, then host globals), creating the name in
-                        // the globals.
-                        var setScope = _script.MemoryContext.GetScope();
-                        if (setScope.Kind == MemoryScopeKind.FunctionLocal || setScope.Kind == MemoryScopeKind.MethodLocal
-                            || setScope.Kind == MemoryScopeKind.ClassInstance)
-                            setScope = _script.UserMemoryScope;
-                        setScope.Set(name, Peek());
+                        // to a name declared `global`. Everywhere it writes
+                        // the globals' scope chain (globals, then host
+                        // globals), creating the name in the globals.
+                        _script.UserMemoryScope.Set(name, Peek());
                         break;
                     }
 
@@ -771,7 +764,7 @@ namespace WarScript.Bytecode
                         CompiledFunction? lambdaFunc = null;
                         if (def == null)
                         {
-                            var funcVal = _script.MemoryContext.GetScope().Get(funcName);
+                            var funcVal = NameScope(fi).Get(funcName);
                             if (funcVal.IsNativeObject && funcVal.Ref is CompiledFunction cf)
                                 lambdaFunc = cf;
                             else
@@ -796,12 +789,9 @@ namespace WarScript.Bytecode
                                 Push(WarValue.Null);
                                 argCount++;
                             }
-                            _script.MemoryContext.PushScope(
-                                _script.MemoryContext.NewScope(_script.UserMemoryScope, MemoryScopeKind.FunctionLocal));
                             var newBase = _sp - argCount;
                             if (_frameCount >= FramesMax)
                             {
-                                _script.MemoryContext.EndScope();
                                 RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
@@ -848,16 +838,10 @@ namespace WarScript.Bytecode
                                 argCount++;
                             }
 
-                            // Push a MemoryScope for function-local variables
-                            // (parented to UserMemoryScope, matching tree-walker semantics)
-                            _script.MemoryContext.PushScope(
-                                _script.MemoryContext.NewScope(_script.UserMemoryScope, MemoryScopeKind.FunctionLocal));
-
                             // Arguments are already on the stack at sp-argCount .. sp-1
                             var newBase = _sp - argCount;
                             if (_frameCount >= FramesMax)
                             {
-                                _script.MemoryContext.EndScope();
                                 RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
@@ -918,13 +902,9 @@ namespace WarScript.Bytecode
                             argCount++;
                         }
 
-                        _script.MemoryContext.PushScope(
-                            _script.MemoryContext.NewScope(_script.UserMemoryScope, MemoryScopeKind.FunctionLocal));
-
                         var cvNewBase = _sp - argCount;
                         if (_frameCount >= FramesMax)
                         {
-                            _script.MemoryContext.EndScope();
                             RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
@@ -956,7 +936,7 @@ namespace WarScript.Bytecode
                         CompiledFunction? tailLambda = null;
                         if (def == null)
                         {
-                            var funcVal = _script.MemoryContext.GetScope().Get(funcName);
+                            var funcVal = NameScope(fi).Get(funcName);
                             if (funcVal.IsNativeObject && funcVal.Ref is CompiledFunction cf)
                                 tailLambda = cf;
                             else
@@ -1016,15 +996,8 @@ namespace WarScript.Bytecode
                                 argCount++;
                             }
 
-                            // Pop old function's memory scope (a method frame
-                            // keeps its class context and gets a new local scope)
-                            if (_frames[fi].Kind != FrameKind.Script)
-                                _script.MemoryContext.EndScope();
-
-                            // Push fresh scope for the new function
-                            _script.MemoryContext.PushScope(
-                                _script.MemoryContext.NewScope(_script.UserMemoryScope, MemoryScopeKind.FunctionLocal));
-
+                            // A method frame keeps its class definitions;
+                            // no frame has a memory scope of its own (T3.5).
                             // Move arguments down to the frame's stack base
                             var stackBase = _frames[fi].StackBase;
                             var argBase = _sp - argCount;
@@ -1035,8 +1008,6 @@ namespace WarScript.Bytecode
                             // Reuse the frame — no _frameCount change
                             _frames[fi].Function = tailTarget;
                             _frames[fi].IP = 0;
-                            if (_frames[fi].Kind == FrameKind.Script)
-                                _frames[fi].Kind = FrameKind.Function;
                             code = tailTarget.Chunk.Code;
                             constants = tailTarget.Chunk.Constants;
                         }
@@ -1140,7 +1111,6 @@ namespace WarScript.Bytecode
                         {
                             // Push class context
                             _script.DefinitionContext.PushScope(classDef.GetDefinitionScope());
-                            _script.MemoryContext.PushScope(methodClassData.MemoryScope);
 
                             if (methodDef.Compiled != null)
                             {
@@ -1152,20 +1122,13 @@ namespace WarScript.Bytecode
                                     argCount++;
                                 }
 
-                                // The method's own scope. Its parent is the
-                                // instance globals, not the instance's fields:
-                                // a bare name in a method is a local or a
-                                // global (T3.4, DEC-6, PROP-20); fields are
-                                // `@x` / `this :: x`.
-                                _script.MemoryContext.PushScope(
-                                    _script.MemoryContext.NewScope(_script.UserMemoryScope, MemoryScopeKind.MethodLocal));
-
+                                // A bare name in a method is a local or a
+                                // global (T3.4, DEC-6, PROP-20; NameScope);
+                                // fields are `@x` / `this :: x`.
                                 var newBase = _sp - argCount;
                                 if (_frameCount >= FramesMax)
                                 {
-                                    _script.MemoryContext.EndScope(); // method-local
                                     _script.DefinitionContext.EndScope();
-                                    _script.MemoryContext.EndScope(); // class memory
                                     RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
                                     if (DoHandleException(ref fi, ref code, ref constants)) break;
                                     return;
@@ -1187,7 +1150,6 @@ namespace WarScript.Bytecode
                             {
                                 // No bytecode — clean up context and report error
                                 _script.DefinitionContext.EndScope();
-                                _script.MemoryContext.EndScope();
                                 RuntimeError(ScriptErrorKind.TypeError, $"Method '{methodName}' is not compiled");
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
                                 return;
@@ -1268,7 +1230,8 @@ namespace WarScript.Bytecode
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
                         var name = constants[nameIdx].TextValue;
                         var value = Pop(); var index = Pop();
-                        var target = _script.MemoryContext.GetScope().Get(name);
+                        var nameScope = NameScope(fi);
+                        var target = nameScope.Get(name);
                         if (_script.AuditSink != null) AuditIndexWrite(target, index, textWriteBack: true, fi);
                         if (target.IsArray && index.IsNumeric)
                             target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
@@ -1281,7 +1244,7 @@ namespace WarScript.Bytecode
                                 return;
                             }
                             var newText = target.SetTextChar(WarValue.ToInt(index.Numeric), replacement);
-                            _script.MemoryContext.GetScope().Set(name, newText);
+                            nameScope.Set(name, newText);
                         }
                         Push(value);
                         break;
@@ -2094,26 +2057,27 @@ namespace WarScript.Bytecode
         }
 
         /// <summary>
+        /// Where a bare name that is not a local resolves in frame
+        /// <paramref name="fi"/> (T3.5): a constructor frame's instance fields
+        /// (whose parent is the globals, so a field is found first, then a
+        /// global; 5.7), every other frame's the globals (then host globals).
+        /// It no longer depends on what is on the <c>MemoryContext</c> stack.
+        /// </summary>
+        private MemoryScope NameScope(int fi)
+        {
+            return _frames[fi].Kind == FrameKind.Constructor
+                ? _frames[fi].Instance.MemoryScope
+                : _script.UserMemoryScope;
+        }
+
+        /// <summary>
         /// Pops what a frame of <paramref name="kind"/> pushed on the context
         /// stacks when it was entered (see <see cref="FrameKind"/>).
         /// </summary>
         private void PopFrameContexts(int fi, FrameKind kind)
         {
-            switch (kind)
-            {
-                case FrameKind.Function:
-                    _script.MemoryContext.EndScope();
-                    break;
-                case FrameKind.Method:
-                    _script.MemoryContext.EndScope(); // method-local
-                    _script.DefinitionContext.EndScope();
-                    _script.MemoryContext.EndScope(); // instance
-                    break;
-                case FrameKind.Constructor:
-                    _script.DefinitionContext.EndScope();
-                    _script.MemoryContext.EndScope(); // instance
-                    break;
-            }
+            if (kind == FrameKind.Method || kind == FrameKind.Constructor)
+                _script.DefinitionContext.EndScope();
             _frames[fi].Instance = null; // don't keep the instance alive
         }
 
@@ -2382,7 +2346,6 @@ namespace WarScript.Bytecode
                 var part = _constructors[i];
                 var definition = part.Definition;
                 _script.DefinitionContext.PushScope(definition.GetDefinitionScope());
-                _script.MemoryContext.PushScope(part.MemoryScope);
                 _frames[_frameCount++] = new CallFrame
                 {
                     Function = definition.CompiledConstructor,
@@ -2580,46 +2543,19 @@ namespace WarScript.Bytecode
         }
 
         /// <summary>
-        /// A global read: a method reading a field by its bare name, or a null
-        /// that is undefined, a global hidden from a class, or a variable of
-        /// an ended block.
+        /// A global read of null: is the name undefined? Since T3.4/T3.5 a
+        /// method cannot read a field by its bare name nor have a global
+        /// hidden from it, and a function cannot write a global it did not
+        /// declare, so <see cref="AuditKind.FieldAccessViaBareName"/>,
+        /// <see cref="AuditKind.GlobalShadowedInClass"/> and
+        /// <see cref="AuditKind.GlobalWriteFromFunction"/> are no longer
+        /// reported from here.
         /// </summary>
         private void AuditGlobalRead(string name, bool readNull, int fi)
         {
-            var start = _script.MemoryContext.GetScope();
-            if (!readNull && start.Kind != MemoryScopeKind.MethodLocal) return;
-            var holder = start.Resolve(name);
-            if (holder != null)
-            {
-                if (start.Kind == MemoryScopeKind.MethodLocal && holder.Kind == MemoryScopeKind.ClassInstance)
-                    Audit(AuditKind.FieldAccessViaBareName, fi, "read " + name);
-                return; // a variable that holds null
-            }
-
-            if ((start.Kind == MemoryScopeKind.MethodLocal || start.Kind == MemoryScopeKind.ClassInstance)
-                && _script.UserMemoryScope.Resolve(name) != null)
-                Audit(AuditKind.GlobalShadowedInClass, fi,
-                      name + ": null here, global value " + Describe(_script.UserMemoryScope.Get(name)));
-            else
+            if (!readNull) return;
+            if (NameScope(fi).Resolve(name) == null)
                 Audit(AuditKind.UndefinedRead, fi, name);
-        }
-
-        /// <summary>A global write, before it happens: from a function into a global, or from a method into a field?</summary>
-        private void AuditGlobalWrite(string name, int fi)
-        {
-            var start = _script.MemoryContext.GetScope();
-            // In a function, method or lambda SetGlobal writes a name
-            // declared `global` (T3.4): v2 behavior, nothing to report.
-            if (start.Kind == MemoryScopeKind.FunctionLocal || start.Kind == MemoryScopeKind.MethodLocal
-                || start.Kind == MemoryScopeKind.ClassInstance) return;
-            if (start.HasLocal(name)) return;
-            var holder = start.Resolve(name);
-            if (holder == null) return; // creates a local of the current scope
-            if (start.Kind == MemoryScopeKind.FunctionLocal
-                && (holder.Kind == MemoryScopeKind.User || holder.Kind == MemoryScopeKind.Native))
-                Audit(AuditKind.GlobalWriteFromFunction, fi, name);
-            else if (start.Kind == MemoryScopeKind.MethodLocal && holder.Kind == MemoryScopeKind.ClassInstance)
-                Audit(AuditKind.FieldAccessViaBareName, fi, "write " + name);
         }
 
         // ── Import ──

@@ -42,19 +42,19 @@ namespace WarScript.Bytecode
     }
 
     /// <summary>
-    /// The kind of a <see cref="CallFrame"/>: what it pushed on the context
-    /// stacks (MemoryContext, DefinitionContext) when
-    /// it was entered.
+    /// The kind of a <see cref="CallFrame"/>: what it pushed on the
+    /// DefinitionContext when it was entered, and where its bare names that
+    /// are not locals resolve (T3.5: no frame pushes a MemoryScope).
     /// </summary>
     public enum FrameKind : byte
     {
-        /// <summary>An entry frame (script body, host call, coroutine): pushes nothing.</summary>
+        /// <summary>An entry frame (script body, host call, coroutine): pushes nothing; names resolve in the globals.</summary>
         Script,
-        /// <summary>A function or lambda call: pushes a function-local MemoryScope.</summary>
+        /// <summary>A function or lambda call: pushes nothing; names resolve in the globals.</summary>
         Function,
-        /// <summary>A method call: pushes the class DefinitionScope, the instance's MemoryScope and a method-local MemoryScope; its <see cref="CallFrame.Instance"/> is the instance part whose class defines the method.</summary>
+        /// <summary>A method call: pushes the class DefinitionScope; names resolve in the globals; its <see cref="CallFrame.Instance"/> is the instance part whose class defines the method.</summary>
         Method,
-        /// <summary>A constructor body (T1.1): pushes the class DefinitionScope and the instance's MemoryScope; its <see cref="CallFrame.Instance"/> is the instance part whose body it runs. Its return value is discarded.</summary>
+        /// <summary>A constructor body (T1.1): pushes the class DefinitionScope; names resolve in the instance's fields, then the globals; its <see cref="CallFrame.Instance"/> is the instance part whose body it runs. Its return value is discarded.</summary>
         Constructor
     }
 
