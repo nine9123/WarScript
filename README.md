@@ -863,6 +863,18 @@ and arity at that moment, so a handle obtained once keeps working after `Reload(
 kind `NameError` (and, from the host, halts the instance like any other error). A handle belongs to
 the instance that returned it; passing it to another instance throws `ArgumentException`.
 
+`Call(fn, params WarValue[])` allocates the argument array on every call. For a per-frame hot path,
+keep one buffer and pass a span of it — `Call(FunctionHandle, ReadOnlySpan<WarValue>)` copies the
+arguments onto the VM stack, keeps nothing, and allocates nothing of its own:
+
+```csharp
+_args[0] = WarValue.FromNumeric(dt);                 // WarValue[] _args = new WarValue[1], allocated once
+script.Call(fn, new ReadOnlySpan<WarValue>(_args));  // or _args.AsSpan(0, n)
+```
+
+Missing arguments (a span shorter than the arity) are null, so default parameters apply; extra ones
+are ignored.
+
 `Run()` compiles on first use and caches; calling it again re-executes the top-level statements. The
 AST is discarded after compilation — the bytecode is the source of truth. `Compile()` does the
 compile step on its own and reports errors as diagnostics:
@@ -1017,6 +1029,7 @@ public class WarScriptHost : MonoBehaviour
 ```csharp
 ScriptResult started = script.StartCoroutine("patrol", new[] { WarValue.FromText("A") }, false, out int id);
 int id2   = script.StartCoroutine("pulse", Array.Empty<WarValue>(), loop: true);   // id only
+ScriptResult s2 = script.StartCoroutine("patrol", buffer.AsSpan(0, 1), false, out int id3); // span overload
 bool ok   = script.StopCoroutine(id);
 script.StopAllCoroutines();
 ScriptResult tick = script.TickCoroutines(dt);  // resume all ready coroutines; Ok: Value = the live count
@@ -1028,7 +1041,9 @@ that first run. The id is `-1` (and the result an `Error`) if the function could
 `TickCoroutines` resumes the ready coroutines newest first and stops at the first error a resumed
 coroutine ends with, returning it; the remaining coroutines do not run, and the error halts the
 instance (see [Results and errors](#results-and-errors)). Each call creates an independent coroutine with its own
-state, so the same function can run several times concurrently.
+state, so the same function can run several times concurrently. A coroutine keeps a copy of its arguments (a
+looping one restarts with them), so the caller may reuse its array or span buffer once
+`StartCoroutine` returns.
 
 ### Adding native functions
 

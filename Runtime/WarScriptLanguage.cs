@@ -893,7 +893,18 @@ namespace WarScript
         /// error halts the instance (plan 6.4), and a halted instance returns
         /// <c>Halted</c>.
         /// </summary>
-        public ScriptResult Call(FunctionHandle function, params WarValue[] arguments)
+        public ScriptResult Call(FunctionHandle function, params WarValue[] arguments) =>
+            Call(function, new ReadOnlySpan<WarValue>(arguments));
+
+        /// <summary>
+        /// <see cref="Call(FunctionHandle, WarValue[])"/> without the
+        /// <c>params</c> array (plan T2.7): the arguments are copied onto the
+        /// VM stack and the span is not kept, so a host can call every tick
+        /// from one reused buffer (<c>args.AsSpan(0, n)</c>) without
+        /// allocating. Missing arguments are null (so default parameters
+        /// apply); arguments beyond the function's arity are ignored.
+        /// </summary>
+        public ScriptResult Call(FunctionHandle function, ReadOnlySpan<WarValue> arguments)
         {
             if (function == null) throw new ArgumentNullException(nameof(function));
             if (!ReferenceEquals(function.Instance, this))
@@ -907,13 +918,13 @@ namespace WarScript
                 return RefuseEntry(ScriptErrorKind.NameError, System.FormattableString.Invariant(
                     $"Function '{function.Name}' with {function.Arity} args is not defined"));
             if (definition.Compiled != null)
-                return CallBytecode(definition, arguments ?? Array.Empty<WarValue>());
+                return CallBytecode(definition, arguments);
 
             return RefuseEntry(ScriptErrorKind.TypeError, System.FormattableString.Invariant(
                 $"Cannot call '{definition.Details.Name}' in '{ScriptName}': it has no bytecode"));
         }
 
-        private ScriptResult CallBytecode(FunctionDefinition function, WarValue[] arguments)
+        private ScriptResult CallBytecode(FunctionDefinition function, ReadOnlySpan<WarValue> arguments)
         {
             if (!BeginEntry()) return EntryResult(WarValue.Null);
             DefinitionContext.PushScope(_definitionScope);
@@ -1067,12 +1078,22 @@ namespace WarScript
         /// for the calling script (PROP-1); from the host it halts the
         /// instance (plan 6.4), and a halted instance returns <c>Halted</c>.
         /// </summary>
-        public ScriptResult StartCoroutine(string functionName, WarValue[] args, bool loop, out int id)
+        public ScriptResult StartCoroutine(string functionName, WarValue[] args, bool loop, out int id) =>
+            StartCoroutine(functionName, new ReadOnlySpan<WarValue>(args), loop, out id);
+
+        /// <summary>
+        /// <see cref="StartCoroutine(string, WarValue[], bool, out int)"/>
+        /// taking the arguments as a span (plan 6.1, T2.7). The function is
+        /// looked up by the span's length. The coroutine copies the arguments
+        /// (a looping coroutine restarts with them), so the caller may reuse
+        /// its buffer as soon as this returns.
+        /// </summary>
+        public ScriptResult StartCoroutine(string functionName, ReadOnlySpan<WarValue> args, bool loop, out int id)
         {
             id = -1;
             var refused = RefuseBeforeRunning();
             if (refused != null) return refused.Value;
-            var argCount = args?.Length ?? 0;
+            var argCount = args.Length;
             var function = _definitionScope.GetFunction(functionName, argCount);
             if (function == null)
                 return RefuseEntry(ScriptErrorKind.NameError,
@@ -1085,11 +1106,9 @@ namespace WarScript
             }
 
             id = _nextCoroutineId++;
-            var safeArgs = args ?? Array.Empty<WarValue>();
-
             var bco = new BytecodeCoroutine(
                 this, function.Compiled, _definitionScope, _memoryScope,
-                safeArgs, loop, id);
+                args.ToArray(), loop, id);
             _coroutines.Add(bco);
             return bco.Resume();
         }

@@ -188,8 +188,9 @@ namespace WarScript.Bytecode
         /// <summary>
         /// Run a compiled function with pre-supplied arguments.
         /// Used by the Call() API for host→script invocations (tick loops, events).
+        /// The arguments are copied onto the VM stack; the span is not kept.
         /// </summary>
-        public WarValue RunFunction(CompiledFunction func, WarValue[] arguments)
+        public WarValue RunFunction(CompiledFunction func, ReadOnlySpan<WarValue> arguments)
         {
             Reset();
             RecordEntryDepths();
