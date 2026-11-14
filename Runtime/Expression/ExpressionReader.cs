@@ -211,6 +211,9 @@ namespace WarScript.Expression
                                 operand = _script.NullExpr;
                                 break;
                             case TokenType.This:
+                                // A lambda has no `this` (T3.3, PROP-16); `@x` is lexed as `this :: x`.
+                                if (_script.ParsingBody == ParseBody.Lambda && !_script.ParsingV1)
+                                    throw new SyntaxException("'this' and '@' fields cannot be used in a lambda", token.RowNumber, token.Column);
                                 operand = _script.ThisExpr;
                                 break;
                             case TokenType.Variable:

@@ -251,6 +251,13 @@ namespace WarScript
                 return;
             }
 
+            // ── Field access: @name is `this :: name` (T3.3, DEC-6) ──
+            if (c == '@')
+            {
+                ScanField(col);
+                return;
+            }
+
             throw new SyntaxException(System.FormattableString.Invariant($"Unexpected character '{c}' at line {_row}"), _row, col);
         }
         
@@ -624,6 +631,29 @@ namespace WarScript
             Add(type, word, _row, ColumnAt(start));
         }
 
+        /// <summary>
+        /// Scans <c>@name</c> into the tokens <c>this</c>, <c>::</c> and
+        /// <c>name</c>, all at the column of the <c>@</c> (5.7), so errors
+        /// about the access point at it. The name follows the <c>@</c>
+        /// directly and must be an identifier, not a keyword or literal word.
+        /// </summary>
+        private void ScanField(int col)
+        {
+            var start = _pos + 1;
+            var end = start;
+            while (end < _source.Length && IsIdentChar(_source[end]))
+                end++;
+            var word = _source.Substring(start, end - start);
+            if (word.Length == 0 || !IsIdentStart(word[0]) || ClassifyWord(word) != Token.TokenType.Variable)
+                throw new SyntaxException(
+                    System.FormattableString.Invariant($"'@' must be followed by a field name at line {_row}"), _row, col);
+
+            Add(TokenType.This, "this", _row, col);
+            Add(TokenType.Operator, "::", _row, col);
+            Add(TokenType.Variable, word, _row, col);
+            _pos = end;
+        }
+
         private static Token.TokenType ClassifyWord(string word)
         {
             switch (word)
@@ -637,6 +667,7 @@ namespace WarScript
                 case "import":
                 case "yield":
                 case "const": case "enum":
+                case "global": // T3.3 (PROP-10): reserved, never a name
                     return Token.TokenType.Keyword;
 
                 // Word-operators

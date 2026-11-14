@@ -497,9 +497,8 @@ namespace WarScript
             try
             {
                 var tokens = LexicalParser.Parse(_sourceCode);
-                var statement = new CompositeStatement(this, null, ScriptName);
-                StatementParser.Parse(this, tokens, statement);
-                _cachedCompiled = Compiler.CompileScript(this, statement, _definitionScope);
+                var module = StatementParser.ParseModule(this, tokens, ScriptName);
+                _cachedCompiled = Compiler.CompileScript(this, module.TopLevel, _definitionScope);
 
                 // Discard the AST — bytecode is the source of truth.
                 // This frees all Statement/Expression nodes for GC while
@@ -541,6 +540,21 @@ namespace WarScript
         internal Dictionary<Expression.IExpression, Expression.ExpressionSpan>? ExpressionSpans;
 
         /// <summary>
+        /// The kind of body the parser is in (T3.3): set and restored by
+        /// <see cref="StatementParser"/>, read by it and by the expression
+        /// reader. Parse-time state only.
+        /// </summary>
+        internal ParseBody ParsingBody;
+
+        /// <summary>
+        /// True only during <see cref="ParseForMigration"/>: the parser
+        /// accepts v1 syntax, which v2 rejects: imports anywhere, <c>yield</c>
+        /// in a class body, <c>this</c> in a lambda; <c>global</c> is lexed as
+        /// a keyword but handed to the parser as a name.
+        /// </summary>
+        internal bool ParsingV1;
+
+        /// <summary>
         /// Lexes and parses the script without compiling it, for the
         /// migration tool (T3.2, plan 8.2): returns the token list, the
         /// top-level statements and the definitions (the instance's own
@@ -553,11 +567,19 @@ namespace WarScript
             Dictionary<Expression.IExpression, Expression.ExpressionSpan> spans)
         {
             ExpressionSpans = spans;
+            ParsingV1 = true;
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
             try
             {
-                var tokens = LexicalParser.Parse(_sourceCode);
+                // `global` was a name in v1 (T3.3 made it a keyword). The
+                // cached list is shared, so the renamed tokens are a copy.
+                var lexed = LexicalParser.Parse(_sourceCode);
+                var tokens = new List<Token.Token>(lexed.Count);
+                foreach (var t in lexed)
+                    tokens.Add(t.Type == Token.TokenType.Keyword && t.Value == "global"
+                        ? new Token.Token(Token.TokenType.Variable, t.Value, t.RowNumber, t.Column)
+                        : t);
                 var statement = new CompositeStatement(this, null, ScriptName);
                 StatementParser.Parse(this, tokens, statement);
                 return (tokens, statement, _definitionScope);
@@ -570,6 +592,7 @@ namespace WarScript
             finally
             {
                 ExpressionSpans = null;
+                ParsingV1 = false;
                 DefinitionContext.EndScope();
                 MemoryContext.EndScope();
             }

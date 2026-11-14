@@ -2688,9 +2688,8 @@ namespace WarScript.Bytecode
                     try
                     {
                         var tokens = LexicalParser.Parse(source!);
-                        var importStmt = new CompositeStatement(_script, null, path);
-                        StatementParser.Parse(_script, tokens, importStmt);
-                        compiled = Compiler.CompileScript(_script, importStmt, importDefScope);
+                        var module = StatementParser.ParseModule(_script, tokens, path);
+                        compiled = Compiler.CompileScript(_script, module.TopLevel, importDefScope);
                     }
                     catch (SyntaxException e)
                     {

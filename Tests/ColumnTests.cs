@@ -145,7 +145,8 @@ namespace Tests
             AssertAt("x = 1)", 1, 6);                            // unbalanced ')'
             AssertAt("f [1, ]]\n", 1, 8);                        // a leftover ']'
             AssertAt("x = 1\n   end", 2, 4);                     // leftover at the top level
-            AssertAt("x = 1\nimport 5", 2, 8);                    // the token the parser expected another in place of
+            AssertAt("# a\nimport 5", 2, 8);                     // the token the parser expected another in place of
+            AssertAt("x = 1\n  import \"a\"", 2, 3);             // an import after another statement (T3.3)
         }
 
         [Test]
@@ -218,7 +219,7 @@ namespace Tests
         public void ImportErrors_AreReportedInTheImportedFile()
         {
             var files = new Dictionary<string, string> { ["lib"] = "a = 1\n  b = a ? 2\n" };
-            var script = new WarScriptLanguage("main", "x = 1\nimport \"lib\"\n", p => files[p], null) { LogUnhandledErrors = false };
+            var script = new WarScriptLanguage("main", "import \"lib\"\nx = 1\n", p => files[p], null) { LogUnhandledErrors = false };
 
             var error = script.Run().Error;
 
@@ -292,7 +293,7 @@ namespace Tests
         public void RuntimeErrorsInAnImport_HaveAColumnButNoExcerpt()
         {
             var files = new Dictionary<string, string> { ["lib"] = "a = 1\n  b = a / 0\n" };
-            var script = new WarScriptLanguage("main", "x = 1\nimport \"lib\"\n", p => files[p], null) { LogUnhandledErrors = false };
+            var script = new WarScriptLanguage("main", "import \"lib\"\nx = 1\n", p => files[p], null) { LogUnhandledErrors = false };
 
             var error = script.Run().Error;
 

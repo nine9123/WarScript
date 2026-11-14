@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Collections.Generic;
 using NUnit.Framework;
 using WarScript;
@@ -296,6 +297,41 @@ namespace Tests
             var numericValue = ((ConstantExpression)assignStatement.Right).Value;
 
             Assert.AreEqual(F64.FromInt(5), numericValue.Numeric);
+        }
+
+        [Test]
+        public void ParseModule_ListsTheImports_AndKeepsThemAsTopLevelStatements()
+        {
+            // T3.3: the module structure (imports, top-level statements, definitions).
+            var module = StatementParser.ParseModule(_script,
+                LexicalParser.Parse("# lib\nimport \"a\"\nimport \"b\"\nfun f [] return 1 end\nx = f []"), "m");
+
+            Assert.AreEqual(new[] { "a", "b" }, module.Imports.Select(i => i.Path).ToArray());
+            Assert.AreEqual(3, module.TopLevel.StatementsToExecute.Count);
+            Assert.AreSame(module.Imports[0], module.TopLevel.StatementsToExecute[0]);
+            Assert.AreEqual("m", module.TopLevel.BlockName);
+            Assert.IsNotNull(module.Definitions.GetFunction("f", 0));
+        }
+
+        [Test]
+        public void GlobalStatement_HoldsItsNames()
+        {
+            var module = StatementParser.ParseModule(_script,
+                LexicalParser.Parse("fun f []\n    global a, b,\n        c\n    a = 1\nend"), "m");
+
+            var body = module.Definitions.GetFunction("f", 0).Statement.StatementsToExecute;
+            Assert.IsInstanceOf<GlobalStatement>(body[0]);
+            Assert.AreEqual(new[] { "a", "b", "c" }, ((GlobalStatement)body[0]).Names.ToArray());
+            Assert.AreEqual((2, 5), (body[0].RowNumber, body[0].Column));
+        }
+
+        [TestCase("fun f []\n    global\nend")]
+        [TestCase("fun f []\n    global a,\nend")]
+        [TestCase("fun f []\n    global 1\nend")]
+        public void GlobalStatement_WithoutNames_IsASyntaxError(string source)
+        {
+            Assert.Throws<WarScript.Exception.SyntaxException>(() =>
+                StatementParser.ParseModule(_script, LexicalParser.Parse(source), "m"));
         }
     }
 }

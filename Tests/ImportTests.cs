@@ -134,13 +134,25 @@ namespace Tests
                 () => Run("import \"broken\"", files));
         }
 
-        [Test]
-        public void Import_MissingFile_IsCatchableInScript()
+        // v1 allowed an import anywhere, so a missing file could be rescued;
+        // v2 allows imports only at the top of a file (T3.3, 5.8).
+        [TestCase("begin\nimport \"lib\"\nrescue e\nend", "'import' is allowed only at the top of a file")]
+        [TestCase("fun f []\n    import \"lib\"\nend", "'import' is allowed only at the top of a file")]
+        [TestCase("print 1\nimport \"lib\"", "'import' must come before every other statement")]
+        [TestCase("fun f [] return 1 end\nimport \"lib\"", "'import' must come before every other statement")]
+        public void Import_AnywhereButTheTopOfTheFile_IsASyntaxError(string source, string message)
         {
-            var (_, output) = Run(
-                "begin\nimport \"nope\"\nrescue e\nprint \"caught\"\nend",
-                new Dictionary<string, string>());
-            Assert.AreEqual("caught", output[0]);
+            var files = new Dictionary<string, string> { ["lib"] = "x = 1" };
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() => Run(source, files));
+            StringAssert.Contains(message, e.Message);
+        }
+
+        [Test]
+        public void Import_AfterComments_IsAccepted()
+        {
+            var files = new Dictionary<string, string> { ["lib"] = "fun helper [x] return x * 10 end" };
+            var (_, output) = Run("# header\n\n# more\nimport \"lib\"\nimport \"lib\"\nprint helper [3]", files);
+            Assert.AreEqual("30", output[0]);
         }
     }
 }

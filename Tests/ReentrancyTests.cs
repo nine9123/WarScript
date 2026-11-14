@@ -119,8 +119,8 @@ print ""done""", (s, _) => s.InstructionBudget = Budget, Resolve);
             CollectionAssert.AreEqual(new[] { "done" }, aloneOutput);
             Assert.IsNull(Unhandled(alone));
 
-            var (both, bothOutput) = TestHelper.Run("t", Burn + @"
-import ""burn""
+            var (both, bothOutput) = TestHelper.Run("t", @"
+import ""burn""" + Burn + @"
 print ""done""", (s, _) => s.InstructionBudget = Budget, Resolve);
             CollectionAssert.IsEmpty(Printed(both, bothOutput));
             Assert.AreEqual("Instruction budget exceeded", Unhandled(both));

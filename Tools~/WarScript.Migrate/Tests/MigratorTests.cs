@@ -235,6 +235,17 @@ namespace Tests
         }
 
         [Test]
+        public void V1SyntaxThatV2Rejects_StillParses()
+        {
+            // The tool parses with the v1 rules (T3.3 made these errors).
+            var result = Migrate(("a.ws",
+                "class P [x]\n    yield\n    fun f []\n        g = fun [] return this :: x end\n        return g []\n    end\nend\n" +
+                "print 1\nimport \"a\"\nfun h []\n    import \"a\"\nend\nglobal = 2\n"));
+            Assert.IsFalse(result.Entries.Any(e => e.Rule == Rules.ParseError),
+                string.Join("\n", result.Entries.Select(e => e.Location + " " + e.Rule + ": " + e.Action)));
+        }
+
+        [Test]
         public void AFunctionWritingAGlobalNamedGlobal_DeclaresTheNewName()
         {
             var result = Migrate(("a.ws", "global = 1\nfun f [x]\n    global = x\nend\n"));
@@ -326,11 +337,17 @@ namespace Tests
                 .ToList();
             var result = new Migrator(new string[0]).Run(files);
             // The only files the v1 frontend rejects are the ones that test
-            // exactly that ('# expect-compile-error:').
-            foreach (var e in result.Entries.Where(e => e.Rule == Rules.ParseError))
+            // exactly that ('# expect-compile-error:') and the goldens of v2
+            // syntax added since (T3.3 and later), which are never migrated.
+            foreach (var e in result.Entries.Where(e => e.Rule == Rules.ParseError && !V2SyntaxGoldens.Contains(e.File)))
                 StringAssert.Contains("expect-compile-error", File.ReadAllText(Path.Combine(root, e.File.TrimStart('/'))), e.Location);
             Assert.Greater(result.Rewritten.Count, 0);
         }
+
+        private static readonly HashSet<string> V2SyntaxGoldens = new HashSet<string>
+        {
+            "/language/global_declaration.ws", // T3.3: `global` statements
+        };
 
         private static string CorpusRoot([CallerFilePath] string sourceFilePath = "") =>
             Path.GetFullPath(Path.Combine(Path.GetDirectoryName(sourceFilePath), "..", "..", "..", "Tests", "Golden~"));

@@ -545,6 +545,15 @@ p :: x = 10                # properties are assignable
 print p :: x               # → 10
 ```
 
+Inside a class, `@x` is shorthand for `this :: x`: `return sqrt [@x * @x + @y * @y]`. A lambda has
+no `this`, so `this` and `@x` cannot be used in one, and a class body cannot `yield` (it runs as the
+constructor; a function it calls still can).
+
+`global` is a reserved word. `global a, b` declares, in a function, method, lambda or class body,
+that `a` and `b` are the instance's globals; at the top level it is an error. *(v2 in progress: the
+declaration is parsed but changes nothing yet — a function already writes a global that exists.
+Name resolution gives it its full meaning.)*
+
 #### Inheritance
 
 ```ruby
@@ -726,9 +735,13 @@ start_coroutine ["greet", {"hero"}]
 ### Import
 
 ```ruby
+# comments may come first
 import "utils"
 import "ai/patrol"
 ```
+
+Imports come first in a file: an `import` after any other statement or definition, or inside a
+block or a function, is a compile error.
 
 The path is resolved by the `fileResolver` delegate you pass to the constructor; WarScript never
 touches the filesystem itself. Return the imported script's source, or `null` if it cannot be found.

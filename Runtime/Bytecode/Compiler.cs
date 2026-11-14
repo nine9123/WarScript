@@ -459,6 +459,8 @@ namespace WarScript.Bytecode
                 case HandleExceptionStatement s: CompileTryRescueEnsure(s); break;
                 case ImportStatement s:       CompileImport(s);             break;
                 case YieldStatement s:        CompileYield(s);              break;
+                // Nothing to emit until name resolution (T3.4) gives it its meaning.
+                case GlobalStatement _:                                     break;
                 // FunctionStatement and ClassStatement are handled via definition compilation
             }
         }

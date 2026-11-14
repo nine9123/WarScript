@@ -391,5 +391,37 @@ namespace Tests
             var andToken = tokens.FirstOrDefault(t => t.Value == "and");
             Assert.AreEqual(TokenType.Operator, andToken.Type);
         }
+
+        [Test]
+        public void At_Field_IsThisPropertyAccess_AtTheColumnOfTheAt()
+        {
+            // T3.3 (DEC-6, 5.7): `@hp` lexes as `this :: hp`, every token at the `@`.
+            var tokens = LexicalParser.Parse("x = @hp_2 + 1");
+            Assert.AreEqual(
+                new[] { "Variable x 1", "Operator = 3", "This this 5", "Operator :: 5", "Variable hp_2 5", "Operator + 11", "Numeric 1 13" },
+                tokens.Select(t => t.Type + " " + t.Value + " " + t.Column).ToArray());
+        }
+
+        [TestCase("@")]
+        [TestCase("@ hp")]
+        [TestCase("@1")]
+        [TestCase("@if")]
+        [TestCase("@this")]
+        [TestCase("@true")]
+        [TestCase("@new")]
+        public void At_WithoutAFieldName_IsASyntaxError(string source)
+        {
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() => LexicalParser.Parse(source));
+            StringAssert.Contains("'@' must be followed by a field name", e.Message);
+            Assert.AreEqual((1, 1), (e.Line, e.Column));
+        }
+
+        [Test]
+        public void Global_IsAKeyword()
+        {
+            // T3.3 (PROP-10): reserved; `globals` and `global_` stay names.
+            var tokens = LexicalParser.Parse("global globals global_");
+            Assert.AreEqual(new[] { TokenType.Keyword, TokenType.Variable, TokenType.Variable }, tokens.Select(t => t.Type).ToArray());
+        }
     }
 }

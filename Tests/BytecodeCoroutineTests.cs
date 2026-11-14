@@ -407,12 +407,17 @@ namespace Tests
         public void YieldInsideConstructorSuspendsTheCaller()
         {
             // T1.1: constructor bodies are frames of the coroutine's VM, so a
-            // 'yield' in a base constructor suspends the whole 'new' and the
+            // 'yield' under a base constructor suspends the whole 'new' and the
             // derived constructor runs on the next tick, in its own context.
+            // A class body cannot yield itself (T3.3, PROP-21), but a function
+            // it calls can.
             var (script, output) = TestHelper.Run("test", @"
+                fun pause []
+                    yield
+                end
                 class Base [hp]
                     print ""base "" + hp
-                    yield
+                    pause []
                     hp = hp + 1
                 end
                 class Unit [hp] : Base [hp]
