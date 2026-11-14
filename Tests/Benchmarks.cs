@@ -221,7 +221,6 @@ namespace Tests
                 var script = new WarScriptLanguage("bench", "", null, null);
                 script.Run();
                 script.DefinitionContext.PushScope(script.DefinitionContext.NewScope());
-                script.MemoryContext.PushScope(script.MemoryContext.NewScope());
                 try
                 {
                     var statement = new CompositeStatement(script, null, "bench");
@@ -230,7 +229,6 @@ namespace Tests
                 finally
                 {
                     script.DefinitionContext.EndScope();
-                    script.MemoryContext.EndScope();
                 }
             });
         }
@@ -254,7 +252,6 @@ namespace Tests
                 var script = new WarScriptLanguage("bench", "", null, null);
                 script.Run();
                 script.DefinitionContext.PushScope(script.DefinitionContext.NewScope());
-                script.MemoryContext.PushScope(script.MemoryContext.NewScope());
                 try
                 {
                     var statement = new CompositeStatement(script, null, "bench");
@@ -263,7 +260,6 @@ namespace Tests
                 finally
                 {
                     script.DefinitionContext.EndScope();
-                    script.MemoryContext.EndScope();
                 }
             });
         }
@@ -286,7 +282,6 @@ namespace Tests
                 var script = new WarScriptLanguage("bench", "", null, null);
                 script.Run();
                 script.DefinitionContext.PushScope(script.DefinitionContext.NewScope());
-                script.MemoryContext.PushScope(script.MemoryContext.NewScope());
                 try
                 {
                     var statement = new CompositeStatement(script, null, "bench");
@@ -295,7 +290,6 @@ namespace Tests
                 finally
                 {
                     script.DefinitionContext.EndScope();
-                    script.MemoryContext.EndScope();
                 }
             });
         }

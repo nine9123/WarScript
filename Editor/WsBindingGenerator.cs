@@ -326,10 +326,9 @@ namespace WarScript.Editor
                 // so the instance is only its ClassData (the AST is not
                 // executable since plan T2.1).
                 sb.AppendLine($"{indent}            __script.DefinitionContext.PushScope(__scope);");
-                sb.AppendLine($"{indent}            __script.MemoryContext.PushScope(__script.GlobalMemoryScope);");
                 sb.AppendLine($"{indent}            try");
                 sb.AppendLine($"{indent}            {{");
-                sb.AppendLine($"{indent}                var __data = new ClassData(__enumDef, new WarScript.Context.MemoryScope(__script, null, false), new Dictionary<string, ClassData>());");
+                sb.AppendLine($"{indent}                var __data = new ClassData(__enumDef, new WarScript.Context.MemoryScope(__script, null), new Dictionary<string, ClassData>());");
                 sb.AppendLine($"{indent}                __data.Relations[\"{Esc(e.WsName)}\"] = __data;");
                 sb.AppendLine($"{indent}                var __val = WarValue.FromClass(__data);");
 
@@ -355,7 +354,6 @@ namespace WarScript.Editor
                 sb.AppendLine($"{indent}            }}");
                 sb.AppendLine($"{indent}            finally");
                 sb.AppendLine($"{indent}            {{");
-                sb.AppendLine($"{indent}                __script.MemoryContext.EndScope();");
                 sb.AppendLine($"{indent}                __script.DefinitionContext.EndScope();");
                 sb.AppendLine($"{indent}            }}");
                 sb.AppendLine($"{indent}        }}");

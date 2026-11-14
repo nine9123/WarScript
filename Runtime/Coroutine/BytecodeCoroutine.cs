@@ -24,7 +24,6 @@ namespace WarScript
         private readonly WarScriptLanguage _script;
         private readonly CompiledFunction _compiled;
         private readonly DefinitionScope _definitionScope;
-        private readonly MemoryScope _memoryScope;
         private readonly WarValue[] _args;
         private readonly bool _loop;
 
@@ -40,7 +39,6 @@ namespace WarScript
             WarScriptLanguage script,
             CompiledFunction compiled,
             DefinitionScope definitionScope,
-            MemoryScope memoryScope,
             WarValue[] args,
             bool loop,
             int id)
@@ -48,7 +46,6 @@ namespace WarScript
             _script = script;
             _compiled = compiled;
             _definitionScope = definitionScope;
-            _memoryScope = memoryScope;
             _args = args;
             _loop = loop;
             Id = id;
@@ -92,7 +89,6 @@ namespace WarScript
             ScriptResult result = ScriptResult.Ok(WarValue.Null);
 
             _script.DefinitionContext.PushScope(_definitionScope);
-            _script.MemoryContext.PushScope(_memoryScope);
             _script.ClearYield();
 
             try
@@ -124,7 +120,6 @@ namespace WarScript
             {
                 // A suspended VM's frames keep their own instance and
                 // definitions (T3.5): nothing to set aside between ticks.
-                _script.MemoryContext.EndScope();  // user memory scope
                 _script.DefinitionContext.EndScope();
 
                 // The coroutine's own unhandled error ends it. EndEntry clears

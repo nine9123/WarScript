@@ -6,22 +6,20 @@ namespace Tests
 {
     public static partial class Invariants
     {
-        /// <summary>Context depths recorded before an entry.</summary>
+        /// <summary>Context depth recorded before an entry (the MemoryContext stack went with T3.5).</summary>
         public readonly struct Snapshot
         {
-            public readonly int MemoryDepth;
             public readonly int DefinitionDepth;
 
-            public Snapshot(int memoryDepth, int definitionDepth)
+            public Snapshot(int definitionDepth)
             {
-                MemoryDepth = memoryDepth;
                 DefinitionDepth = definitionDepth;
             }
         }
 
         public static Snapshot Capture(WarScriptLanguage script)
         {
-            return new Snapshot(script.MemoryContext.Depth, script.DefinitionContext.Depth);
+            return new Snapshot(script.DefinitionContext.Depth);
         }
 
         /// <summary>
@@ -31,9 +29,6 @@ namespace Tests
         /// </summary>
         public static string Violation(WarScriptLanguage script, Snapshot before, bool outermost = true)
         {
-            if (script.MemoryContext.Depth != before.MemoryDepth)
-                return $"MemoryContextDepth: {before.MemoryDepth} before the entry, {script.MemoryContext.Depth} after";
-
             if (script.DefinitionContext.Depth != before.DefinitionDepth)
                 return $"DefinitionContextDepth: {before.DefinitionDepth} before the entry, {script.DefinitionContext.Depth} after";
 

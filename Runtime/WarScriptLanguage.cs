@@ -22,7 +22,6 @@ namespace WarScript
         public readonly ThisExpression ThisExpr;
 
         public readonly DefinitionContext DefinitionContext;
-        public readonly MemoryContext MemoryContext;
         public readonly ExceptionContext ExceptionContext;
         public readonly IExpression DefaultStep;
 
@@ -433,28 +432,26 @@ namespace WarScript
             ThisExpr = new ThisExpression(this);
 
             DefinitionContext = new DefinitionContext(this);
-            MemoryContext = new MemoryContext(this);
             ExceptionContext = new ExceptionContext(this);
             DefaultStep = new ConstantExpression(WarValue.FromNumeric(1));
 
             _sourceCode = sourceCode;
 
             var nativeDefinitionScope = DefinitionContext.NewScope();
-            var nativeMemoryScope = MemoryContext.NewScope(MemoryScopeKind.Native);
-            nativeMemoryScope.Poolable = false;
+            // The host globals and the script's globals (parent: the host
+            // globals). No frame pushes a MemoryScope since T3.5, so there is
+            // no scope stack: the VM finds them through WarVM.NameScope.
+            var nativeMemoryScope = new MemoryScope(this, null, MemoryScopeKind.Native);
 
             DefinitionContext.PushScope(nativeDefinitionScope);
-            MemoryContext.PushScope(nativeMemoryScope);
 
             GlobalDefinitionScope = nativeDefinitionScope;
             GlobalMemoryScope = nativeMemoryScope;
 
             _definitionScope = DefinitionContext.NewScope();
-            _memoryScope = MemoryContext.NewScope(MemoryScopeKind.User);
-            _memoryScope.Poolable = false;
+            _memoryScope = new MemoryScope(this, nativeMemoryScope, MemoryScopeKind.User);
 
             DefinitionContext.EndScope();
-            MemoryContext.EndScope();
         }
 
         // ────────────────────────────────────────────────────────
@@ -484,7 +481,6 @@ namespace WarScript
             // compile puts the set back, so none of the script stays behind.
             var constantsBefore = new HashSet<string>(ConstantNames);
             DefinitionContext.PushScope(_definitionScope);
-            MemoryContext.PushScope(_memoryScope);
             try
             {
                 var tokens = LexicalParser.Parse(_sourceCode);
@@ -518,7 +514,6 @@ namespace WarScript
             finally
             {
                 DefinitionContext.EndScope();
-                MemoryContext.EndScope();
             }
             return _compileResult;
         }
@@ -560,7 +555,6 @@ namespace WarScript
             ExpressionSpans = spans;
             ParsingV1 = true;
             DefinitionContext.PushScope(_definitionScope);
-            MemoryContext.PushScope(_memoryScope);
             try
             {
                 // `global` was a name in v1 (T3.3 made it a keyword). The
@@ -585,7 +579,6 @@ namespace WarScript
                 ExpressionSpans = null;
                 ParsingV1 = false;
                 DefinitionContext.EndScope();
-                MemoryContext.EndScope();
             }
         }
 
@@ -922,7 +915,6 @@ namespace WarScript
             if (refused != null) return refused.Value;
             if (!BeginEntry()) return EntryResult(WarValue.Null);
             DefinitionContext.PushScope(_definitionScope);
-            MemoryContext.PushScope(_memoryScope);
 
             ScriptResult result;
             try
@@ -939,7 +931,6 @@ namespace WarScript
             finally
             {
                 DefinitionContext.EndScope();
-                MemoryContext.EndScope();
                 EndEntry();
             }
             return FinishEntry(result);
@@ -1006,7 +997,6 @@ namespace WarScript
         {
             if (!BeginEntry()) return EntryResult(WarValue.Null);
             DefinitionContext.PushScope(_definitionScope);
-            MemoryContext.PushScope(_memoryScope);
 
             ScriptResult result;
             try
@@ -1019,7 +1009,6 @@ namespace WarScript
             finally
             {
                 DefinitionContext.EndScope();
-                MemoryContext.EndScope();
                 EndEntry();
             }
             return FinishEntry(result);
@@ -1181,7 +1170,7 @@ namespace WarScript
 
             id = _nextCoroutineId++;
             var bco = new BytecodeCoroutine(
-                this, function.Compiled, _definitionScope, _memoryScope,
+                this, function.Compiled, _definitionScope,
                 args.ToArray(), loop, id);
             _coroutines.Add(bco);
             return bco.Resume();

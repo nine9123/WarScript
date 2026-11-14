@@ -467,11 +467,6 @@ namespace WarScript.Fuzz
             // state hash part, Q-13); any other cause looks the same, so check a
             // timeout's case.
             (new Regex(@"^crash: timed out"), "BUDGET-3?"),
-            // A yield outside a coroutine in a called frame ends Run() with that
-            // frame's scopes pushed (SEM-14, Q-15; the bytecode mode reaches it
-            // by turning a Return into YieldWait). Any other scope leak after a
-            // completed run looks the same, so check the case.
-            (new Regex(@"^invariant: MemoryContextDepth: N before the entry, N after$"), "SEM-14?"),
         };
 
         public static string Match(string signature)

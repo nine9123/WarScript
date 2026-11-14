@@ -126,7 +126,6 @@ namespace WarScript.Bytecode
 
         // Context depths when the current entry (Run, RunFunction,
         // InitCoroutine, ResumeCoroutine) started. A host fault restores them.
-        private int _entryMemoryDepth;
         private int _entryDefinitionDepth;
 
         public WarVM(WarScriptLanguage script)
@@ -252,7 +251,6 @@ namespace WarScript.Bytecode
 
         private void RecordEntryDepths()
         {
-            _entryMemoryDepth = _script.MemoryContext.Depth;
             _entryDefinitionDepth = _script.DefinitionContext.Depth;
         }
 
@@ -345,8 +343,6 @@ namespace WarScript.Bytecode
         /// </summary>
         private void AbortAfterHostFault()
         {
-            while (_script.MemoryContext.Depth > _entryMemoryDepth)
-                _script.MemoryContext.EndScope();
             while (_script.DefinitionContext.Depth > _entryDefinitionDepth)
                 _script.DefinitionContext.EndScope();
             if (_script.ExceptionContext.IsRaised())
@@ -2066,7 +2062,7 @@ namespace WarScript.Bytecode
         /// <paramref name="fi"/> (T3.5): a constructor frame's instance fields
         /// (whose parent is the globals, so a field is found first, then a
         /// global; 5.7), every other frame's the globals (then host globals).
-        /// It no longer depends on what is on the <c>MemoryContext</c> stack.
+        /// There is no scope stack (T3.5 removed <c>MemoryContext</c>).
         /// </summary>
         private MemoryScope NameScope(int fi)
         {
@@ -2183,11 +2179,11 @@ namespace WarScript.Bytecode
         /// the field of that name of a <paramref name="className"/> instance
         /// is already bound to. Shared by the compiler and the VM.
         /// </summary>
-        /// <summary>The NameError message for reading a name that is not defined (5.6).</summary>
-        internal static string UndefinedVariableMessage(string name) => "undefined variable '" + name + "'";
-
         internal static string BoundTwiceMessage(string name, string className, string baseClass) =>
             $"'{name}' is bound twice in class '{className}': base class '{baseClass}' binds its parameter '{name}' to a different argument";
+
+        /// <summary>The NameError message for reading a name that is not defined (5.6).</summary>
+        internal static string UndefinedVariableMessage(string name) => "undefined variable '" + name + "'";
 
         /// <summary>
         /// Allocation step for <c>new className [args]</c>: the class and its
@@ -2242,7 +2238,7 @@ namespace WarScript.Bytecode
             // The instance's fields. Their parent is the instance globals, so a
             // bare read in a class body finds a field first, then a global
             // (T3.4, 5.7, PROP-20).
-            fields ??= new MemoryScope(_script, _script.UserMemoryScope, false, MemoryScopeKind.ClassInstance);
+            fields ??= new MemoryScope(_script, _script.UserMemoryScope, MemoryScopeKind.ClassInstance);
             var valueRefs = new ValueReference[propCount];
             for (int i = 0; i < propCount; i++)
             {

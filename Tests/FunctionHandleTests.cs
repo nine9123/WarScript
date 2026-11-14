@@ -248,9 +248,9 @@ end
         [Test]
         public void Call_OfATailCallingFunction_LeavesTheContextStacksAsTheyWere()
         {
-            // T3.5: frames push no memory scope; a tail call from the
-            // function a host entry runs (a Script frame) leaves the context
-            // stacks as the entry found them.
+            // T3.5: a tail call from the function a host entry runs (a
+            // Script frame) leaves the definition stack as the entry found
+            // it (there is no memory scope stack any more).
             var (script, _) = Script(@"
 fun down [n]
     if n == 0
@@ -260,14 +260,12 @@ fun down [n]
 end
 ");
             Assert.AreEqual(ScriptStatus.Ok, script.Run().Status);
-            var memory = script.MemoryContext.Depth;
             var definitions = script.DefinitionContext.Depth;
 
             var down = script.GetFunction("down", 1);
             for (var i = 0; i < 3; i++)
                 Assert.AreEqual("done", Text(script.Call(down, WarValue.FromNumeric(5))));
 
-            Assert.AreEqual(memory, script.MemoryContext.Depth);
             Assert.AreEqual(definitions, script.DefinitionContext.Depth);
         }
     }

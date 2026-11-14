@@ -26,14 +26,12 @@ namespace Tests
             _script = new WarScriptLanguage("test", "", null, null);
             _script.Run();
             _script.DefinitionContext.PushScope(_script.DefinitionContext.NewScope());
-            _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
         }
 
         [TearDown]
         public void TearDown()
         {
             _script.DefinitionContext.EndScope();
-            _script.MemoryContext.EndScope();
         }
 
         private WarScript.Token.Token T(TokenType type, string value, int row = 1)
