@@ -105,7 +105,7 @@ namespace WarScript.Context.Definition
                 functionDefinition.Details.Arguments.Count);
     
             if (existing is NativeFunctionDefinition)
-                _script.Logger?.Invoke(_script, $"Shadowing native function '{functionDefinition.Details.Name}'");
+                _script.Log($"Shadowing native function '{functionDefinition.Details.Name}'");
             
             Functions.Add(functionDefinition);
             _script.DefinitionsChanged();

@@ -62,7 +62,12 @@ namespace WarScript
 
         public string ScriptName { get; }
 
-        /// <summary>The instance's label (plan T2.8); null until then.</summary>
+        /// <summary>
+        /// <see cref="WarScriptLanguage.InstanceLabel"/> of the instance the
+        /// error escaped from, as it was when the error was reported (PROP-4,
+        /// T2.8); null when the host set none. Not part of <see cref="ToString"/>:
+        /// the runtime's log lines carry it as a prefix instead.
+        /// </summary>
         public string? InstanceLabel { get; }
 
         /// <summary>The line the error was raised at (the innermost frame's), or 0 when unknown: an error raised outside any frame, a host fault, or a compile error without one.</summary>
@@ -90,9 +95,10 @@ namespace WarScript
         internal SyntaxException? CompileException { get; }
 
         internal ScriptError(ScriptErrorKind kind, string message, WarValue value, string scriptName,
-            int line, int column, System.Exception? hostException = null, SyntaxException? compileException = null,
-            IReadOnlyList<ScriptFrame>? callStack = null)
+            string? instanceLabel, int line, int column, System.Exception? hostException = null,
+            SyntaxException? compileException = null, IReadOnlyList<ScriptFrame>? callStack = null)
         {
+            InstanceLabel = instanceLabel;
             Kind = kind;
             Message = message;
             Value = value;
@@ -110,22 +116,22 @@ namespace WarScript
         /// raised outside any frame (a refused nested entry the host made
         /// directly) has <paramref name="scriptName"/>, line 0 and no stack.
         /// </summary>
-        internal static ScriptError FromRaised(Exception.Exception raised, string scriptName)
+        internal static ScriptError FromRaised(Exception.Exception raised, string scriptName, string? instanceLabel)
         {
             var text = raised.Value.IsText ? raised.Value.TextValue : raised.Value.ToString();
             var stack = raised.CallStack;
-            return new ScriptError(raised.Kind, text, raised.Value, raised.ScriptName ?? scriptName, raised.Line, 0,
+            return new ScriptError(raised.Kind, text, raised.Value, raised.ScriptName ?? scriptName, instanceLabel, raised.Line, 0,
                 callStack: stack == null ? null : stack.ToArray());
         }
 
         /// <summary>A compile error: of the script itself (<paramref name="diagnostic"/>) or of an imported file.</summary>
-        internal static ScriptError FromCompile(SyntaxException e, CompileDiagnostic diagnostic) =>
+        internal static ScriptError FromCompile(SyntaxException e, CompileDiagnostic diagnostic, string? instanceLabel) =>
             new ScriptError(ScriptErrorKind.CompileError, diagnostic.Message, WarValue.FromText(diagnostic.Message),
-                diagnostic.ScriptName, diagnostic.Line, diagnostic.Column, compileException: e);
+                diagnostic.ScriptName, instanceLabel, diagnostic.Line, diagnostic.Column, compileException: e);
 
-        internal static ScriptError FromHostFault(System.Exception e, string scriptName) =>
+        internal static ScriptError FromHostFault(System.Exception e, string scriptName, string? instanceLabel) =>
             new ScriptError(ScriptErrorKind.HostFault, e.Message, WarValue.FromText(e.Message),
-                scriptName, 0, 0, hostException: e);
+                scriptName, instanceLabel, 0, 0, hostException: e);
 
         /// <summary><c>script:line:column: Kind: message</c>, then one <c>  at function (script:line:column)</c> line per frame.</summary>
         public override string ToString()

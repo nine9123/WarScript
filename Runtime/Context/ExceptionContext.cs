@@ -56,7 +56,7 @@ namespace WarScript.Context
         public void PrintStackTrace()
         {
             LastUnhandled = Exception;
-            _script.Logger?.Invoke(_script, Exception.ToString());
+            _script.Log(Exception.ToString());
             RescueException();
         }
 

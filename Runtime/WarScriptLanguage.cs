@@ -48,6 +48,30 @@ namespace WarScript
 
         public readonly Action<WarScriptLanguage, string>? Logger;
 
+        /// <summary>
+        /// A host-chosen name for this instance (PROP-4, plan T2.8), e.g. the
+        /// unit or room it scripts, since many instances may run the same
+        /// script. Every <see cref="ScriptError"/> the instance reports
+        /// carries it (<see cref="ScriptError.InstanceLabel"/>, as it was when
+        /// the error was reported), and every line the runtime itself sends to
+        /// <see cref="Logger"/> starts with <c>[label] </c>. <c>print</c>
+        /// output is the script's, not the runtime's, and is passed on
+        /// unchanged. Null (the default) adds nothing.
+        /// </summary>
+        public string? InstanceLabel { get; set; }
+
+        /// <summary>
+        /// Sends a line the runtime emits (not <c>print</c> output) to
+        /// <see cref="Logger"/>, prefixed with <c>[</c><see cref="InstanceLabel"/><c>] </c>
+        /// when one is set (PROP-4).
+        /// </summary>
+        internal void Log(string line)
+        {
+            if (Logger == null) return;
+            var label = InstanceLabel;
+            Logger(this, label == null ? line : "[" + label + "] " + line);
+        }
+
         /// <summary>FNV-1a state over every line printed so far (see <see cref="ComputeStateHash"/>).</summary>
         private ulong _printedHash = StateHash.Offset;
 
@@ -377,7 +401,7 @@ namespace WarScript
             IsHalted = true;
             Fault = error;
             if (LogUnhandledErrors && Logger != null)
-                Logger(this, error.HostException == null
+                Log(error.HostException == null
                     ? "[WarScript] " + error
                     : "[WarScript] " + error + "\n" + error.HostException);
             Faulted?.Invoke(this, error);
@@ -546,7 +570,7 @@ namespace WarScript
             if (IsHalted) return HaltedResult();
             var compiled = Compile();
             if (compiled.Success) return null;
-            return FinishEntry(ScriptResult.Failed(ScriptError.FromCompile(_compileError!, compiled.Diagnostics[0])));
+            return FinishEntry(ScriptResult.Failed(ScriptError.FromCompile(_compileError!, compiled.Diagnostics[0], InstanceLabel)));
         }
 
         /// <summary>
@@ -556,7 +580,7 @@ namespace WarScript
         /// Phase 3).
         /// </summary>
         internal ScriptResult ImportCompileFailure(Exception.SyntaxException e) =>
-            ScriptResult.Failed(ScriptError.FromCompile(e, Diagnose(e)));
+            ScriptResult.Failed(ScriptError.FromCompile(e, Diagnose(e), InstanceLabel));
 
         /// <summary>
         /// The result of an entry that ran: <paramref name="value"/>, or the
@@ -567,7 +591,7 @@ namespace WarScript
         /// </summary>
         internal ScriptResult EntryResult(WarValue value) =>
             ExceptionContext.IsRaised()
-                ? ScriptResult.Failed(ScriptError.FromRaised(ExceptionContext.Exception, ScriptName))
+                ? ScriptResult.Failed(ScriptError.FromRaised(ExceptionContext.Exception, ScriptName, InstanceLabel))
                 : ScriptResult.Ok(value);
 
         /// <summary>
@@ -579,7 +603,7 @@ namespace WarScript
         private ScriptResult RefuseEntry(ScriptErrorKind kind, string message)
         {
             if (EntryDepth == 0)
-                return FinishEntry(ScriptResult.Failed(new ScriptError(kind, message, WarValue.FromText(message), ScriptName, 0, 0)));
+                return FinishEntry(ScriptResult.Failed(new ScriptError(kind, message, WarValue.FromText(message), ScriptName, InstanceLabel, 0, 0)));
             ExceptionContext.RaiseException(message, kind);
             return EntryResult(WarValue.Null);
         }
@@ -798,7 +822,7 @@ namespace WarScript
                 // A throwing resolver is the host's bug, not the script's: the
                 // source is still worth trying, so this reports and falls back
                 // rather than failing the import outright.
-                Logger?.Invoke(this,
+                Log(
                     $"[WarScript] Bytecode resolver failed for import '{path}' ({e.Message}) — " +
                     "compiling its source instead.");
                 return null;
@@ -816,7 +840,7 @@ namespace WarScript
             }
             catch (System.Exception e)
             {
-                Logger?.Invoke(this,
+                Log(
                     $"[WarScript] Precompiled bytecode for import '{path}' could not be loaded " +
                     $"({e.Message}) — compiling its source instead.");
                 return null;
@@ -973,7 +997,7 @@ namespace WarScript
             if (_pendingHostFault == null) _pendingHostFault = e;
             if (ExceptionContext.IsRaised())
                 ExceptionContext.RescueException();
-            return ScriptResult.Failed(ScriptError.FromHostFault(e, ScriptName));
+            return ScriptResult.Failed(ScriptError.FromHostFault(e, ScriptName, InstanceLabel));
         }
 
         /// <summary>The <c>HostFault</c> result of the outermost entry; it is logged when it halts the instance.</summary>
@@ -983,7 +1007,7 @@ namespace WarScript
             _pendingHostFault = null;
             if (ExceptionContext.IsRaised())
                 ExceptionContext.RescueException();
-            return ScriptResult.Failed(ScriptError.FromHostFault(e, ScriptName));
+            return ScriptResult.Failed(ScriptError.FromHostFault(e, ScriptName, InstanceLabel));
         }
 
         // ────────────────────────────────────────────────────────

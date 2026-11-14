@@ -949,6 +949,13 @@ script.Faulted += (instance, error) => Debug.LogError($"{instance.ScriptName} ha
 script.ClearFault();
 ```
 
+**Instance label.** Many instances can run the same script, so `ScriptName` alone does not say
+which one failed. Set `script.InstanceLabel = "unit-42"` (any text; null by default): every
+`ScriptError` the instance reports carries it as `error.InstanceLabel` (as it was when the error was
+reported), and every line the runtime itself logs starts with `[unit-42] `, e.g.
+`[unit-42] [WarScript] patrol:12:0: DivisionByZero: Division by zero`. `print` output is the
+script's and is not prefixed; `ScriptError.ToString()` does not include the label.
+
 ### Passing values in and out
 
 `Call()` returns the function's return value in its result's `Value`. Globals are the other way:
