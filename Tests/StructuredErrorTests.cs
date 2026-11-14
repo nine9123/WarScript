@@ -152,6 +152,34 @@ f []
         }
 
         [Test]
+        public void InstructionBudgetExceeded_InsideBegin_KeepsWhereItRanOut()
+        {
+            // BUDGET-2: every instruction after the budget ran out raises
+            // again, here at the rescue handler of the script body; the error
+            // the host sees is still the one raised inside spin.
+            var (script, output) = Script(@"fun spin []
+    loop true
+        x = 1
+    end
+end
+begin
+    spin []
+rescue e
+    print ""rescued""
+end
+");
+            script.InstructionBudget = 1000;
+            var result = script.Run();
+
+            CollectionAssert.IsEmpty(output);
+            Assert.AreEqual(ScriptErrorKind.InstructionBudgetExceeded, result.Error.Kind);
+            Assert.AreEqual("spin", result.Error.CallStack[0].Function);
+            Assert.That(result.Error.Line, Is.InRange(2, 3));
+            Assert.AreEqual(2, result.Error.CallStack.Count);
+            Assert.AreEqual("<script>@main:7", Frames(result.Error).Split(new[] { " < " }, StringSplitOptions.None)[1]);
+        }
+
+        [Test]
         public void ErrorReRaisedFromARescueBody_IsANewRaisedError()
         {
             // `raise e` raises the message text again: a Raised error at the

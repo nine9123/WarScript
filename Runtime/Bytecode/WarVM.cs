@@ -383,7 +383,15 @@ namespace WarScript.Bytecode
                     // again, so rescue and ensure bodies cannot run and the
                     // error ends the entry whatever the script rescues.
                     budget.InstructionsLeft = -1;
-                    RuntimeError(ScriptErrorKind.InstructionBudgetExceeded, "Instruction budget exceeded");
+                    // The same error each time, so it keeps where the budget
+                    // ran out (T2.5).
+                    if (budget.Exhausted != null)
+                        _script.ExceptionContext.Reraise(budget.Exhausted);
+                    else
+                    {
+                        RuntimeError(ScriptErrorKind.InstructionBudgetExceeded, "Instruction budget exceeded");
+                        budget.Exhausted = _script.ExceptionContext.Exception;
+                    }
                     if (DoHandleException(ref fi, ref code, ref constants))
                         continue;
                     return;

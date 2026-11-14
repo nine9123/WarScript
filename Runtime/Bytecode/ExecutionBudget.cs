@@ -28,6 +28,14 @@ namespace WarScript.Bytecode
         public long MemoryLimit;
 
         /// <summary>
+        /// The "Instruction budget exceeded" error, once raised: every further
+        /// instruction of the entry raises this same error again (BUDGET-2),
+        /// so it keeps the line and call stack of the instruction that ran
+        /// out (plan T2.5), not those of the handler it was re-raised in.
+        /// </summary>
+        public WarScript.Exception.Exception? Exhausted;
+
+        /// <summary>
         /// Starts a new outermost entry. A budget of <c>n</c> instructions
         /// raises on the <c>n</c>-th dispatch, as v1 did; 0 or less is unlimited.
         /// </summary>
@@ -36,6 +44,7 @@ namespace WarScript.Bytecode
             InstructionsLeft = instructionBudget > 0 ? instructionBudget - 1L : long.MaxValue;
             MemoryUsed = 0;
             MemoryLimit = memoryBudget;
+            Exhausted = null;
         }
     }
 }
