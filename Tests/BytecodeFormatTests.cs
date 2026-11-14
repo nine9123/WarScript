@@ -389,10 +389,18 @@ namespace Tests
 
             void Same(CompiledFunction a, CompiledFunction b)
             {
-                Assert.AreEqual(a.Chunk.Lines.EntryCount, b.Chunk.Lines.EntryCount, a.Name);
-                Assert.Less(a.Chunk.Lines.EntryCount, a.Chunk.Code.Count, a.Name + ": runs share entries");
+                // The file keeps one entry per change of line: the columns
+                // (T3.1) are not in it until format v3 (T3.11).
+                var lineChanges = 0;
+                for (int i = 0; i < a.Chunk.Lines.EntryCount; i++)
+                    if (i == 0 || a.Chunk.Lines.LineAt(i) != a.Chunk.Lines.LineAt(i - 1)) lineChanges++;
+                Assert.AreEqual(lineChanges, b.Chunk.Lines.EntryCount, a.Name);
+                Assert.Less(b.Chunk.Lines.EntryCount, a.Chunk.Code.Count, a.Name + ": runs share entries");
                 for (int i = 0; i < a.Chunk.Code.Count; i++)
+                {
                     Assert.AreEqual(a.Chunk.Lines.GetLine(i), b.Chunk.Lines.GetLine(i), a.Name + " offset " + i);
+                    Assert.AreEqual(0, b.Chunk.Lines.GetColumn(i), a.Name + " offset " + i + ": no column loaded");
+                }
             }
             Same(body, loadedBody);
             Same(definitions.GetFunction("f", 1).Compiled, loaded.GetFunction("f", 1).Compiled);

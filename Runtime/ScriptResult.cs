@@ -34,7 +34,12 @@ namespace WarScript
         public readonly string Function;
         public readonly string ScriptName;
         public readonly int Line;
-        /// <summary>0 until the line table has columns (the second half of T3.1).</summary>
+        /// <summary>
+        /// The column on <see cref="Line"/>, from 1, or 0 when unknown (T3.1):
+        /// the column of the statement, or of the operator, call, <c>new</c>
+        /// or index on that line, being executed. Code loaded from a bytecode
+        /// file has none (format v3, T3.11).
+        /// </summary>
         public readonly int Column;
 
         public ScriptFrame(string function, string scriptName, int line, int column)
@@ -75,8 +80,9 @@ namespace WarScript
 
         /// <summary>
         /// The column on <see cref="Line"/>, from 1 (a tab counts as one), or
-        /// 0 when unknown. Compile errors have one (T3.1); runtime errors do
-        /// not yet (the line table has no columns until T3.1's second half).
+        /// 0 when unknown (T3.1). A runtime error has its innermost frame's
+        /// (<see cref="ScriptFrame.Column"/>); code loaded from a bytecode
+        /// file has none.
         /// </summary>
         public int Column { get; }
 
@@ -84,7 +90,8 @@ namespace WarScript
         /// The text of the source line the error is on, without its line
         /// break, when the source is known and the error has a column (T3.1):
         /// <see cref="ToString"/> prints it with a caret under the column.
-        /// Null otherwise.
+        /// For a runtime error, only when it is in the instance's own script
+        /// (not an import). Null otherwise.
         /// </summary>
         public string? SourceLine { get; }
 
@@ -130,12 +137,20 @@ namespace WarScript
         /// raised outside any frame (a refused nested entry the host made
         /// directly) has <paramref name="scriptName"/>, line 0 and no stack.
         /// </summary>
-        internal static ScriptError FromRaised(Exception.Exception raised, string scriptName, string? instanceLabel)
+        /// <summary>
+        /// A runtime error. <paramref name="source"/> is the source of
+        /// <paramref name="scriptName"/>, when known: an error whose innermost
+        /// frame is in that script and has a column shows its line (T3.1).
+        /// </summary>
+        internal static ScriptError FromRaised(Exception.Exception raised, string scriptName, string? instanceLabel, string? source = null)
         {
             var text = raised.Value.IsText ? raised.Value.TextValue : raised.Value.ToString();
             var stack = raised.CallStack;
-            return new ScriptError(raised.Kind, text, raised.Value, raised.ScriptName ?? scriptName, instanceLabel, raised.Line, 0,
-                callStack: stack == null ? null : stack.ToArray());
+            var errorScript = raised.ScriptName ?? scriptName;
+            var sourceLine = raised.Column > 0 && source != null && errorScript == scriptName
+                ? SourceLineOf(source, raised.Line) : null;
+            return new ScriptError(raised.Kind, text, raised.Value, errorScript, instanceLabel, raised.Line, raised.Column,
+                callStack: stack == null ? null : stack.ToArray(), sourceLine: sourceLine);
         }
 
         /// <summary>A compile error: of the script itself (<paramref name="diagnostic"/>) or of an imported file.</summary>

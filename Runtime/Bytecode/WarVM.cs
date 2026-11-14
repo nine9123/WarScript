@@ -2129,7 +2129,8 @@ namespace WarScript.Bytecode
                 var chunk = function.Chunk;
                 var ip = _frames[i].IP > 0 ? _frames[i].IP - 1 : 0;
                 var line = ip < chunk.Code.Count ? chunk.Lines.GetLine(ip) : 0;
-                stack.Add(new ScriptFrame(function.Name, chunk.Source ?? _script.ScriptName, line, 0));
+                var column = ip < chunk.Code.Count ? chunk.Lines.GetColumn(ip) : 0;
+                stack.Add(new ScriptFrame(function.Name, chunk.Source ?? _script.ScriptName, line, column));
             }
         }
 

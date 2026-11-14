@@ -131,11 +131,17 @@ namespace WarScript.Bytecode
             foreach (var b in func.Chunk.Code)
                 w.Write(b);
 
-            // Line numbers (for debug / stack traces): run-length entries (10.2)
+            // Line numbers (for debug / stack traces): run-length entries (10.2).
+            // An entry only where the line changes: the columns (T3.1) stay
+            // out of the file until format v3 (T3.11).
             var lines = func.Chunk.Lines;
-            w.Write((uint)lines.EntryCount);
+            var entries = 0;
+            for (int i = 0; i < lines.EntryCount; i++)
+                if (i == 0 || lines.LineAt(i) != lines.LineAt(i - 1)) entries++;
+            w.Write((uint)entries);
             for (int i = 0; i < lines.EntryCount; i++)
             {
+                if (i > 0 && lines.LineAt(i) == lines.LineAt(i - 1)) continue;
                 w.Write((ushort)lines.OffsetAt(i));
                 w.Write(lines.LineAt(i));
             }

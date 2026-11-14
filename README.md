@@ -933,18 +933,22 @@ A `ScriptError` has a `Kind`, a `Message`, the raised `Value`, a `ScriptName`, a
 import), `AssertionFailed`, `LimitExceeded` (stack overflow, text or array too long, nesting),
 `InstructionBudgetExceeded`, `MemoryBudgetExceeded`, `NativeError` (a native threw), `ArgumentError`
 and `TypeError` from `NativeHelper`'s argument checks, and `Raised` for a `raise` statement. Its
-`ToString()` prints the frames:
+`ToString()` prints the source line with a caret, then the frames:
 
 ```
-main:2:0: DivisionByZero: Division by zero
-  at inner (main:2:0)
-  at outer (main:6:0)
-  at <script> (main:8:0)
+main:2:14: DivisionByZero: Division by zero
+    return x / 0
+             ^
+  at inner (main:2:14)
+  at outer (main:6:12)
+  at <script> (main:8:1)
 ```
 
 Frames are named after the compiled function: `<script>` for top-level code, `Unit#ctor` for a
-constructor, `<lambda>`, and a method by its own name. Runtime errors have no column yet (0), only
-compile errors do. Scripts still see a
+constructor, `<lambda>`, and a method by its own name. A frame's column is that of the operator,
+call, `new` or index being executed when it is on the statement's line, otherwise the statement's.
+The source line is shown for errors in the instance's own script, not in an import; code loaded
+from a bytecode file has no columns (0) and no source line. Scripts still see a
 rescued error as its message text. A native raises a specific kind by throwing
 `ScriptErrorException(kind, message)`; any other exception it throws is a `NativeError`.
 

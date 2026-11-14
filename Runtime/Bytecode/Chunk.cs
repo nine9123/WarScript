@@ -16,8 +16,17 @@ namespace WarScript.Bytecode
     {
         public readonly List<byte> Code = new();
         public readonly List<WarValue> Constants = new();
-        /// <summary>The source line of every code byte, run-length encoded (T1.7, 10.2).</summary>
+        /// <summary>The source line and column of every code byte, run-length encoded (T1.7, 10.2, T3.1).</summary>
         public readonly LineTable Lines = new();
+
+        /// <summary>
+        /// The column marked with every byte emitted from now on (T3.1), 0
+        /// when unknown: the compiler keeps it at the statement or
+        /// expression being compiled. A byte emitted with line 0 gets
+        /// column 0. Not serialized (the file's line table has no columns
+        /// until format v3, T3.11).
+        /// </summary>
+        internal int Column;
 
         /// <summary>
         /// The script the code was compiled from (the instance's script name or
@@ -129,13 +138,13 @@ namespace WarScript.Bytecode
         public void EmitOp(OpCode op, int line)
         {
             LastOpOffset = Code.Count;
-            Lines.Mark(Code.Count, line);
+            Mark(line);
             Code.Add((byte)op);
         }
 
         public void EmitByte(byte b, int line)
         {
-            Lines.Mark(Code.Count, line);
+            Mark(line);
             Code.Add(b);
         }
 
@@ -143,10 +152,12 @@ namespace WarScript.Bytecode
         {
             if (value < 0 || value > 0xFFFF)
                 throw LimitError("function too large (an operand exceeds 65,535)");
-            Lines.Mark(Code.Count, line);
+            Mark(line);
             Code.Add((byte)((value >> 8) & 0xFF));
             Code.Add((byte)(value & 0xFF));
         }
+
+        private void Mark(int line) => Lines.Mark(Code.Count, line, line > 0 ? Column : 0);
 
         /// <summary>
         /// Pops <paramref name="count"/> values: one <c>Pop</c>, or <c>PopN</c>
@@ -329,8 +340,9 @@ namespace WarScript.Bytecode
     {
         private readonly List<int> _offsets = new();
         private readonly List<int> _lines = new();
+        private readonly List<int> _columns = new();
 
-        /// <summary>The number of (offset, line) entries.</summary>
+        /// <summary>The number of (offset, line, column) entries.</summary>
         public int EntryCount => _offsets.Count;
 
         /// <summary>The code offset where entry <paramref name="index"/> starts.</summary>
@@ -339,24 +351,33 @@ namespace WarScript.Bytecode
         /// <summary>The line of entry <paramref name="index"/>.</summary>
         public int LineAt(int index) => _lines[index];
 
+        /// <summary>The column of entry <paramref name="index"/>, from 1; 0 when unknown (T3.1).</summary>
+        public int ColumnAt(int index) => _columns[index];
+
         /// <summary>
         /// Records that the code byte at <paramref name="offset"/>, appended
-        /// after every byte marked before it, is on <paramref name="line"/>:
-        /// adds an entry only when the line changes.
+        /// after every byte marked before it, is on <paramref name="line"/>
+        /// at <paramref name="column"/> (T3.1; 0 = unknown): adds an entry
+        /// only when the line or the column changes.
         /// </summary>
-        public void Mark(int offset, int line)
+        public void Mark(int offset, int line, int column = 0)
         {
             int n = _lines.Count;
-            if (n > 0 && _lines[n - 1] == line) return;
+            if (n > 0 && _lines[n - 1] == line && _columns[n - 1] == column) return;
             _offsets.Add(offset);
             _lines.Add(line);
+            _columns.Add(column);
         }
 
-        /// <summary>Appends an entry as read from a file; <see cref="Problem"/> checks the result.</summary>
+        /// <summary>
+        /// Appends an entry as read from a file; <see cref="Problem"/> checks
+        /// the result. The file has no columns before format v3 (T3.11).
+        /// </summary>
         internal void AddEntry(int offset, int line)
         {
             _offsets.Add(offset);
             _lines.Add(line);
+            _columns.Add(0);
         }
 
         /// <summary>
@@ -380,6 +401,13 @@ namespace WarScript.Bytecode
         {
             int index = EntryIndex(offset);
             return index < 0 ? 0 : _lines[index];
+        }
+
+        /// <summary>The column of the code byte at <paramref name="offset"/>, or 0 when unknown (T3.1).</summary>
+        public int GetColumn(int offset)
+        {
+            int index = EntryIndex(offset);
+            return index < 0 ? 0 : _columns[index];
         }
 
         /// <summary>

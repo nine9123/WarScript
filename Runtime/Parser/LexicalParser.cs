@@ -77,6 +77,15 @@ namespace WarScript
             _lineStart = nextLineStart;
         }
 
+        /// <summary>
+        /// Whether the character at <paramref name="i"/> ends a line: a '\n',
+        /// or a '\r' not followed by '\n' ("\r\n" ends at its '\n'). For the
+        /// line breaks inside literals and interpolations, counted the way
+        /// <see cref="ScanToken"/> counts the others.
+        /// </summary>
+        private bool EndsLine(int i) =>
+            _source[i] == '\n' || (_source[i] == '\r' && (i + 1 >= _source.Length || _source[i + 1] != '\n'));
+
         private void Add(TokenType type, string value, int row, int column) =>
             _tokens.Add(new Token.Token(type, value, row, column));
 
@@ -335,8 +344,9 @@ namespace WarScript
                 // A raw line break inside a literal is allowed, but the row
                 // counter has to follow it or every later error points at the
                 // wrong line.
+                var endsLine = EndsLine(_pos);
                 _pos++;
-                if (c == '\n')
+                if (endsLine)
                     NewLine(_pos);
             }
 
@@ -403,7 +413,7 @@ namespace WarScript
 
             // The literal may span lines; keep the row counter in step.
             for (var i = _pos; i < end; i++)
-                if (_source[i] == '\n')
+                if (EndsLine(i))
                     NewLine(i + 1);
 
             _pos = end + 3; // skip closing """
@@ -518,7 +528,7 @@ namespace WarScript
                         return source;
                     }
                 }
-                else if (c == '\n')
+                else if (EndsLine(_pos))
                 {
                     NewLine(_pos + 1);
                 }
@@ -566,7 +576,7 @@ namespace WarScript
 
             // The nested literal may span lines; keep the row counter in step.
             for (var i = start; i < stop; i++)
-                if (_source[i] == '\n')
+                if (EndsLine(i))
                     NewLine(i + 1);
 
             _pos = stop;

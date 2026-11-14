@@ -51,10 +51,19 @@ namespace WarScript.Bytecode
 
         /// <summary>
         /// Column of the statement being compiled (T3.1), 0 when unknown;
-        /// set and restored with <see cref="_line"/> by CompileStatement.
-        /// Compile errors are reported there.
+        /// set and restored with <see cref="_line"/> by CompileStatement, and
+        /// moved to an operator, call, <c>new</c> or index on that line while
+        /// CompileExpression compiles it. Compile errors are reported there,
+        /// and every byte emitted is marked with it (<see cref="SetColumn"/>).
         /// </summary>
         private int _column;
+
+        /// <summary>Set <see cref="_column"/> and the column the chunk marks emitted bytes with.</summary>
+        private void SetColumn(int column)
+        {
+            _column = column;
+            _current.Chunk.Column = column;
+        }
 
         private readonly List<Local> _locals = new();
         private int _scopeDepth;
@@ -168,7 +177,7 @@ namespace WarScript.Bytecode
             child._current = new CompiledFunction(funcDef.Details.Name, funcDef.Details.Arguments.Count);
             child._current.Chunk.Source = _source;
             child._line = Line(funcDef.Statement);
-            child._column = funcDef.Statement.Column;
+            child.SetColumn(funcDef.Statement.Column);
 
             child.BeginScope();
 
@@ -220,7 +229,7 @@ namespace WarScript.Bytecode
             child._current = new CompiledFunction(classDef.ClassDetails.Name + "#ctor", 0);
             child._current.Chunk.Source = _source;
             child._line = Line(classDef.Statement);
-            child._column = classDef.Statement.Column;
+            child.SetColumn(classDef.Statement.Column);
 
             foreach (var stmt in stmts)
                 child.CompileStatement(stmt);
@@ -409,7 +418,7 @@ namespace WarScript.Bytecode
             if (Line(stmt) > 0)
             {
                 _line = Line(stmt);
-                _column = stmt.Column;
+                SetColumn(stmt.Column);
             }
             try { CompileStatementBody(stmt); }
             catch (CompileError e) when (e.Line == 0 && _line > 0)
@@ -427,7 +436,7 @@ namespace WarScript.Bytecode
             finally
             {
                 _line = outerLine;
-                _column = outerColumn;
+                SetColumn(outerColumn);
             }
         }
 
@@ -1123,6 +1132,23 @@ namespace WarScript.Bytecode
         // ────────────────────────────────────────────────────────
 
         private void CompileExpression(IExpression expr)
+        {
+            // An expression positioned on the line being compiled moves the
+            // column there (T3.1), for its instructions and its errors. Not
+            // restored when it throws: the statement reports the innermost.
+            if (expr is IPositionedExpression positioned && positioned.Column > 0
+                && positioned.Line == _line && positioned.Column != _column)
+            {
+                var outerColumn = _column;
+                SetColumn(positioned.Column);
+                CompileExpressionAt(expr);
+                SetColumn(outerColumn);
+                return;
+            }
+            CompileExpressionAt(expr);
+        }
+
+        private void CompileExpressionAt(IExpression expr)
         {
             switch (expr)
             {

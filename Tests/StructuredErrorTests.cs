@@ -59,12 +59,14 @@ outer []
             Assert.AreEqual(ScriptErrorKind.DivisionByZero, error.Kind);
             Assert.AreEqual("main", error.ScriptName);
             Assert.AreEqual(2, error.Line);
-            Assert.AreEqual(0, error.Column);
+            Assert.AreEqual(14, error.Column, "the '/' (T3.1)");
             Assert.AreEqual("inner@main:2 < outer@main:6 < <script>@main:8", Frames(error));
-            Assert.AreEqual("main:2:0: DivisionByZero: Division by zero\n"
-                            + "  at inner (main:2:0)\n"
-                            + "  at outer (main:6:0)\n"
-                            + "  at <script> (main:8:0)", error.ToString());
+            Assert.AreEqual("main:2:14: DivisionByZero: Division by zero\n"
+                            + "    return x / 0\n"
+                            + "             ^\n"
+                            + "  at inner (main:2:14)\n"
+                            + "  at outer (main:6:12)\n"
+                            + "  at <script> (main:8:1)", error.ToString());
         }
 
         [Test]

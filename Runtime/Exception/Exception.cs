@@ -26,9 +26,10 @@ namespace WarScript.Exception
         /// </summary>
         internal List<ScriptFrame>? CallStack { get; private set; }
 
-        /// <summary>The innermost frame's script and line; null and 0 while there is no frame.</summary>
+        /// <summary>The innermost frame's script, line and column; null and 0 while there is no frame.</summary>
         internal string? ScriptName => CallStack != null && CallStack.Count > 0 ? CallStack[0].ScriptName : null;
         internal int Line => CallStack != null && CallStack.Count > 0 ? CallStack[0].Line : 0;
+        internal int Column => CallStack != null && CallStack.Count > 0 ? CallStack[0].Column : 0;
 
         /// <summary>The VM whose frames were added last, so a re-raise in the same VM adds none.</summary>
         internal object? StackOwner { get; private set; }

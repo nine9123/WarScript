@@ -14,6 +14,13 @@ namespace WarScript.Expression
     {
         private readonly Stack<IExpression> _operands;
         private readonly Stack<Operator.Operator> _operators;
+
+        /// <summary>
+        /// The token of each operator on <see cref="_operators"/>, in step
+        /// with it: the expression an operator builds, and errors about it,
+        /// are positioned there (T3.1).
+        /// </summary>
+        private readonly Stack<Token.Token> _operatorTokens;
         public TokensStack Tokens { get; private set; }
 
         private WarScriptLanguage _script;
@@ -31,6 +38,7 @@ namespace WarScript.Expression
             _script = script;
             _operands = new Stack<IExpression>();
             _operators = new Stack<Operator.Operator>();
+            _operatorTokens = new Stack<Token.Token>();
             Tokens = tokens;
         }
 
@@ -71,6 +79,7 @@ namespace WarScript.Expression
             // even if ReadExpression threw mid-parse.
             reader._operands.Clear();
             reader._operators.Clear();
+            reader._operatorTokens.Clear();
             reader._script = null!;
             reader.Tokens = null!;
             (_pool ??= new Stack<ExpressionReader>()).Push(reader);
@@ -123,6 +132,7 @@ namespace WarScript.Expression
                         {
                             case Operator.Operator.LeftParen:
                                 _operators.Push(op);
+                                _operatorTokens.Push(token);
                                 lastWasOperand = false;
                                 break;
                             case Operator.Operator.RightParen:
@@ -132,6 +142,7 @@ namespace WarScript.Expression
                                     throw new SyntaxException(
                                         System.FormattableString.Invariant($"Unbalanced ')' at line {token.RowNumber}"), token.RowNumber, token.Column);
                                 _operators.Pop();
+                                _operatorTokens.Pop();
                                 lastWasOperand = true;
                                 break;
                             default:
@@ -140,6 +151,7 @@ namespace WarScript.Expression
                                        && _operators.Peek().GreaterThan(op))
                                     ApplyTopOperator();
                                 _operators.Push(op);
+                                _operatorTokens.Push(token);
                                 lastWasOperand = false;
                                 break;
                         }
@@ -171,10 +183,10 @@ namespace WarScript.Expression
                                 // allow indexing on string literals: "hello"{0}
                                 if (Tokens.PeekSameLine(TokenType.GroupDivider, "{"))
                                 {
-                                    Tokens.Next(TokenType.GroupDivider, "{");
+                                    var brace = Tokens.Next(TokenType.GroupDivider, "{");
                                     var textIndex = ReadExpression(_script, this);
                                     Tokens.Next(TokenType.GroupDivider, "}");
-                                    operand = new ArrayValueOperator(_script, operand, textIndex);
+                                    operand = At(new ArrayValueOperator(_script, operand, textIndex), brace);
                                 }
                                 break;
                             case TokenType.GroupDivider when token.Value == "{":
@@ -212,7 +224,8 @@ namespace WarScript.Expression
                 // not an operator to apply (CRASH-6).
                 if (_operators.Peek() == Operator.Operator.LeftParen)
                     throw new SyntaxException(
-                        System.FormattableString.Invariant($"Unbalanced '(' at line {lastRow}: missing ')'"));
+                        System.FormattableString.Invariant($"Unbalanced '(' at line {lastRow}: missing ')'"),
+                        _operatorTokens.Peek().RowNumber, _operatorTokens.Peek().Column);
                 ApplyTopOperator();
             }
 
@@ -225,24 +238,40 @@ namespace WarScript.Expression
                 throw new SyntaxException("Malformed expression: unexpected operator (missing operand?)");
 
             var op = _operators.Pop();
+            var token = _operatorTokens.Pop();
 
             if (_operands.Count == 0)
-                throw new SyntaxException($"Malformed expression: operator '{op}' has no operands");
+                throw new SyntaxException($"Malformed expression: operator '{op}' has no operands", token.RowNumber, token.Column);
 
             var left = _operands.Pop();
 
             if (op.IsBinary())
             {
                 if (_operands.Count == 0)
-                    throw new SyntaxException($"Malformed expression: binary operator '{op}' missing left-hand operand");
+                    throw new SyntaxException($"Malformed expression: binary operator '{op}' missing left-hand operand", token.RowNumber, token.Column);
 
                 var right = _operands.Pop();
-                _operands.Push(op.ToBinaryExpression(_script, right, left));
+                _operands.Push(At(op.ToBinaryExpression(_script, right, left), token));
             }
             else
             {
-                _operands.Push(op.ToUnaryExpression(_script, left));
+                _operands.Push(At(op.ToUnaryExpression(_script, left), token));
             }
+        }
+
+        // Position an expression at a token (T3.1).
+        private static BinaryOperatorExpression At(BinaryOperatorExpression e, Token.Token token)
+        {
+            e.Line = token.RowNumber;
+            e.Column = token.Column;
+            return e;
+        }
+
+        private static UnaryOperatorExpression At(UnaryOperatorExpression e, Token.Token token)
+        {
+            e.Line = token.RowNumber;
+            e.Column = token.Column;
+            return e;
         }
 
         private ClassExpression ReadClassInstance(Token.Token token)
@@ -261,7 +290,7 @@ namespace WarScript.Expression
                 }
                 Tokens.Next(TokenType.GroupDivider, "]");
             }
-            return new ClassExpression(_script, token.Value, properties);
+            return new ClassExpression(_script, token.Value, properties) { Line = token.RowNumber, Column = token.Column };
         }
 
         private FunctionExpression ReadFunctionInvocation(Token.Token token)
@@ -335,7 +364,7 @@ namespace WarScript.Expression
                     }
                 }
             }
-            return new FunctionExpression(_script, token.Value, arguments);
+            return new FunctionExpression(_script, token.Value, arguments) { Line = token.RowNumber, Column = token.Column };
         }
 
         /// <summary>
@@ -391,10 +420,10 @@ namespace WarScript.Expression
         private ArrayValueOperator ReadArrayValue(Token.Token token)
         {
             var array = new VariableExpression(_script, token.Value);
-            Tokens.Next(TokenType.GroupDivider, "{");
+            var brace = Tokens.Next(TokenType.GroupDivider, "{");
             var arrayIndex = ReadExpression(_script, this);
             Tokens.Next(TokenType.GroupDivider, "}");
-            return new ArrayValueOperator(_script, array, arrayIndex);
+            return (ArrayValueOperator)At(new ArrayValueOperator(_script, array, arrayIndex), brace);
         }
 
         /// <summary>

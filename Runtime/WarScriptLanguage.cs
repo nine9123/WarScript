@@ -589,7 +589,7 @@ namespace WarScript
         /// </summary>
         internal ScriptResult EntryResult(WarValue value) =>
             ExceptionContext.IsRaised()
-                ? ScriptResult.Failed(ScriptError.FromRaised(ExceptionContext.Exception, ScriptName, InstanceLabel))
+                ? ScriptResult.Failed(ScriptError.FromRaised(ExceptionContext.Exception, ScriptName, InstanceLabel, _sourceCode))
                 : ScriptResult.Ok(value);
 
         /// <summary>

@@ -63,7 +63,7 @@ end
             Assert.AreEqual(ScriptStatus.Error, result.Status);
             Assert.IsTrue(script.IsHalted);
             Assert.AreSame(result.Error, script.Fault);
-            CollectionAssert.AreEqual(new[] { "[WarScript] f:7:0: DivisionByZero: Division by zero\n  at fail (f:7:0)" }, output);
+            CollectionAssert.AreEqual(new[] { "[WarScript] f:7:11: DivisionByZero: Division by zero\n    x = 1 / 0\n          ^\n  at fail (f:7:11)" }, output);
         }
 
         [Test]

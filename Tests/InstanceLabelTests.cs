@@ -46,7 +46,7 @@ namespace Tests
 
             Assert.AreEqual(ScriptErrorKind.DivisionByZero, result.Error.Kind);
             Assert.AreEqual("unit-7", result.Error.InstanceLabel);
-            StringAssert.StartsWith("main:2:0: DivisionByZero: Division by zero", result.Error.ToString(),
+            StringAssert.StartsWith("main:2:7: DivisionByZero: Division by zero", result.Error.ToString(),
                 "ToString keeps the 6.1 format; the label is a separate property");
             CollectionAssert.AreEqual(new[] { "before", "[unit-7] [WarScript] " + result.Error }, output);
         }

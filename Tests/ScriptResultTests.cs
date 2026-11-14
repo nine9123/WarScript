@@ -248,8 +248,8 @@ end");
             var result = script.Run();
 
             Assert.AreEqual(ScriptErrorKind.CompileError, result.Error.Kind);
-            Assert.AreEqual("res:1:1: CompileError: Unbalanced '(' at line 1: missing ')'\nx = (\n^", result.Error.ToString());
-            StringAssert.StartsWith("Error: res:1:1: CompileError: ", result.ToString());
+            Assert.AreEqual("res:1:5: CompileError: Unbalanced '(' at line 1: missing ')'\nx = (\n    ^", result.Error.ToString());
+            StringAssert.StartsWith("Error: res:1:5: CompileError: ", result.ToString());
             Assert.AreEqual("Ok", ScriptResult.Ok(WarValue.Null).ToString());
         }
     }
