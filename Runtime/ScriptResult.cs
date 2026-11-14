@@ -34,7 +34,7 @@ namespace WarScript
         public readonly string Function;
         public readonly string ScriptName;
         public readonly int Line;
-        /// <summary>0 until T3.1.</summary>
+        /// <summary>0 until the line table has columns (the second half of T3.1).</summary>
         public readonly int Column;
 
         public ScriptFrame(string function, string scriptName, int line, int column)
@@ -73,8 +73,20 @@ namespace WarScript
         /// <summary>The line the error was raised at (the innermost frame's), or 0 when unknown: an error raised outside any frame, a host fault, or a compile error without one.</summary>
         public int Line { get; }
 
-        /// <summary>0 until T3.1.</summary>
+        /// <summary>
+        /// The column on <see cref="Line"/>, from 1 (a tab counts as one), or
+        /// 0 when unknown. Compile errors have one (T3.1); runtime errors do
+        /// not yet (the line table has no columns until T3.1's second half).
+        /// </summary>
         public int Column { get; }
+
+        /// <summary>
+        /// The text of the source line the error is on, without its line
+        /// break, when the source is known and the error has a column (T3.1):
+        /// <see cref="ToString"/> prints it with a caret under the column.
+        /// Null otherwise.
+        /// </summary>
+        public string? SourceLine { get; }
 
         /// <summary>
         /// Innermost frame first (T2.5): the frames of the VM the error was
@@ -96,8 +108,10 @@ namespace WarScript
 
         internal ScriptError(ScriptErrorKind kind, string message, WarValue value, string scriptName,
             string? instanceLabel, int line, int column, System.Exception? hostException = null,
-            SyntaxException? compileException = null, IReadOnlyList<ScriptFrame>? callStack = null)
+            SyntaxException? compileException = null, IReadOnlyList<ScriptFrame>? callStack = null,
+            string? sourceLine = null)
         {
+            SourceLine = sourceLine;
             InstanceLabel = instanceLabel;
             Kind = kind;
             Message = message;
@@ -127,13 +141,58 @@ namespace WarScript
         /// <summary>A compile error: of the script itself (<paramref name="diagnostic"/>) or of an imported file.</summary>
         internal static ScriptError FromCompile(SyntaxException e, CompileDiagnostic diagnostic, string? instanceLabel) =>
             new ScriptError(ScriptErrorKind.CompileError, diagnostic.Message, WarValue.FromText(diagnostic.Message),
-                diagnostic.ScriptName, instanceLabel, diagnostic.Line, diagnostic.Column, compileException: e);
+                diagnostic.ScriptName, instanceLabel, diagnostic.Line, diagnostic.Column, compileException: e,
+                sourceLine: diagnostic.Column > 0 && e.SourceText != null ? SourceLineOf(e.SourceText, diagnostic.Line) : null);
+
+        /// <summary>
+        /// Line <paramref name="line"/> (from 1) of <paramref name="source"/>
+        /// without its line break, or null past the end. Lines are counted as
+        /// the lexer counts them: "\r\n", "\n" and "\r" each end one.
+        /// </summary>
+        internal static string? SourceLineOf(string source, int line)
+        {
+            if (line < 1) return null;
+            var start = 0;
+            for (var current = 1; current < line; current++)
+            {
+                var end = LineEnd(source, start);
+                if (end == source.Length) return null;
+                start = end + (source[end] == '\r' && end + 1 < source.Length && source[end + 1] == '\n' ? 2 : 1);
+            }
+            return source.Substring(start, LineEnd(source, start) - start);
+        }
+
+        /// <summary>Index of the first '\r' or '\n' from <paramref name="start"/>, or the length.</summary>
+        private static int LineEnd(string source, int start)
+        {
+            var end = start;
+            while (end < source.Length && source[end] != '\r' && source[end] != '\n') end++;
+            return end;
+        }
+
+        /// <summary>
+        /// The line under <see cref="SourceLine"/>: a caret under the column,
+        /// indented with the line's own tabs so it lines up where they do.
+        /// </summary>
+        private static string Caret(string sourceLine, int column)
+        {
+            var text = new StringBuilder(column);
+            for (var i = 0; i < column - 1; i++)
+                text.Append(i < sourceLine.Length && sourceLine[i] == '\t' ? '\t' : ' ');
+            text.Append('^');
+            return text.ToString();
+        }
 
         internal static ScriptError FromHostFault(System.Exception e, string scriptName, string? instanceLabel) =>
             new ScriptError(ScriptErrorKind.HostFault, e.Message, WarValue.FromText(e.Message),
                 scriptName, instanceLabel, 0, 0, hostException: e);
 
-        /// <summary><c>script:line:column: Kind: message</c>, then one <c>  at function (script:line:column)</c> line per frame.</summary>
+        /// <summary>
+        /// <c>script:line:column: Kind: message</c>; then, when the source
+        /// line is known (<see cref="SourceLine"/>), that line and a caret
+        /// under the column (T3.1); then one <c>  at function (script:line:column)</c>
+        /// line per frame.
+        /// </summary>
         public override string ToString()
         {
             var text = new StringBuilder();
@@ -141,6 +200,8 @@ namespace WarScript
                 .Append(Line.ToString(CultureInfo.InvariantCulture)).Append(':')
                 .Append(Column.ToString(CultureInfo.InvariantCulture)).Append(": ")
                 .Append(Kind.ToString()).Append(": ").Append(Message);
+            if (SourceLine != null && Column > 0)
+                text.Append('\n').Append(SourceLine).Append('\n').Append(Caret(SourceLine, Column));
             foreach (var frame in CallStack)
                 text.Append("\n  at ").Append(frame.Function).Append(" (").Append(frame.ScriptName).Append(':')
                     .Append(frame.Line.ToString(CultureInfo.InvariantCulture)).Append(':')

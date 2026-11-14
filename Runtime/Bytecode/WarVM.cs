@@ -2684,10 +2684,19 @@ namespace WarScript.Bytecode
                 var compiled = precompiled;
                 if (compiled == null)
                 {
-                    var tokens = LexicalParser.Parse(source!);
-                    var importStmt = new CompositeStatement(_script, null, path);
-                    StatementParser.Parse(_script, tokens, importStmt);
-                    compiled = Compiler.CompileScript(_script, importStmt, importDefScope);
+                    try
+                    {
+                        var tokens = LexicalParser.Parse(source!);
+                        var importStmt = new CompositeStatement(_script, null, path);
+                        StatementParser.Parse(_script, tokens, importStmt);
+                        compiled = Compiler.CompileScript(_script, importStmt, importDefScope);
+                    }
+                    catch (SyntaxException e)
+                    {
+                        // Its position is in the imported file (T3.1).
+                        e.LocateIn(path, source);
+                        throw;
+                    }
                 }
                 new WarVM(_script).Run(compiled);
                 if (!_script.ExceptionContext.IsRaised())

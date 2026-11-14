@@ -49,6 +49,13 @@ namespace WarScript.Bytecode
         /// </summary>
         private int _line;
 
+        /// <summary>
+        /// Column of the statement being compiled (T3.1), 0 when unknown;
+        /// set and restored with <see cref="_line"/> by CompileStatement.
+        /// Compile errors are reported there.
+        /// </summary>
+        private int _column;
+
         private readonly List<Local> _locals = new();
         private int _scopeDepth;
         private int _maxLocals;
@@ -161,6 +168,7 @@ namespace WarScript.Bytecode
             child._current = new CompiledFunction(funcDef.Details.Name, funcDef.Details.Arguments.Count);
             child._current.Chunk.Source = _source;
             child._line = Line(funcDef.Statement);
+            child._column = funcDef.Statement.Column;
 
             child.BeginScope();
 
@@ -212,6 +220,7 @@ namespace WarScript.Bytecode
             child._current = new CompiledFunction(classDef.ClassDetails.Name + "#ctor", 0);
             child._current.Chunk.Source = _source;
             child._line = Line(classDef.Statement);
+            child._column = classDef.Statement.Column;
 
             foreach (var stmt in stmts)
                 child.CompileStatement(stmt);
@@ -396,15 +405,30 @@ namespace WarScript.Bytecode
         private void CompileStatement(Statement.Statement stmt)
         {
             var outerLine = _line;
-            if (Line(stmt) > 0) _line = Line(stmt);
+            var outerColumn = _column;
+            if (Line(stmt) > 0)
+            {
+                _line = Line(stmt);
+                _column = stmt.Column;
+            }
             try { CompileStatementBody(stmt); }
             catch (CompileError e) when (e.Line == 0 && _line > 0)
             {
                 // A limit found while emitting (T1.8) carries no line: report
                 // the innermost statement that has one.
-                throw new CompileError(e.Reason, e.ScriptName, _line);
+                throw new CompileError(e.Reason, e.ScriptName, _line, _column);
             }
-            finally { _line = outerLine; }
+            catch (SyntaxException e) when (!(e is CompileError))
+            {
+                // Likewise for the compiler's other errors (T3.1).
+                e.Locate(_line, _column).LocateIn(_source, null);
+                throw;
+            }
+            finally
+            {
+                _line = outerLine;
+                _column = outerColumn;
+            }
         }
 
         private void CompileStatementBody(Statement.Statement stmt)
@@ -1380,7 +1404,7 @@ namespace WarScript.Bytecode
         private string TypeNameOperand(IExpression right, string keyword)
         {
             if (right is VariableExpression type) return type.Name;
-            throw new CompileError("'" + keyword + "' must be followed by a class name", _source, _line);
+            throw new CompileError("'" + keyword + "' must be followed by a class name", _source, _line, _column);
         }
 
         // ── Class property access: obj::prop, obj::method[args], obj::arr{i} ──

@@ -131,8 +131,8 @@ namespace Tests
             Assert.AreEqual("more than 255 arguments in a call", d.Message);
             Assert.AreEqual("compile", d.ScriptName);
             Assert.AreEqual(4, d.Line);
-            Assert.AreEqual(0, d.Column);
-            Assert.AreEqual("compile:4:0: error: more than 255 arguments in a call", d.ToString());
+            Assert.AreEqual(1, d.Column);
+            Assert.AreEqual("compile:4:1: error: more than 255 arguments in a call", d.ToString());
         }
 
         [Test]

@@ -27,6 +27,14 @@ namespace WarScript
         private int _row;
 
         /// <summary>
+        /// Index of the first character of the current line (T3.1): the column
+        /// of position <c>p</c> is <c>p - _lineStart + 1</c>. An interpolation's
+        /// lexer starts it below 0, so its tokens get their columns in the
+        /// enclosing source.
+        /// </summary>
+        private int _lineStart;
+
+        /// <summary>
         /// The tokens of <paramref name="sourceCode"/>, from the cache when the
         /// same source was lexed recently. The list is shared and read-only.
         /// Safe to call from several threads.
@@ -58,6 +66,20 @@ namespace WarScript
         }
 
         private char Current => _source[_pos];
+
+        /// <summary>Column of <paramref name="position"/> on the current line, from 1; a tab is one column.</summary>
+        private int ColumnAt(int position) => position - _lineStart + 1;
+
+        /// <summary>Count a line break that ends just before <paramref name="nextLineStart"/>.</summary>
+        private void NewLine(int nextLineStart)
+        {
+            _row++;
+            _lineStart = nextLineStart;
+        }
+
+        private void Add(TokenType type, string value, int row, int column) =>
+            _tokens.Add(new Token.Token(type, value, row, column));
+
         private bool AtEnd => _pos >= _source.Length;
 
         private char Peek(int offset = 1)
@@ -77,6 +99,7 @@ namespace WarScript
         private void ScanToken()
         {
             var c = Current;
+            var col = ColumnAt(_pos);
 
             // ── Whitespace (skip, no token) ──
             if (c == ' ' || c == '\t')
@@ -86,11 +109,13 @@ namespace WarScript
             }
 
             // ── Line break ──
+            // "\r\n" is one line break, as are a lone '\n' and a lone '\r'.
             if (c == '\n' || c == '\r')
             {
-                _tokens.Add(new Token.Token(Token.TokenType.LineBreak, c.ToString(), _row));
-                _row++;
-                _pos++;
+                var length = c == '\r' && Peek() == '\n' ? 2 : 1;
+                Add(TokenType.LineBreak, _source.Substring(_pos, length), _row, col);
+                _pos += length;
+                NewLine(_pos);
                 return;
             }
 
@@ -100,7 +125,7 @@ namespace WarScript
                 var start = _pos;
                 while (!AtEnd && Current != '\n' && Current != '\r')
                     _pos++;
-                _tokens.Add(new Token.Token(Token.TokenType.Comment, _source.Substring(start, _pos - start), _row));
+                Add(TokenType.Comment, _source.Substring(start, _pos - start), _row, col);
                 return;
             }
 
@@ -111,7 +136,7 @@ namespace WarScript
                 if (Peek(1) == '"' && Peek(2) == '"')
                     ScanRawString();
                 else
-                    ScanString();
+                    ScanString(col);
                 return;
             }
 
@@ -120,10 +145,10 @@ namespace WarScript
             {
                 if (Peek(2) == '"' && Peek(3) == '"')
                     throw new SyntaxException(
-                        System.FormattableString.Invariant($"Raw text literals (\"\"\") do not support interpolation at line {_row}"));
+                        System.FormattableString.Invariant($"Raw text literals (\"\"\") do not support interpolation at line {_row}"), _row, col);
 
                 _pos++; // skip $
-                ScanString();
+                ScanString(col);
                 return;
             }
 
@@ -156,11 +181,11 @@ namespace WarScript
                     case "-=":
                     case "*=":
                     case "/=":
-                        _tokens.Add(new Token.Token(Token.TokenType.Operator, two, _row));
+                        Add(TokenType.Operator, two, _row, col);
                         _pos += 2;
                         return;
                     case "..":
-                        _tokens.Add(new Token.Token(Token.TokenType.GroupDivider, two, _row));
+                        Add(TokenType.GroupDivider, two, _row, col);
                         _pos += 2;
                         return;
                     case "::":
@@ -173,12 +198,12 @@ namespace WarScript
                             && (rest + 3 >= _source.Length || !IsIdentChar(_source[rest + 3])))
                         {
                             var full = _source.Substring(_pos, rest + 3 - _pos);
-                            _tokens.Add(new Token.Token(Token.TokenType.Operator, full, _row));
+                            Add(TokenType.Operator, full, _row, col);
                             _pos = rest + 3;
                         }
                         else
                         {
-                            _tokens.Add(new Token.Token(Token.TokenType.Operator, "::", _row));
+                            Add(TokenType.Operator, "::", _row, col);
                             _pos += 2;
                         }
                         return;
@@ -191,7 +216,7 @@ namespace WarScript
                 case '+': case '-': case '*': case '/': case '%':
                 case '>': case '<': case '!': case '=':
                 case '(': case ')':
-                    _tokens.Add(new Token.Token(Token.TokenType.Operator, c.ToString(), _row));
+                    Add(TokenType.Operator, c.ToString(), _row, col);
                     _pos++;
                     return;
             }
@@ -200,12 +225,12 @@ namespace WarScript
             switch (c)
             {
                 case '[': case ']': case '{': case '}': case ',':
-                    _tokens.Add(new Token.Token(Token.TokenType.GroupDivider, c.ToString(), _row));
+                    Add(TokenType.GroupDivider, c.ToString(), _row, col);
                     _pos++;
                     return;
                 case ':':
                     // Single colon (not ::, handled above)
-                    _tokens.Add(new Token.Token(Token.TokenType.GroupDivider, ":", _row));
+                    Add(TokenType.GroupDivider, ":", _row, col);
                     _pos++;
                     return;
             }
@@ -217,15 +242,17 @@ namespace WarScript
                 return;
             }
 
-            throw new SyntaxException(System.FormattableString.Invariant($"Unexpected character '{c}' at line {_row}"));
+            throw new SyntaxException(System.FormattableString.Invariant($"Unexpected character '{c}' at line {_row}"), _row, col);
         }
         
         /// <summary>
         /// Scans a regular text literal: <c>"..."</c> or <c>$"..."</c>.
         /// Supports <c>{expr}</c> interpolation and backslash escapes.
-        /// The opening quote is expected at the current position.
+        /// The opening quote is expected at the current position;
+        /// <paramref name="openCol"/> is the literal's column (its <c>$</c>
+        /// when there is one), which its first text segment carries.
         /// </summary>
-        private void ScanString()
+        private void ScanString(int openCol)
         {
             var openRow = _row;
             _pos++; // skip opening quote
@@ -235,6 +262,7 @@ namespace WarScript
             // literal costs exactly one Substring — same as before.
             var segStart = _pos;
             var segRow = _row;
+            var segCol = openCol;
             StringBuilder segment = null;
             var emittedAny = false;
             var terminated = false;
@@ -253,8 +281,9 @@ namespace WarScript
                 {
                     segment ??= new StringBuilder();
                     segment.Append(_source, segStart, _pos - segStart);
+                    var escapeCol = ColumnAt(_pos);
                     _pos++; // skip backslash
-                    segment.Append(ReadEscape());
+                    segment.Append(ReadEscape(escapeCol));
                     segStart = _pos;
                     continue;
                 }
@@ -266,47 +295,53 @@ namespace WarScript
                     if (text.Length > 0)
                     {
                         if (emittedAny)
-                            _tokens.Add(new Token.Token(TokenType.Operator, "+", segRow));
-                        _tokens.Add(new Token.Token(TokenType.Text, text, segRow));
+                            Add(TokenType.Operator, "+", segRow, segCol);
+                        Add(TokenType.Text, text, segRow, segCol);
                         emittedAny = true;
                     }
 
+                    // The tokens desugared around the hole carry the column
+                    // of its '{'; the expression's own tokens keep theirs.
                     var exprRow = _row;
+                    var holeCol = ColumnAt(_pos);
+                    var exprLineStart = _lineStart;
                     _pos++; // skip {
-                    var exprSource = ReadInterpolatedExpression(openRow);
+                    var exprStart = _pos;
+                    var exprSource = ReadInterpolatedExpression(openRow, openCol);
 
                     // Emit: + ( <expression tokens> )
                     if (emittedAny)
-                        _tokens.Add(new Token.Token(TokenType.Operator, "+", exprRow));
-                    _tokens.Add(new Token.Token(TokenType.Operator, "(", exprRow));
+                        Add(TokenType.Operator, "+", exprRow, holeCol);
+                    Add(TokenType.Operator, "(", exprRow, holeCol);
 
                     // Recursively lex the expression
                     var innerParser = new LexicalParser(exprSource);
                     innerParser._row = exprRow;
+                    innerParser._lineStart = exprLineStart - exprStart;
                     innerParser.Scan();
                     foreach (var token in innerParser._tokens)
                         _tokens.Add(token);
 
-                    _tokens.Add(new Token.Token(TokenType.Operator, ")", _row));
+                    Add(TokenType.Operator, ")", exprRow, holeCol);
                     emittedAny = true;
 
                     // Next text segment starts after the }
                     segStart = _pos;
                     segRow = _row;
+                    segCol = ColumnAt(_pos);
                     continue;
                 }
 
                 // A raw line break inside a literal is allowed, but the row
                 // counter has to follow it or every later error points at the
                 // wrong line.
-                if (c == '\n')
-                    _row++;
-
                 _pos++;
+                if (c == '\n')
+                    NewLine(_pos);
             }
 
             if (!terminated)
-                throw new SyntaxException(System.FormattableString.Invariant($"Unterminated text literal starting at line {openRow}"));
+                throw new SyntaxException(System.FormattableString.Invariant($"Unterminated text literal starting at line {openRow}"), openRow, openCol);
 
             // Emit the trailing segment — or the whole (possibly empty) literal
             // when there was no interpolation at all.
@@ -314,8 +349,8 @@ namespace WarScript
             if (tail.Length > 0 || !emittedAny)
             {
                 if (emittedAny)
-                    _tokens.Add(new Token.Token(TokenType.Operator, "+", segRow));
-                _tokens.Add(new Token.Token(TokenType.Text, tail, segRow));
+                    Add(TokenType.Operator, "+", segRow, segCol);
+                Add(TokenType.Text, tail, segRow, segCol);
             }
 
             _pos++; // skip closing quote
@@ -332,11 +367,12 @@ namespace WarScript
         private void ScanRawString()
         {
             var openRow = _row;
+            var openCol = ColumnAt(_pos);
             _pos += 3; // skip opening """
 
             var end = FindRawStringEnd(_pos);
             if (end < 0)
-                throw new SyntaxException(System.FormattableString.Invariant($"Unterminated raw text literal starting at line {openRow}"));
+                throw new SyntaxException(System.FormattableString.Invariant($"Unterminated raw text literal starting at line {openRow}"), openRow, openCol);
 
             var start = _pos;
             var stop = end;
@@ -363,12 +399,12 @@ namespace WarScript
             }
 
             var value = stop > start ? _source.Substring(start, stop - start) : string.Empty;
-            _tokens.Add(new Token.Token(TokenType.Text, value, openRow));
+            Add(TokenType.Text, value, openRow, openCol);
 
             // The literal may span lines; keep the row counter in step.
             for (var i = _pos; i < end; i++)
                 if (_source[i] == '\n')
-                    _row++;
+                    NewLine(i + 1);
 
             _pos = end + 3; // skip closing """
         }
@@ -425,10 +461,10 @@ namespace WarScript
         /// Reads the character named by an escape sequence. The backslash has
         /// already been consumed; the position is left after the sequence.
         /// </summary>
-        private char ReadEscape()
+        private char ReadEscape(int escapeCol)
         {
             if (AtEnd)
-                throw new SyntaxException(System.FormattableString.Invariant($"Text literal ends with a dangling '\\' at line {_row}"));
+                throw new SyntaxException(System.FormattableString.Invariant($"Text literal ends with a dangling '\\' at line {_row}"), _row, escapeCol);
 
             var c = Current;
             _pos++;
@@ -443,7 +479,7 @@ namespace WarScript
                 case 't': return '\t';
                 case 'r': return '\r';
                 default:
-                    throw new SyntaxException(System.FormattableString.Invariant($"Unknown escape sequence '\\{c}' at line {_row}"));
+                    throw new SyntaxException(System.FormattableString.Invariant($"Unknown escape sequence '\\{c}' at line {_row}"), _row, escapeCol);
             }
         }
 
@@ -453,7 +489,7 @@ namespace WarScript
         /// closing brace. Braces nest (so <c>{arr{0}}</c> works) and braces
         /// inside a nested text literal are ignored.
         /// </summary>
-        private string ReadInterpolatedExpression(int openRow)
+        private string ReadInterpolatedExpression(int openRow, int openCol)
         {
             var start = _pos;
             var depth = 1;
@@ -484,13 +520,13 @@ namespace WarScript
                 }
                 else if (c == '\n')
                 {
-                    _row++;
+                    NewLine(_pos + 1);
                 }
 
                 _pos++;
             }
 
-            throw new SyntaxException(System.FormattableString.Invariant($"Unterminated interpolation in text literal at line {openRow}"));
+            throw new SyntaxException(System.FormattableString.Invariant($"Unterminated interpolation in text literal at line {openRow}"), openRow, openCol);
         }
 
         /// <summary>
@@ -531,7 +567,7 @@ namespace WarScript
             // The nested literal may span lines; keep the row counter in step.
             for (var i = start; i < stop; i++)
                 if (_source[i] == '\n')
-                    _row++;
+                    NewLine(i + 1);
 
             _pos = stop;
         }
@@ -559,7 +595,7 @@ namespace WarScript
             // Strip underscores before parsing — they are purely visual separators
             var raw = _source.Substring(start, _pos - start);
             var value = raw.Replace("_", "");
-            _tokens.Add(new Token.Token(Token.TokenType.Numeric, value, _row));
+            Add(TokenType.Numeric, value, _row, ColumnAt(start));
         }
 
         private void ScanIdentifier()
@@ -575,7 +611,7 @@ namespace WarScript
             // alphanumeric/underscore, so "this_thing" is one token,
             // and "this]" correctly splits into "this" + "]".
             var type = ClassifyWord(word);
-            _tokens.Add(new Token.Token(type, word, _row));
+            Add(type, word, _row, ColumnAt(start));
         }
 
         private static Token.TokenType ClassifyWord(string word)

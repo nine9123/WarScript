@@ -130,7 +130,7 @@ namespace WarScript.Expression
                                     ApplyTopOperator();
                                 if (_operators.Count == 0)
                                     throw new SyntaxException(
-                                        System.FormattableString.Invariant($"Unbalanced ')' at line {token.RowNumber}"));
+                                        System.FormattableString.Invariant($"Unbalanced ')' at line {token.RowNumber}"), token.RowNumber, token.Column);
                                 _operators.Pop();
                                 lastWasOperand = true;
                                 break;
@@ -151,7 +151,7 @@ namespace WarScript.Expression
                         // operand would be silently discarded.
                         if (lastWasOperand)
                             throw new SyntaxException(
-                                System.FormattableString.Invariant($"Unexpected `{token.Value}` at line {token.RowNumber}: expected an operator or end of expression"));
+                                System.FormattableString.Invariant($"Unexpected `{token.Value}` at line {token.RowNumber}: expected an operator or end of expression"), token.RowNumber, token.Column);
 
                         var value = token.Value;
                         IExpression operand;
@@ -383,7 +383,7 @@ namespace WarScript.Expression
 
             if (Tokens.TryPeek(out var next))
                 throw new SyntaxException(
-                    System.FormattableString.Invariant($"Unexpected `{next.Value}` at line {next.RowNumber}: expected an expression, ',' or '{closing}'"));
+                    System.FormattableString.Invariant($"Unexpected `{next.Value}` at line {next.RowNumber}: expected an expression, ',' or '{closing}'"), next.RowNumber, next.Column);
 
             throw new SyntaxException($"Unexpected end of script: expected '{closing}'");
         }

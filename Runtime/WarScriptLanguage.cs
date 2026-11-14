@@ -513,6 +513,7 @@ namespace WarScript
                 // Whatever the parser had added stays out of reach: a
                 // definition without bytecode cannot be called.
                 RollBackCompile(constantsBefore);
+                e.LocateIn(ScriptName, _sourceCode);
                 _compileError = e;
                 _compileResult = new CompileResult(false, new[] { Diagnose(e) });
             }
@@ -540,13 +541,10 @@ namespace WarScript
             ConstantNames.UnionWith(constantsBefore);
         }
 
-        private CompileDiagnostic Diagnose(Exception.SyntaxException e)
-        {
-            if (e is Exception.CompileError limit)
-                return new CompileDiagnostic(DiagnosticSeverity.Error, limit.Reason,
-                    limit.ScriptName ?? ScriptName, limit.Line, 0);
-            return new CompileDiagnostic(DiagnosticSeverity.Error, e.Message, ScriptName, 0, 0);
-        }
+        private CompileDiagnostic Diagnose(Exception.SyntaxException e) =>
+            new CompileDiagnostic(DiagnosticSeverity.Error,
+                e is Exception.CompileError limit ? limit.Reason : e.Message,
+                e.ScriptName ?? ScriptName, e.Line, e.Column);
 
         /// <summary>
         /// Compile when needed; when the script does not compile, throw its

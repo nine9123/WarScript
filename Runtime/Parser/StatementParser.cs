@@ -57,7 +57,7 @@ namespace WarScript
             // Silently stopping here would discard the rest of the script.
             if (parser.Tokens.TryPeek(out var leftover))
                 throw new SyntaxException(
-                    System.FormattableString.Invariant($"Unexpected `{leftover.Value}` at line {leftover.RowNumber} — not a valid start of a statement"));
+                    System.FormattableString.Invariant($"Unexpected `{leftover.Value}` at line {leftover.RowNumber} — not a valid start of a statement"), leftover.RowNumber, leftover.Column);
         }
 
         /// <summary>
@@ -111,19 +111,37 @@ namespace WarScript
         private void ParseExpression()
         {
             var token = Tokens.Next(TokenType.Keyword, StatementLeadTypes);
-            switch (token.Type)
+            var added = _compositeStatement.StatementsToExecute.Count;
+            try
             {
-                case TokenType.Variable:
-                case TokenType.Operator:
-                case TokenType.This:
-                    ParseExpressionStatement(token);
-                    break;
-                case TokenType.Keyword:
-                    ParseKeywordStatement(token);
-                    break;
-                default:
-                    throw new SyntaxException($"Statement can't start with the following lexeme `{token}`");
+                switch (token.Type)
+                {
+                    case TokenType.Variable:
+                    case TokenType.Operator:
+                    case TokenType.This:
+                        ParseExpressionStatement(token);
+                        break;
+                    case TokenType.Keyword:
+                        ParseKeywordStatement(token);
+                        break;
+                    default:
+                        throw new SyntaxException($"Statement can't start with the following lexeme `{token}`");
+                }
             }
+            catch (SyntaxException e)
+            {
+                // An error that names no position of its own is reported at
+                // the start of the innermost statement it was found in (T3.1).
+                e.Locate(token.RowNumber, token.Column);
+                throw;
+            }
+
+            // The statements this one produced (desugared ones too) start
+            // at its first token.
+            var statements = _compositeStatement.StatementsToExecute;
+            for (var i = added; i < statements.Count; i++)
+                if (statements[i].Column == 0 && statements[i].RowNumber == token.RowNumber)
+                    statements[i].Column = token.Column;
         }
 
         private void ParseExpressionStatement(Token.Token rowToken)

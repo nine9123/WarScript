@@ -886,8 +886,20 @@ compile step on its own and reports errors as diagnostics:
 var compiled = script.Compile();         // lex + parse + compile; runs nothing; idempotent
 if (!compiled.Success)
     foreach (var d in compiled.Diagnostics)
-        Debug.LogError(d);               // "example:4:0: error: more than 255 arguments in a call"
+        Debug.LogError(d);               // "example:4:1: error: more than 255 arguments in a call"
 ```
+
+A diagnostic has the line and column of the error (columns count from 1; a tab is one column). The
+`CompileError` result's `ScriptError` has them too, plus the source line (`SourceLine`), and its
+text shows that line with a caret under the column:
+
+```
+example:2:10: CompileError: Unexpected character '?' at line 2
+    if x ?
+         ^
+```
+
+An error in an imported file names that file, and the line and column in it.
 
 The constructor no longer lexes, so a malformed source shows up in `Compile()` (or as the
 `CompileError` result of `Run()`), not in `new WarScriptLanguage(...)`. Register natives and
@@ -931,7 +943,8 @@ main:2:0: DivisionByZero: Division by zero
 ```
 
 Frames are named after the compiled function: `<script>` for top-level code, `Unit#ctor` for a
-constructor, `<lambda>`, and a method by its own name. Columns are 0 for now. Scripts still see a
+constructor, `<lambda>`, and a method by its own name. Runtime errors have no column yet (0), only
+compile errors do. Scripts still see a
 rescued error as its message text. A native raises a specific kind by throwing
 `ScriptErrorException(kind, message)`; any other exception it throws is a `NativeError`.
 
@@ -1239,7 +1252,7 @@ ingredients:
 | Code up to the first `yield` runs once, and calling the function again restarts it from the top | The function was invoked with `script.Call(fn)` instead of being started as a coroutine. `Call()` executes until the first `yield`, then returns — the suspended state is discarded. | `script.StartCoroutine("fn", args)` |
 | Code up to the first `yield` runs, then nothing ever happens again | The host never calls `TickCoroutines(dt)`. | Call `script.TickCoroutines(dt)` every tick |
 | `yield` advances but `yield wait N` never completes | `dt` is zero (paused game), or is not in seconds. | Pass real elapsed seconds as `F64` — e.g. `F64.Ratio(1, 60)` |
-| `StartCoroutine` returns `-1` and nothing runs | The function name/arity does not resolve: wrong argument count, or the name is a **class method** (only top-level functions can be coroutines). The result's `Error` says which. | Match the arity; move the body to a top-level function |
+| `StartCoroutine` returns `-1` and nothing runs | The function name/arity does not resolve: wrong argument count, or the name is a **class method** (only top-level functions can be coroutines). The result's `Error` says which (a `NameError`). Like any error at a host entry, it also halts the instance. | Match the arity; move the body to a top-level function; `ClearFault()` |
 | Log shows `Function 'start_coroutine' with 1 args is not defined` | Native functions match on exact arity. | `start_coroutine ["name", {}]` — pass the args array even when empty |
 | A `loop`+`yield` coroutine only advances one iteration per tick | Correct by design: one resume per coroutine per `TickCoroutines` call, regardless of how large `dt` is. | Tick more often, or don't `yield` in the inner loop |
 | A looping coroutine seems to skip a tick between repetitions | Also by design: `loop: true` restarts the function on the *next* tick after it completes. | — |

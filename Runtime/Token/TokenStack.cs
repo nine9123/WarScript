@@ -48,7 +48,7 @@ namespace WarScript.Token
                     }
                 }
             }
-            throw new SyntaxException($"After `{Previous()}` declaration expected any of the following lexemes `{type}, {string.Join(", ", types)}`");
+            throw Unexpected(new SyntaxException($"After `{Previous()}` declaration expected any of the following lexemes `{type}, {string.Join(", ", types)}`"));
         }
 
         /// <summary>
@@ -77,7 +77,7 @@ namespace WarScript.Token
                     }
                 }
             }
-            throw new SyntaxException($"After `{Previous()}` declaration expected `{type}, {value}` lexeme");
+            throw Unexpected(new SyntaxException($"After `{Previous()}` declaration expected `{type}, {value}` lexeme"));
         }
 
         // Advance and return the next non-empty token unconditionally
@@ -174,6 +174,17 @@ namespace WarScript.Token
         }
 
         private Token Previous() => _tokens[_position - 1];
+
+        /// <summary>
+        /// Locate an error about the next token at that token (T3.1), or at
+        /// the last one when the script ended.
+        /// </summary>
+        private SyntaxException Unexpected(SyntaxException e)
+        {
+            if (_position < _tokens.Count) return e.Locate(_tokens[_position].RowNumber, _tokens[_position].Column);
+            if (_tokens.Count > 0) return e.Locate(_tokens[_tokens.Count - 1].RowNumber, _tokens[_tokens.Count - 1].Column);
+            return e;
+        }
 
         private void SkipEmptyTokens()
         {
