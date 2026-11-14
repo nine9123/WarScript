@@ -99,6 +99,10 @@ namespace WarScript.Context
             _variables.Add(name, ValueReference.InstanceOf(value));
         }
 
+        /// <summary>The reference this scope itself (not a parent) holds for <paramref name="name"/>, or null.</summary>
+        internal ValueReference? GetLocalReference(string name) =>
+            _variables.TryGetValue(name, out var variable) ? variable : null;
+
         public void SetLocal(string name, ValueReference variable)
         {
             _variables[name] = variable;

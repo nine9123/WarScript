@@ -2204,6 +2204,20 @@ namespace WarScript.Bytecode
         // detect a class that inherits from itself (CRASH-5).
         private readonly List<ClassDefinition> _allocationPath = new List<ClassDefinition>();
 
+        // Fields of the instance being allocated that a base-class parameter
+        // created without binding them to an argument (Q-16: two such
+        // parameters of one name are one field, not a conflict).
+        private readonly HashSet<ValueReference> _unboundRefs = new HashSet<ValueReference>();
+
+        /// <summary>
+        /// The Q-16 error: base class <paramref name="baseClass"/> binds its
+        /// parameter <paramref name="name"/> to an argument other than the one
+        /// the field of that name of a <paramref name="className"/> instance
+        /// is already bound to. Shared by the compiler and the VM.
+        /// </summary>
+        internal static string BoundTwiceMessage(string name, string className, string baseClass) =>
+            $"'{name}' is bound twice in class '{className}': base class '{baseClass}' binds its parameter '{name}' to a different argument";
+
         /// <summary>
         /// Allocation step for <c>new className [args]</c>. Returns the
         /// instance, or default with an error raised (and nothing queued).
@@ -2219,8 +2233,9 @@ namespace WarScript.Bytecode
             }
             _constructors.Clear();
             _allocationPath.Clear();
-            var classData = AllocateInstance(definition, args, new Dictionary<string, ClassData>(), null);
+            var classData = AllocateInstance(definition, args, new Dictionary<string, ClassData>(), null, null);
             _allocationPath.Clear();
+            _unboundRefs.Clear();
             if (classData == null)
             {
                 _constructors.Clear();
@@ -2231,34 +2246,68 @@ namespace WarScript.Bytecode
 
         /// <summary>
         /// Allocates one class part of an instance and, recursively, its base
-        /// classes, queuing their constructor bodies in execution order. When
-        /// sharedRefs is non-null, property slots map to the derived class's
-        /// refs. Returns null with an error raised on failure.
+        /// classes, queuing their constructor bodies in execution order.
+        /// Every part shares the instance's one field scope
+        /// (<paramref name="fields"/>, created for the derived class: T3.4,
+        /// 5.7), so a field one class body assigns is a field of the whole
+        /// instance. When sharedRefs is non-null (a base class), parameter i
+        /// is bound to sharedRefs[i], the ValueReference of the derived-class
+        /// parameter passed in that position, or to nothing (null) when that
+        /// argument is not a parameter of the derived class. A base parameter
+        /// named like a field that is already bound to something else raises
+        /// the rescuable TypeError of Q-16 (the compiler rejects it where it
+        /// knows the base classes). Returns null with an error raised on
+        /// failure.
         /// </summary>
         private ClassData? AllocateInstance(ClassDefinition definition, List<WarValue> args,
-            Dictionary<string, ClassData> relations, ValueReference[]? sharedRefs)
+            Dictionary<string, ClassData> relations, ValueReference?[]? sharedRefs, MemoryScope? fields)
         {
             var propCount = definition.ClassDetails.Properties.Count;
             if (!TrackAlloc(EstimateClassBytes(propCount))) return null;
 
+            // The instance's fields. Their parent is the instance globals, so a
+            // bare read in a class body finds a field first, then a global
+            // (T3.4, 5.7, PROP-20).
+            fields ??= new MemoryScope(_script, _script.UserMemoryScope, false, MemoryScopeKind.ClassInstance);
             var valueRefs = new ValueReference[propCount];
             for (int i = 0; i < propCount; i++)
             {
-                if (sharedRefs != null && i < sharedRefs.Length && sharedRefs[i] != null)
-                    valueRefs[i] = sharedRefs[i]; // share the same reference
-                else
+                var name = definition.ClassDetails.Properties[i];
+                if (sharedRefs == null)
+                {
+                    // The class being instantiated: its parameters take the arguments.
                     valueRefs[i] = ValueReference.InstanceOf(i < args.Count ? args[i] : WarValue.Null);
+                    fields.SetLocal(name, valueRefs[i]);
+                    continue;
+                }
+                // A derived-class parameter that is itself bound to nothing
+                // passes nothing on.
+                var bound = i < sharedRefs.Length ? sharedRefs[i] : null;
+                var unbound = bound == null || _unboundRefs.Contains(bound);
+                var existing = fields.GetLocalReference(name);
+                if (existing == null)
+                {
+                    if (bound == null)
+                    {
+                        bound = ValueReference.InstanceOf(WarValue.Null);
+                        _unboundRefs.Add(bound);
+                    }
+                    fields.SetLocal(name, bound);
+                    valueRefs[i] = bound;
+                }
+                else if (unbound ? _unboundRefs.Contains(existing) : ReferenceEquals(existing, bound))
+                    valueRefs[i] = existing; // the same binding: one field
+                else
+                {
+                    RuntimeError(ScriptErrorKind.TypeError, BoundTwiceMessage(name, _allocationPath[0].ClassDetails.Name,
+                        definition.ClassDetails.Name));
+                    return null;
+                }
             }
 
-            // The part's fields. Its parent is the instance globals, so a bare
-            // read in the class body finds a field first, then a global
-            // (T3.4, 5.7, PROP-20).
-            var classScope = new MemoryScope(_script, _script.UserMemoryScope, false, MemoryScopeKind.ClassInstance);
-            var classData = new ClassData(definition, classScope, relations);
+            var classData = new ClassData(definition, fields, relations);
             classData.PropertyValues = valueRefs;
             relations[definition.ClassDetails.Name] = classData;
-            for (int i = 0; i < propCount; i++)
-                classScope.SetLocal(definition.ClassDetails.Properties[i], valueRefs[i]);
 
             // Base classes: pass shared ValueReferences
             _allocationPath.Add(definition);
@@ -2277,7 +2326,7 @@ namespace WarScript.Bytecode
                 // base constructor. The mapping is positional:
                 //   baseType.Properties[i] → baseDef.ClassDetails.Properties[i]
                 var basePropCount = baseDef.ClassDetails.Properties.Count;
-                var baseShared = new ValueReference[basePropCount];
+                var baseShared = new ValueReference?[basePropCount];
                 for (int i = 0; i < baseType.Properties.Count && i < basePropCount; i++)
                 {
                     var derivedPropName = baseType.Properties[i];
@@ -2286,11 +2335,7 @@ namespace WarScript.Bytecode
                         baseShared[i] = valueRefs[derivedIdx];
                 }
 
-                var baseArgs = new List<WarValue>();
-                for (int i = 0; i < basePropCount; i++)
-                    baseArgs.Add(baseShared[i] != null ? baseShared[i].Value : WarValue.Null);
-
-                if (AllocateInstance(baseDef, baseArgs, relations, baseShared) == null) return null;
+                if (AllocateInstance(baseDef, args, relations, baseShared, fields) == null) return null;
             }
             _allocationPath.RemoveAt(_allocationPath.Count - 1);
 

@@ -590,9 +590,12 @@ field: use `@x`.
 The **fields** of a class are its constructor parameters, the names its body assigns (bare or as
 `@x = ...`) and the fields of its base classes. `@x` / `this :: x` in a method or the class body is
 checked against them when the script compiles: `'shield' is not a field of class 'Unit'`. A method
-cannot add a field. *(v2 in progress: the check is skipped when a base class comes from an import;
-and at runtime each class of an inheritance chain still keeps its own fields, so a method of the
-derived class does not see a field only the base class body assigns.)*
+cannot add a field. An instance has one field per name, shared by every class of its inheritance
+chain, so two base classes may not bind parameters of the same name to different arguments:
+`class C [p, q] : Sub [q, p], Mul [p, q]` with `Sub [a, b]` and `Mul [a, b]` is a compile error
+(`'a' is bound twice in class 'C'`); name the base parameters differently. *(v2 in progress: when a
+base class comes from an import, the field check is skipped and the binding error is a rescuable
+TypeError at `new`.)*
 
 ```ruby
 g = 5

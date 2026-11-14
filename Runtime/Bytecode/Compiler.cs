@@ -260,6 +260,7 @@ namespace WarScript.Bytecode
             var classScope = classDef.GetDefinitionScope();
             var fields = ClassFields(classDef, new List<ClassDefinition>());
             var className = classDef.ClassDetails.Name;
+            if (fields != null) CheckParameterBindings(classDef);
 
             // Compile all methods
             foreach (var funcDef in classScope.Functions)
@@ -307,6 +308,57 @@ namespace WarScript.Bytecode
             }
             path.RemoveAt(path.Count - 1);
             return fields;
+        }
+
+        /// <summary>
+        /// Q-16: an instance has one field per name (5.7), so a base class may
+        /// not bind a parameter to an argument other than the one a field of
+        /// that name is already bound to: <c>class C [p, q] : A [p, q], B [q, p]</c>
+        /// with <c>A [a, b]</c> and <c>B [a, b]</c> is a compile error, while
+        /// passing the same parameter on (<c>class Bird [name] : Animal [name]</c>,
+        /// or a diamond) is one field. A binding is a parameter of
+        /// <paramref name="classDef"/> or nothing (an argument that is not a
+        /// parameter of the deriving class, or none). Only called when every
+        /// base class is known (<see cref="ClassFields"/> is not null); the VM
+        /// raises the same error, as a TypeError at <c>new</c>, otherwise.
+        /// </summary>
+        private void CheckParameterBindings(ClassDefinition classDef)
+        {
+            var parameters = classDef.ClassDetails.Properties;
+            var bindings = new Dictionary<string, int>();
+            var own = new int[parameters.Count];
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                own[i] = i;
+                bindings[parameters[i]] = i;
+            }
+            BindBases(classDef, own);
+
+            void BindBases(ClassDefinition derived, int[] derivedBindings)
+            {
+                var derivedParameters = derived.ClassDetails.Properties;
+                foreach (var baseType in derived.BaseTypes)
+                {
+                    var baseDef = derived.GetDefinitionScope().GetClass(baseType.Name)!;
+                    var baseParameters = baseDef.ClassDetails.Properties;
+                    var baseBindings = new int[baseParameters.Count];
+                    for (int j = 0; j < baseParameters.Count; j++)
+                    {
+                        var index = j < baseType.Properties.Count ? derivedParameters.IndexOf(baseType.Properties[j]) : -1;
+                        var binding = index >= 0 ? derivedBindings[index] : -1;
+                        baseBindings[j] = binding;
+                        var name = baseParameters[j];
+                        if (bindings.TryGetValue(name, out var existing))
+                        {
+                            if (existing != binding)
+                                throw new CompileError(WarVM.BoundTwiceMessage(name, classDef.ClassDetails.Name, baseDef.ClassDetails.Name),
+                                    _source, Line(classDef.Statement), classDef.Statement.Column);
+                        }
+                        else bindings[name] = binding;
+                    }
+                    BindBases(baseDef, baseBindings);
+                }
+            }
         }
 
         private static bool DefinesNestedClass(ClassDefinition classDef, string name)
