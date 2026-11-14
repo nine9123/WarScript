@@ -149,6 +149,17 @@ namespace Tests
         }
 
         [Test]
+        public void FailedCompile_LeavesNoConstantNames_ButKeepsTheHostOnes()
+        {
+            var (script, _) = Script("const MAX = 1\nenum E\n    A\nend\nx = (\n");
+            script.ConstantNames.Add("HOST");
+
+            Assert.IsFalse(script.Compile().Success);
+
+            CollectionAssert.AreEquivalent(new[] { "HOST" }, script.ConstantNames);
+        }
+
+        [Test]
         public void EntryPoints_ThrowTheCompileError_WithContextsRestored()
         {
             var (script, output) = Script("print \"top\"\nfun co []\n    yield\nend\nx = (\n");

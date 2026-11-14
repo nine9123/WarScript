@@ -356,6 +356,9 @@ namespace WarScript
         {
             if (_compileResult != null) return _compileResult;
 
+            // The parser adds `const`/`enum` names as it goes; a failed
+            // compile puts the set back, so none of the script stays behind.
+            var constantsBefore = new HashSet<string>(ConstantNames);
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
             try
@@ -376,10 +379,17 @@ namespace WarScript
             {
                 // Whatever the parser had added stays out of reach: a
                 // definition without bytecode cannot be called.
-                _definitionScope.Clear();
-                _cachedCompiled = null;
+                RollBackCompile(constantsBefore);
                 _compileError = e;
                 _compileResult = new CompileResult(false, new[] { Diagnose(e) });
+            }
+            catch
+            {
+                // A compiler bug (not cached): roll back too, so that the next
+                // Compile() parses from a clean instance instead of reporting
+                // its own consts as reassigned.
+                RollBackCompile(constantsBefore);
+                throw;
             }
             finally
             {
@@ -387,6 +397,14 @@ namespace WarScript
                 MemoryContext.EndScope();
             }
             return _compileResult;
+        }
+
+        private void RollBackCompile(HashSet<string> constantsBefore)
+        {
+            _definitionScope.Clear();
+            _cachedCompiled = null;
+            ConstantNames.Clear();
+            ConstantNames.UnionWith(constantsBefore);
         }
 
         private CompileDiagnostic Diagnose(Exception.SyntaxException e)
@@ -515,7 +533,7 @@ namespace WarScript
 
         /// <summary>
         /// Save the compiled bytecode to a binary stream. The script must
-        /// have been compiled first (via Run() or EnsureCompiled).
+        /// have been compiled first (it compiles when needed; see Compile()).
         ///
         /// Typical build-time usage:
         /// <code>
