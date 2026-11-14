@@ -1,4 +1,3 @@
-# known-failing: SEM-1
 # Plan A.10 (DEC-5): v2 as written. v1 prints 3 for the global too.
 count = 10
 fun helper []

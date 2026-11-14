@@ -242,22 +242,25 @@ namespace WarScript.Bytecode
         /// the file layout (version 1 was the v1 format, whose opcode values
         /// were implicit; version 2 stored one line per code byte; version 3
         /// compiled a rescue body without the PopHandler that version 4 ends
-        /// it with when the block has an ensure block, Q-14).
+        /// it with when the block has an ensure block, Q-14; version 4 kept a
+        /// function's assigned names in a MemoryScope, which version 5 keeps
+        /// in stack slots, with SetGlobal from a function, method or lambda
+        /// writing the instance globals, T3.4).
         /// </summary>
-        public const byte Version = 4;
+        public const byte Version = 5;
 
         /// <summary>
         /// Names the file layout for the hash. Change it (and the version)
         /// with any change to what <see cref="BytecodeSerializer"/> writes.
         /// </summary>
         public const string Layout =
-            "WSBC magic|version u8|hash u32; v1 function, constant and definition records; line table u32 count of (u16 offset, i32 line) where the line changes; a rescue body of a block with an ensure block runs under an ensure-only handler and ends with PopHandler";
+            "WSBC magic|version u8|hash u32; v1 function, constant and definition records; line table u32 count of (u16 offset, i32 line) where the line changes; a rescue body of a block with an ensure block runs under an ensure-only handler and ends with PopHandler; a function, method or lambda body keeps every variable in a stack slot (its locals pushed as nulls after the parameters) and its SetGlobal writes a declared global";
 
         /// <summary>
         /// <see cref="ComputeHash"/> for the current table, version and
         /// layout. <c>BytecodeFormatTests</c> recomputes it.
         /// </summary>
-        public const uint Hash = 0x156C8028;
+        public const uint Hash = 0x95C7EB96;
 
         /// <summary>
         /// FNV-1a (32-bit) over, for each <see cref="OpInfo"/> entry: its

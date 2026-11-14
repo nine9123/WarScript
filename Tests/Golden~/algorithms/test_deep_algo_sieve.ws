@@ -1,6 +1,7 @@
 # test_deep_algo_sieve.ws — Sieve of Eratosthenes
 
 fun sieve [limit]
+    global primes
     is_prime = {}
     loop i in 0..limit + 1
         if i < 2

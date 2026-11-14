@@ -48,11 +48,10 @@ namespace Tests
         [TestCase("class P [x]\nend\np = new P [1]\np :: z = 4", AuditKind.DynamicPropertyCreated, 4)]
         [TestCase("class P [x]\n  fun m []\n    this :: z = 1\n  end\nend\np = new P [1]\np :: m []", AuditKind.DynamicPropertyCreated, 3)]
         [TestCase("r = undefined_thing", AuditKind.UndefinedRead, 1)]
-        [TestCase("g = 1\nfun f []\n  g = 2\nend\nf []", AuditKind.GlobalWriteFromFunction, 3)]
-        [TestCase("g = 1\nh = fun [] g = 2 end\nh []", AuditKind.GlobalWriteFromFunction, 2)]
-        [TestCase("class P [x]\n  fun m []\n    print x\n  end\nend\np = new P [1]\np :: m []", AuditKind.FieldAccessViaBareName, 3)]
-        [TestCase("class P [x]\n  fun m []\n    x = 2\n  end\nend\np = new P [1]\np :: m []", AuditKind.FieldAccessViaBareName, 3)]
-        [TestCase("g = 1\nclass P [x]\n  fun m []\n    print g\n  end\nend\np = new P [1]\np :: m []", AuditKind.GlobalShadowedInClass, 4)]
+        // GlobalWriteFromFunction, FieldAccessViaBareName and the method case
+        // of GlobalShadowedInClass have no v1 path left since T3.4: a name a
+        // function or method assigns is its local, a global needs `global`,
+        // and a method reads globals (V2NameResolutionReportsNothing).
         [TestCase("g = 1\nclass P [x]\n  y = g\nend\np = new P [1]", AuditKind.GlobalShadowedInClass, 3)]
         [TestCase("if true\n  inner = 7\nend\nprint inner", AuditKind.BlockVariableEscapes, 4)]
         [TestCase("begin\n  inner = 7\n  raise \"x\"\nrescue e\nend\nprint inner", AuditKind.BlockVariableEscapes, 6)]
@@ -64,6 +63,15 @@ namespace Tests
             Assert.AreEqual(1, matching.Count, "events:\n" + Format(events));
             Assert.AreEqual(line, matching[0].Line, "events:\n" + Format(events));
             Assert.AreEqual("audit", matching[0].Script);
+        }
+
+        [Test]
+        public void V2NameResolutionReportsNothing()
+        {
+            var events = Audit("g = 1\nfun f []\n  global g\n  g = 2\nend\nf []\n"
+                + "h = fun [] global g g = 3 end\nh []\n"
+                + "class P [x]\n  fun m []\n    print g\n    x = 2\n    print @x\n  end\nend\np = new P [1]\np :: m []");
+            Assert.AreEqual(0, events.Count, "events:\n" + Format(events));
         }
 
         [Test]

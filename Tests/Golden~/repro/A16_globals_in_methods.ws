@@ -1,4 +1,3 @@
-# known-failing: SEM-4
 # Plan A.16 (PROP-20). v1 prints null.
 g = 5
 class C

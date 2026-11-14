@@ -52,7 +52,7 @@ assert safe["anything", 99] == 99
 # ── 7. Method on a class with defaults ──
 class Counter [n]
     fun add [amount = 1]
-        n = n + amount
+        @n = @n + amount
     end
     fun get []
         return this :: n

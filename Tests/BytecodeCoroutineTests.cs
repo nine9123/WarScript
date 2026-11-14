@@ -474,6 +474,7 @@ namespace Tests
             var (script, output) = TestHelper.Run("test", @"
                 counter = 0
                 fun increment []
+                    global counter
                     counter += 1
                 end
                 fun wait_for_five []
@@ -572,6 +573,7 @@ namespace Tests
             var (script, output) = TestHelper.Run("test", @"
                 hp = 100
                 fun drain []
+                    global hp
                     hp -= 10
                 end
                 fun monitor []

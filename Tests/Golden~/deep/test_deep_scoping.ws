@@ -15,6 +15,7 @@ assert read_global_x [] == 42
 # ── 2. Function modifies global ──
 counter = 0
 fun bump_counter []
+    global counter
     counter += 1
 end
 bump_counter []
@@ -25,6 +26,7 @@ assert counter == 3
 # ── 3. Multiple functions share same global ──
 shared = 0
 fun add_to_shared [n]
+    global shared
     shared += n
 end
 fun read_shared []
@@ -131,13 +133,13 @@ assert label2 == "none"
 # ── 14. Class methods see constructor parameters ──
 class Config [name, value]
     fun get_name []
-        return name
+        return @name
     end
     fun get_value []
-        return value
+        return @value
     end
     fun set_value [v]
-        value = v
+        @value = v
     end
 end
 cfg = new Config ["debug", true]
@@ -200,6 +202,7 @@ assert dynamic == 42
 dynamic = "now a string"
 assert dynamic == "now a string"
 fun change_dynamic []
+    global dynamic
     dynamic = true
 end
 change_dynamic []

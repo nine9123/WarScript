@@ -120,6 +120,7 @@ namespace Tests
             var (script, output) = TestHelper.Run("test", @"
                 hp = 100
                 fun damage [n]
+                    global hp
                     hp -= n
                 end
             ");
@@ -129,6 +130,7 @@ namespace Tests
 
             script.Reload(@"
                 fun damage [n]
+                    global hp
                     hp -= n
                 end
                 fun get_hp []
@@ -281,6 +283,7 @@ namespace Tests
             var (script, output) = TestHelper.Run("test", @"
                 count = 0
                 fun bump []
+                    global count
                     count += 1
                     print count
                 end
@@ -291,6 +294,7 @@ namespace Tests
 
             script.Reload(@"
                 fun bump []
+                    global count
                     count += 10
                     print count
                 end
@@ -301,6 +305,7 @@ namespace Tests
 
             script.Reload(@"
                 fun bump []
+                    global count
                     count += 100
                     print count
                 end
@@ -352,6 +357,7 @@ namespace Tests
             // Mutate x via call
             script.Reload(@"
                 fun set_x [val]
+                    global x
                     x = val
                 end
                 fun get_x []

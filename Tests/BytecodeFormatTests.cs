@@ -88,7 +88,7 @@ namespace Tests
         [Test]
         public void Load_RejectsAnotherVersion()
         {
-            foreach (byte version in new byte[] { 1, 2, 3, 5 })
+            foreach (byte version in new byte[] { 1, 2, 3, 4, 6 })
             {
                 var bytes = SavedBytecode();
                 bytes[4] = version;

@@ -7,6 +7,7 @@
 
 # ── 1. Matrix creation and access ──
 fun make_matrix [rows, cols, default_val]
+    global m
     m = {}
     loop r in 0..rows
         row = {}
@@ -44,6 +45,7 @@ assert mat_get [m, 0, 1] == 0
 
 # ── 3. Identity matrix ──
 fun make_identity [n]
+    global m
     m = {}
     loop i in 0..n
         row = {}

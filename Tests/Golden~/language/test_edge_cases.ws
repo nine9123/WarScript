@@ -144,7 +144,7 @@ class Wrapper [inner]
 end
 class ValueBox [n]
     fun doubled []
-        return n * 2
+        return @n * 2
     end
 end
 v = new ValueBox [21]

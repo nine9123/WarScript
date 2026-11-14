@@ -166,13 +166,13 @@ assert f :: count_gt [{1, 2, 3}, 10, 3] == 0
 # ── 7. Method accessing constructor parameters ──
 class Range [lo, hi]
     fun contains [val]
-        return val >= lo and val <= hi
+        return val >= @lo and val <= @hi
     end
     fun size []
-        return hi - lo
+        return @hi - @lo
     end
     fun overlaps [other]
-        return lo < other :: hi and hi > other :: lo
+        return @lo < other :: hi and @hi > other :: lo
     end
 end
 

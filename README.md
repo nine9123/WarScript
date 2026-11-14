@@ -391,6 +391,38 @@ print fib [10]       # → 55
 Functions are resolved by **(name, argument count)** — two functions with the same name and
 different arities are distinct.
 
+#### Locals and globals
+
+Inside a function, method or lambda, every name the body assigns is a **local of the whole body**
+(an `if` does not start a new scope), and globals are read freely. Writing a global takes a
+`global` declaration, placed before any use of the name in that body; assigning a declared global
+creates it if it does not exist yet. At the top level every assignment writes a global.
+
+```ruby
+count = 0
+label = "hits"
+
+fun bump [n]
+    global count          # required to write the global
+    total = n * 2         # a local of bump
+    count = count + total
+    return label + ": " + count     # reading a global needs no declaration
+end
+print bump [3]            # → hits: 6
+```
+
+The compiler rejects what would otherwise be a silent mistake:
+
+- reading a local before its first assignment in the source (`count = count + 1` in a function
+  without `global count`) — *variable 'count' is read before it is assigned*;
+- a `loop` or `rescue` variable with the name of a parameter, a local, a declared global or an
+  enclosing loop/rescue variable of the same body (those variables exist only inside their block);
+- `global x` after `x` was used, or for a parameter `x`.
+
+Methods follow the same rules: a bare name in a method is a local or a global, and the instance's
+fields are reached with `@x` / `this :: x`. *(v2 in progress: class bodies still resolve names as
+v1 did, and `global` in a class body changes nothing yet; the class field list comes next.)*
+
 #### Default parameters
 
 Trailing parameters may have defaults. The function is registered at every valid arity.
@@ -458,7 +490,8 @@ f = ops{0}
 print f [3, 4]       # → 7
 ```
 
-**Lambdas do not close over enclosing locals.** They see their own parameters and globals only:
+**Lambdas do not close over enclosing locals.** They see their own parameters and locals and the
+globals; reading a parameter, local or loop variable of the code around them is a compile error:
 
 ```ruby
 factor = 3                              # global
@@ -467,10 +500,9 @@ print f [5]                             # → 15   ✔ globals work
 
 fun outer []
     n = 10                              # local to `outer`
-    g = fun [x] return x + n end
+    g = fun [x] return x + n end        # ✘ compile error: closures are not supported: 'n' ...
     return g [1]
 end
-print outer []                          # → 1null   ✘ `n` is null inside the lambda
 ```
 
 ### Constants
@@ -550,9 +582,9 @@ no `this`, so `this` and `@x` cannot be used in one, and a class body cannot `yi
 constructor; a function it calls still can).
 
 `global` is a reserved word. `global a, b` declares, in a function, method, lambda or class body,
-that `a` and `b` are the instance's globals; at the top level it is an error. *(v2 in progress: the
-declaration is parsed but changes nothing yet — a function already writes a global that exists.
-Name resolution gives it its full meaning.)*
+that `a` and `b` are the instance's globals; at the top level it is an error (see
+[Locals and globals](#locals-and-globals)). In a method, a bare name is a local or a global, never a
+field: use `@x`. *(v2 in progress: in a class body the declaration changes nothing yet.)*
 
 #### Inheritance
 
@@ -996,7 +1028,7 @@ have the script write a global and read it from the host:
 
 ```csharp
 // script:  result = 0
-//          fun compute [a, b] result = a + b return result end
+//          fun compute [a, b] global result result = a + b return result end
 script.Call(script.GetFunction("compute", 2)!,
             WarValue.FromNumeric(F64.FromInt(3)),
             WarValue.FromNumeric(F64.FromInt(4)));
@@ -1243,7 +1275,7 @@ top-level statements.
 well, give the constructor a `bytecodeResolver` — see
 [Importing precompiled bytecode](#importing-precompiled-bytecode).
 
-> A `.wsbc` file starts with a format version (currently `4`) and a hash of the opcode table, and
+> A `.wsbc` file starts with a format version (currently `5`) and a hash of the opcode table, and
 > the loader accepts only an exact match, so bytecode written by another WarScript version must be
 > regenerated from source. The loader verifies everything it reads: a truncated, corrupt or
 > mismatched file makes `LoadBytecode` throw `InvalidDataException` and leaves the instance
@@ -1332,7 +1364,8 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 **Semantics**
 
 - Reading an undefined variable, or an out-of-range array index, yields `null` silently.
-- Lambdas have no closures — parameters and globals only.
+- Lambdas have no closures — their own parameters and locals, and globals; reading a local of the
+  code around one is a compile error.
 - Default parameters cannot distinguish an omitted argument from an explicit `null`.
 - Functions are keyed by `(name, arity)`; native functions require an exact arity match.
 - Comparison coerces to text across types, so `1 == "1"` is `True`.

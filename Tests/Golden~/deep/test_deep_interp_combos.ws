@@ -32,7 +32,7 @@ assert "{p :: name} (Lv.{p :: level}) HP:{p :: hp}" == "Hero (Lv.10) HP:100"
 # ── 5. Interpolation with method calls ──
 class Formatter [prefix]
     fun format [msg]
-        return "{prefix}: {msg}"
+        return "{@prefix}: {msg}"
     end
 end
 f = new Formatter ["LOG"]

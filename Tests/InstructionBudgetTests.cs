@@ -237,6 +237,7 @@ namespace Tests
             var script = new WarScriptLanguage("test", @"
                 count = 0
                 fun bump []
+                    global count
                     count = count + 1
                 end
             ", null, (s, msg) => output.Add(msg));

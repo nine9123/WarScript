@@ -88,6 +88,7 @@ assert read_global [] == 100
 # ── Function can modify outer variables ──
 counter = 0
 fun increment_counter []
+    global counter
     counter = counter + 1
 end
 increment_counter []

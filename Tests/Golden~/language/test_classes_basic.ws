@@ -50,10 +50,10 @@ assert b :: value == 25
 # ── Method definition and call ──
 class Counter [n]
     fun increment []
-        n = n + 1
+        @n = @n + 1
     end
     fun get []
-        return n
+        return @n
     end
 end
 c = new Counter [0]
@@ -142,7 +142,7 @@ class Stats [base_atk]
         return this :: get_atk [] * multiplier
     end
     fun get_atk []
-        return base_atk
+        return @base_atk
     end
 end
 s = new Stats [10]

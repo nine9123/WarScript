@@ -71,6 +71,7 @@ assert !(x < 0 or x > 10)
 # ── Short-circuit: and skips right when left is false ──
 side_effect_ran = false
 fun set_side_effect []
+    global side_effect_ran
     side_effect_ran = true
     return true
 end
@@ -80,6 +81,7 @@ assert !side_effect_ran
 # ── Short-circuit: or skips right when left is true ──
 side_effect_ran2 = false
 fun set_side_effect2 []
+    global side_effect_ran2
     side_effect_ran2 = true
     return false
 end
@@ -89,6 +91,7 @@ assert !side_effect_ran2
 # ── Short-circuit: and evaluates right when left is true ──
 side_effect_ran3 = false
 fun set_side_effect3 []
+    global side_effect_ran3
     side_effect_ran3 = true
     return true
 end
@@ -98,6 +101,7 @@ assert side_effect_ran3
 # ── Short-circuit: or evaluates right when left is false ──
 side_effect_ran4 = false
 fun set_side_effect4 []
+    global side_effect_ran4
     side_effect_ran4 = true
     return true
 end

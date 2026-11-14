@@ -17,7 +17,7 @@ assert d as Animal :: name == "Rex"
 # ── Single inheritance: method inheritance ──
 class Vehicle [speed]
     fun describe []
-        return "speed: " + speed
+        return "speed: " + @speed
     end
 end
 class Car [speed, doors] : Vehicle [speed]
@@ -44,12 +44,12 @@ assert leaf as Mid :: b == 2
 # ── Multiple inheritance ──
 class Flyable [altitude]
     fun fly []
-        return "flying at " + altitude
+        return "flying at " + @altitude
     end
 end
 class Swimmable [depth]
     fun swim []
-        return "swimming at " + depth
+        return "swimming at " + @depth
     end
 end
 class Duck [altitude, depth] : Flyable [altitude], Swimmable [depth]
@@ -125,17 +125,17 @@ assert r as Timestamped :: created == "2024-01-01"
 # ── Three-level deep with methods at each level ──
 class GrandParent [a]
     fun gp_method []
-        return "gp: " + a
+        return "gp: " + @a
     end
 end
 class Parent [a, b] : GrandParent [a]
     fun p_method []
-        return "p: " + b
+        return "p: " + @b
     end
 end
 class Child [a, b, c] : Parent [a, b]
     fun c_method []
-        return "c: " + c
+        return "c: " + @c
     end
 end
 child = new Child [1, 2, 3]

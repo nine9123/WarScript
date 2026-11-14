@@ -36,7 +36,7 @@ assert "Name: {p :: name}, Age: {p :: age}" == "Name: Alice, Age: 30"
 # ── 6. Method call inside interpolation ──
 class Greeter [name]
     fun greet []
-        return "Hello, " + name + "!"
+        return "Hello, " + @name + "!"
     end
 end
 g = new Greeter ["World"]
@@ -89,7 +89,7 @@ assert "Time: {format_number [3]}:{format_number [15]}" == "Time: 03:15"
 # ── 13. Interpolation building complex strings ──
 class TableRow [name, value, unit]
     fun format []
-        return "| {name} | {value} {unit} |"
+        return "| {@name} | {@value} {@unit} |"
     end
 end
 

@@ -143,7 +143,7 @@ namespace Tests
             if (Tests.Golden.IsolatedRun.RunnerPath() == null)
                 Assert.Ignore("Allocation counting is measured in the headless build only (plan T2.7).");
 
-            var (script, _) = Script("total = 0\nfun tick [dt, k]\n    total += dt * k\n    return total\nend\n");
+            var (script, _) = Script("total = 0\nfun tick [dt, k]\n    global total\n    total += dt * k\n    return total\nend\n");
             Assert.IsTrue(script.Run().IsOk);
             var tick = script.GetFunction("tick", 2);
             var buffer = new WarValue[4];

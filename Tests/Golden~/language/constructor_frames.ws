@@ -60,7 +60,7 @@ e = new Early [0]           # expect: not returned
 # Constructors can create instances, call functions and call methods.
 class Leaf2 [v]
     fun twice []
-        return v * 2
+        return @v * 2
     end
 end
 fun helper [v]

@@ -83,7 +83,7 @@ assert result == "hello world!"
 # ── Interpolation with complex class expression ──
 class Point [x, y]
     fun to_string []
-        return "({x}, {y})"
+        return "({@x}, {@y})"
     end
 end
 p = new Point [3, 4]

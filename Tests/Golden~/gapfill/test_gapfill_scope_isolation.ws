@@ -106,30 +106,29 @@ assert collected{2} == 4
 # ════════════════════════════════════════════════
 
 fun compute_sum[limit]
-    x = 999
     result = 0
     loop x in 0..limit
         result += x
     end
-    # x should still be 999 after loop
-    assert x == 999
+    # A loop variable may not shadow a local of the function (T3.4,
+    # PROP-9), so x is not one here.
     return result
 end
 assert compute_sum[5] == 10
 assert compute_sum[10] == 45
 
-# ── Function with parameter name reused in different loops ──
+# ── Function with a loop variable name reused in different loops ──
+# (A loop variable may not shadow the parameter n: T3.4, PROP-9.)
 fun multi_loop_test[n]
     sum1 = 0
-    loop n in 0..5
-        sum1 += n
+    loop i in 0..5
+        sum1 += i
     end
-    # n should still be the parameter
     sum2 = 0
-    loop n in 0..3
-        sum2 += n
+    loop i in 0..3
+        sum2 += i
     end
-    # n still the original parameter
+    # n is still the parameter
     return n * 100 + sum1 + sum2
 end
 # n=7: sum1=10, sum2=3, result=7*100+10+3=713

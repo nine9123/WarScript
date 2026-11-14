@@ -95,7 +95,7 @@ end
         [Test]
         public void ClearFault_ResumesNormalOperation_KeepingTheGlobals()
         {
-            var (script, output) = Script("count = 0\nfun bump []\n    count += 1\n    return count\nend\nfun fail []\n    count += 10\n    raise \"no\"\nend\n");
+            var (script, output) = Script("count = 0\nfun bump []\n    global count\n    count += 1\n    return count\nend\nfun fail []\n    global count\n    count += 10\n    raise \"no\"\nend\n");
             script.Run();
             script.Call(script.GetFunction("fail", 0));
             Assert.IsTrue(script.IsHalted);

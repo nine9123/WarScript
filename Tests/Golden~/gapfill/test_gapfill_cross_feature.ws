@@ -180,6 +180,7 @@ assert found_at == 5
 
 cleanup_ran = false
 fun with_ensure
+    global cleanup_ran
     begin
         return 42
     ensure

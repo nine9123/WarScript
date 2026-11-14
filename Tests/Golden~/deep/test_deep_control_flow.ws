@@ -88,6 +88,7 @@ assert find_in_matrix [mat, 10, 3, 3] == "not found"
 
 # ── 6. Loop building conditional structure ──
 fun categorize [values, n]
+    global low, mid, high, result
     low = {}
     mid = {}
     high = {}

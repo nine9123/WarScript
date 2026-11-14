@@ -39,11 +39,11 @@ namespace WarScript.Audit
         DynamicPropertyCreated,
         /// <summary>A variable read that resolves to nothing (v1 reads null). v2: NameError (DEC-5).</summary>
         UndefinedRead,
-        /// <summary>A function or lambda assigning an existing global. v2 needs <c>global</c>.</summary>
+        /// <summary>A function or lambda assigning an existing global. v2 needs <c>global</c>. Not raised since T3.4, which made such a name a local.</summary>
         GlobalWriteFromFunction,
-        /// <summary>A method reading or writing a field by its bare name. v2 needs <c>@name</c>.</summary>
+        /// <summary>A method reading or writing a field by its bare name. v2 needs <c>@name</c>. Not raised since T3.4: a bare name in a method is a local or a global.</summary>
         FieldAccessViaBareName,
-        /// <summary>A method or class body reading null for a name that is a global. v2 reads the global (PROP-20).</summary>
+        /// <summary>A method or class body reading null for a name that is a global. v2 reads the global (PROP-20); since T3.4 a method does, so only a class body raises it.</summary>
         GlobalShadowedInClass,
         /// <summary>A top-level read of a name last assigned inside a top-level block, which v1 reads as null. v2 reads the value (DEC-4).</summary>
         BlockVariableEscapes,

@@ -586,7 +586,7 @@ namespace Tests
             var source = @"
                 class Counter [n]
                     fun increment []
-                        n = n + 1
+                        @n = @n + 1
                     end
                     fun get []
                         return this :: n
@@ -872,6 +872,7 @@ namespace Tests
             var (script, _) = Run(@"
                 counter = 0
                 fun tick []
+                    global counter
                     counter = counter + 1
                 end
             ");
@@ -890,6 +891,7 @@ namespace Tests
             var (script, _) = Run(@"
                 sum = 0
                 fun tick [dt]
+                    global sum
                     sum = sum + dt
                 end
             ");

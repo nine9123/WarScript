@@ -172,13 +172,13 @@ assert sb :: build ["-"] == "hello-beautiful-world"
 # ── 5. Multiple inheritance with method interaction ──
 class Printable [label]
     fun to_str []
-        return "{label}"
+        return "{@label}"
     end
 end
 
 class Serializable [data]
     fun serialize []
-        return "data:" + data
+        return "data:" + @data
     end
 end
 

@@ -21,6 +21,19 @@ namespace WarScript.Bytecode
         {
             public string Name;
             public int Depth;
+            public LocalKind Kind;
+        }
+
+        /// <summary>What a stack slot holds (T3.4).</summary>
+        private enum LocalKind
+        {
+            /// <summary>A compiler temporary (<c>$limit</c>, <c>$items</c>...).</summary>
+            Hidden,
+            Parameter,
+            /// <summary>A name assigned in a function, method or lambda body: local to the whole body (PROP-9).</summary>
+            BodyLocal,
+            /// <summary>A loop or rescue variable: exists only inside its block.</summary>
+            Block,
         }
 
         private struct LoopCtx
@@ -105,6 +118,36 @@ namespace WarScript.Bytecode
         private readonly int _functionDepth;
         private int _tryDepth;
 
+        // ── Name resolution (T3.4, DEC-5, PROP-9, PROP-10, PROP-16) ──
+
+        /// <summary>
+        /// True while compiling a function, method or lambda body: every
+        /// name assigned in it (without <c>global</c>) is a stack slot of
+        /// the whole body, and the order rules below are checked. False for
+        /// top-level code and class bodies, which keep v1's scopes for now.
+        /// </summary>
+        private bool _resolveNames;
+
+        /// <summary>The body's locals assigned so far, in source order (read before assignment, PROP-9).</summary>
+        private readonly HashSet<string> _assignedSoFar = new();
+
+        /// <summary>Every bare name the body has read or written so far (<c>global</c> must come first, PROP-10).</summary>
+        private readonly HashSet<string> _usedNames = new();
+
+        /// <summary>
+        /// Positive while an ensure body is compiled a second time where a
+        /// <c>break</c>/<c>next</c> leaves its block: the order checks were
+        /// made where the body is in the source.
+        /// </summary>
+        private int _inlinedEnsure;
+
+        /// <summary>
+        /// For a lambda: the names that are stack slots of the code it is
+        /// written in (and of that code's own enclosing code). A lambda has
+        /// no closures, so reading one is a compile error (PROP-16).
+        /// </summary>
+        private HashSet<string>? _enclosingLocals;
+
         // ────────────────────────────────────────────────────────
         //  Public entry point
         // ────────────────────────────────────────────────────────
@@ -179,11 +222,7 @@ namespace WarScript.Bytecode
             child._line = Line(funcDef.Statement);
             child.SetColumn(funcDef.Statement.Column);
 
-            child.BeginScope();
-
-            // Parameters occupy the first N local slots
-            foreach (var arg in funcDef.Details.Arguments)
-                child.AddLocal(arg);
+            child.BeginBody(funcDef.Details.Arguments, funcDef.Statement);
 
             // Compile function body (nested definitions are compiled separately
             // via the flat CompileAllDefinitions walk)
@@ -293,7 +332,8 @@ namespace WarScript.Bytecode
         //  Lambda compilation
         // ────────────────────────────────────────────────────────
 
-        private static CompiledFunction CompileLambda(WarScriptLanguage script, LambdaExpression lambda, string? source)
+        private static CompiledFunction CompileLambda(WarScriptLanguage script, LambdaExpression lambda, string? source,
+            HashSet<string>? enclosingLocals)
         {
             CheckParameterCount(lambda.Parameters.Count, source, lambda.Line, lambda.Column);
             var compiler = new Compiler(script, functionDepth: 1);
@@ -302,10 +342,8 @@ namespace WarScript.Bytecode
             compiler._current.Chunk.Source = source;
             compiler._line = lambda.Line;
             compiler.SetColumn(lambda.Column);
-            compiler.BeginScope();
-
-            foreach (var param in lambda.Parameters)
-                compiler.AddLocal(param);
+            compiler._enclosingLocals = enclosingLocals;
+            compiler.BeginBody(lambda.Parameters, lambda.Body);
 
             foreach (var stmt in lambda.Body.StatementsToExecute)
                 compiler.CompileStatement(stmt);
@@ -320,7 +358,36 @@ namespace WarScript.Bytecode
 
         private CompiledFunction CompileLambdaBody(LambdaExpression lambda)
         {
-            return CompileLambda(_script, lambda, _source);
+            // The stack slots visible where the lambda is written: reading
+            // one from inside it would need a closure (PROP-16).
+            var enclosing = _enclosingLocals != null ? new HashSet<string>(_enclosingLocals) : new HashSet<string>();
+            foreach (var local in _locals)
+                if (local.Kind != LocalKind.Hidden)
+                    enclosing.Add(local.Name);
+            return CompileLambda(_script, lambda, _source, enclosing);
+        }
+
+        /// <summary>
+        /// Starts a function, method or lambda body (T3.4): the parameters
+        /// take the first slots, then every name the body assigns without
+        /// declaring it <c>global</c> gets a slot of its own for the whole
+        /// body, initialized to null here, in the order of first assignment
+        /// (PROP-9). Loop and rescue variables get theirs when their block
+        /// starts. Reports the scoping errors <see cref="BodyNames"/> finds.
+        /// </summary>
+        private void BeginBody(IReadOnlyList<string> parameters, CompositeStatement body)
+        {
+            _resolveNames = true;
+            BeginScope();
+            foreach (var parameter in parameters)
+                AddLocal(parameter, LocalKind.Parameter);
+
+            var names = BodyNames.Collect(parameters, body, _source);
+            foreach (var name in names.Locals)
+            {
+                Chunk.EmitOp(OpCode.Null, _line);
+                AddLocal(name, LocalKind.BodyLocal);
+            }
         }
 
         // ────────────────────────────────────────────────────────
@@ -337,10 +404,13 @@ namespace WarScript.Bytecode
             return -1;
         }
 
-        private int AddLocal(string name)
+        private int AddLocal(string name) =>
+            AddLocal(name, name.StartsWith("$", System.StringComparison.Ordinal) ? LocalKind.Hidden : LocalKind.Block);
+
+        private int AddLocal(string name, LocalKind kind)
         {
             var slot = _locals.Count;
-            _locals.Add(new Local { Name = name, Depth = _scopeDepth });
+            _locals.Add(new Local { Name = name, Depth = _scopeDepth, Kind = kind });
             if (_locals.Count > _maxLocals)
                 _maxLocals = _locals.Count;
 
@@ -394,14 +464,19 @@ namespace WarScript.Bytecode
             return Chunk.EmitJump(OpCode.JumpIfFalse, line);
         }
 
+        // A function, method or lambda body keeps every variable in a stack
+        // slot (T3.4), so its blocks need no runtime scope: the only
+        // MemoryScope it runs in is its call's, which SetGlobal skips.
         private void EmitPushScope(int line)
         {
+            if (_resolveNames) return;
             Chunk.EmitOp(OpCode.PushScope, line);
             _runtimeScopeDepth++;
         }
 
         private void EmitPopScope(int line)
         {
+            if (_resolveNames) return;
             Chunk.EmitOp(OpCode.PopScope, line);
             _runtimeScopeDepth--;
         }
@@ -459,8 +534,7 @@ namespace WarScript.Bytecode
                 case HandleExceptionStatement s: CompileTryRescueEnsure(s); break;
                 case ImportStatement s:       CompileImport(s);             break;
                 case YieldStatement s:        CompileYield(s);              break;
-                // Nothing to emit until name resolution (T3.4) gives it its meaning.
-                case GlobalStatement _:                                     break;
+                case GlobalStatement s:       CompileGlobal(s);             break;
                 // FunctionStatement and ClassStatement are handled via definition compilation
             }
         }
@@ -494,16 +568,21 @@ namespace WarScript.Bytecode
             if (assign.Left is VariableExpression v)
             {
                 CompileExpression(assign.Right);
+                _usedNames.Add(v.Name);
                 var slot = ResolveLocal(v.Name);
                 if (slot != -1)
                 {
                     Chunk.EmitOp(OpCode.SetLocal, line);
                     Chunk.EmitU16(slot, line);
+                    if (_locals[slot].Kind == LocalKind.BodyLocal)
+                        _assignedSoFar.Add(v.Name);
                     return false;
                 }
-                // Not a known local (parameter or loop var).
-                // Use SetGlobal — this goes through MemoryScope which
-                // replicates the tree-walker's "walk up, create if missing" semantics.
+                // Not a stack slot. In a function, method or lambda body
+                // that is a name declared `global` (T3.4): the VM writes the
+                // instance globals, creating the name if needed. At the top
+                // level and in a class body, SetGlobal still goes through the
+                // MemoryScope chain ("walk up, create if missing").
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(v.Name));
                 Chunk.EmitOp(OpCode.SetGlobal, line);
                 Chunk.EmitU16(nameIdx, line);
@@ -519,7 +598,7 @@ namespace WarScript.Bytecode
                 {
                     CompileExpression(av.Right);      // index
                     CompileExpression(assign.Right);  // value
-                    var slot = ResolveLocal(avVar.Name);
+                    var slot = ResolveRead(avVar);
                     if (slot != -1)
                     {
                         Chunk.EmitOp(OpCode.IndexSetLocal, line);
@@ -965,7 +1044,11 @@ namespace WarScript.Bytecode
                         break;
                 }
                 if (t.Region != TryRegion.Ensure && t.Ensure != null)
-                    CompileEnsureBody(t.Ensure, line);
+                {
+                    _inlinedEnsure++;
+                    try { CompileEnsureBody(t.Ensure, line); }
+                    finally { _inlinedEnsure--; }
+                }
             }
             EmitUnwindTo(loop.RuntimeScopeDepth, loop.LocalCountAtLoop, line);
         }
@@ -1086,6 +1169,52 @@ namespace WarScript.Bytecode
             EmitPopScope(line);
         }
 
+        // ── Global declaration (T3.4, PROP-10) ──
+        private void CompileGlobal(GlobalStatement stmt)
+        {
+            // In a class body the declaration takes effect with the class
+            // field list (T3.4, second half); until then it changes nothing.
+            if (!_resolveNames) return;
+            foreach (var name in stmt.Names)
+            {
+                var slot = ResolveLocal(name);
+                if (slot != -1 && _locals[slot].Kind == LocalKind.Parameter)
+                    throw new CompileError("'" + name + "' is a parameter and cannot be declared global", _source, _line, _column);
+                if (_usedNames.Contains(name))
+                    throw new CompileError("'global " + name + "' must come before any use of '" + name + "' in this body", _source, _line, _column);
+            }
+        }
+
+        /// <summary>
+        /// The slot a read of <paramref name="v"/> uses, or -1 for a global
+        /// read, after the read checks of <see cref="CheckRead"/>.
+        /// </summary>
+        private int ResolveRead(VariableExpression v)
+        {
+            var slot = ResolveLocal(v.Name);
+            CheckRead(v.Name, slot, v.Line, v.Column);
+            return slot;
+        }
+
+        /// <summary>
+        /// A read of a body local before its first assignment in the source
+        /// is a compile error (PROP-9), and so is a lambda's read of a stack
+        /// slot of the code around it (PROP-16, no closures).
+        /// </summary>
+        private void CheckRead(string name, int slot, int line, int column)
+        {
+            _usedNames.Add(name);
+            if (line <= 0 || line != _line) { line = _line; column = _column; }
+            if (slot != -1)
+            {
+                if (_locals[slot].Kind == LocalKind.BodyLocal && _inlinedEnsure == 0 && !_assignedSoFar.Contains(name))
+                    throw new CompileError("variable '" + name + "' is read before it is assigned", _source, line, column);
+                return;
+            }
+            if (_enclosingLocals != null && _enclosingLocals.Contains(name))
+                throw new CompileError("closures are not supported: '" + name + "' is a local variable of the code around the lambda", _source, line, column);
+        }
+
         // ── Import ──
         private void CompileImport(ImportStatement stmt)
         {
@@ -1181,7 +1310,7 @@ namespace WarScript.Bytecode
                 // ── Variables ──
                 case VariableExpression v:
                 {
-                    var slot = ResolveLocal(v.Name);
+                    var slot = ResolveRead(v);
                     if (slot != -1)
                     {
                         Chunk.EmitOp(OpCode.GetLocal, _line);
@@ -1394,6 +1523,7 @@ namespace WarScript.Bytecode
             var localSlot = ResolveLocal(call.Name);
             if (localSlot != -1)
             {
+                CheckRead(call.Name, localSlot, call.Line, call.Column);
                 // Push the function value, then arguments
                 Chunk.EmitOp(OpCode.GetLocal, _line);
                 Chunk.EmitU16(localSlot, _line);
@@ -1491,5 +1621,151 @@ namespace WarScript.Bytecode
                 Chunk.EmitOp(OpCode.IndexGet, _line);
             }
         }
-    }
+    
+        /// <summary>
+        /// The resolution pre-pass of a function, method or lambda body
+        /// (T3.4): collects the names it assigns (its locals, PROP-9) and
+        /// the names it declares <c>global</c>, and checks the loop and
+        /// rescue variables: one may not shadow a parameter, a local, a
+        /// declared global or an enclosing loop or rescue variable.
+        /// Lambdas and nested definitions are bodies of their own.
+        /// </summary>
+        private sealed class BodyNames
+        {
+            public readonly List<string> Locals = new();
+            private readonly HashSet<string> _localSet = new();
+            private readonly HashSet<string> _globals = new();
+            private readonly HashSet<string> _parameters;
+            private readonly List<string> _blockVariables = new();
+            private readonly List<(string Name, string What, int Line, int Column, bool ShadowsBlock)> _declarations = new();
+
+            private BodyNames(IReadOnlyList<string> parameters)
+            {
+                _parameters = new HashSet<string>(parameters);
+            }
+
+            public static BodyNames Collect(IReadOnlyList<string> parameters, CompositeStatement body, string? source)
+            {
+                var names = new BodyNames(parameters);
+                names.WalkBlock(body);
+                foreach (var d in names._declarations)
+                {
+                    string? reason = null;
+                    if (d.ShadowsBlock) reason = "an enclosing loop or rescue variable";
+                    else if (names._parameters.Contains(d.Name)) reason = "a parameter";
+                    else if (names._localSet.Contains(d.Name)) reason = "a local variable";
+                    else if (names._globals.Contains(d.Name)) reason = "a name declared global";
+                    if (reason != null)
+                        throw new CompileError(d.What + " '" + d.Name + "' shadows " + reason + " of the same body", source, d.Line, d.Column);
+                }
+                return names;
+            }
+
+            private void WalkBlock(CompositeStatement block)
+            {
+                foreach (var statement in block.StatementsToExecute)
+                    Walk(statement);
+            }
+
+            private void Walk(Statement.Statement statement)
+            {
+                switch (statement)
+                {
+                    case GlobalStatement g:
+                        foreach (var name in g.Names) _globals.Add(name);
+                        break;
+                    case ExpressionStatement e: Walk(e.Expression); break;
+                    case PrintStatement p:      Walk(p.Expression); break;
+                    case ReturnStatement r:     Walk(r.Expression); break;
+                    case AssertStatement a:     Walk(a.Expression); break;
+                    case RaiseExceptionStatement r: Walk(r.Expression); break;
+                    case YieldStatement y:      Walk(y.Expression); break;
+                    case ConditionStatement c:
+                        foreach (var branch in c.Cases)
+                        {
+                            Walk(branch.Key);
+                            WalkBlock(branch.Value);
+                        }
+                        break;
+                    case WhileLoopStatement w:
+                        Walk(w.Condition);
+                        WalkBlock(w);
+                        break;
+                    case ForLoopStatement f:
+                        Walk(f.LowerBound);
+                        Walk(f.UpperBound);
+                        Walk(f.Step);
+                        WalkBlockWith(f.Variable.Name, "loop variable", f, f);
+                        break;
+                    case IterableLoopStatement l:
+                        Walk(l.Iterable);
+                        WalkBlockWith(l.Variable.Name, "loop variable", l, l);
+                        break;
+                    case HandleExceptionStatement h:
+                        WalkBlock(h.BeginStatement);
+                        if (h.RescueStatement != null)
+                        {
+                            if (h.ErrorVariable != null)
+                                WalkBlockWith(h.ErrorVariable, "rescue variable", h, h.RescueStatement);
+                            else
+                                WalkBlock(h.RescueStatement);
+                        }
+                        if (h.EnsureStatement != null)
+                            WalkBlock(h.EnsureStatement);
+                        break;
+                    // Function and class definitions are bodies of their
+                    // own; imports cannot appear here (T3.3).
+                }
+            }
+
+            private void WalkBlockWith(string variable, string what, Statement.Statement at, CompositeStatement block)
+            {
+                _declarations.Add((variable, what, at.RowNumber ?? 0, at.Column, _blockVariables.Contains(variable)));
+                _blockVariables.Add(variable);
+                WalkBlock(block);
+                _blockVariables.RemoveAt(_blockVariables.Count - 1);
+            }
+
+            private void Walk(IExpression? expression)
+            {
+                switch (expression)
+                {
+                    case null:
+                    case LambdaExpression _:
+                        break;
+                    case AssignmentOperator a:
+                        Walk(a.Right);
+                        if (a.Left is VariableExpression v) Assign(v.Name);
+                        else Walk(a.Left);
+                        break;
+                    case BinaryOperatorExpression b:
+                        Walk(b.Left);
+                        Walk(b.Right);
+                        break;
+                    case UnaryOperatorExpression u:
+                        Walk(u.Value);
+                        break;
+                    case FunctionExpression f:
+                        foreach (var argument in f.ArgumentExpression) Walk(argument);
+                        break;
+                    case ArrayExpression array:
+                        foreach (var value in array.Values) Walk(value);
+                        break;
+                    case ClassExpression c:
+                        foreach (var argument in c.PropertiesExpressions) Walk(argument);
+                        break;
+                }
+            }
+
+            private void Assign(string name)
+            {
+                // A write to a loop or rescue variable inside its block, to a
+                // parameter, or to a name declared global is not a new local.
+                if (_blockVariables.Contains(name) || _parameters.Contains(name) || _globals.Contains(name))
+                    return;
+                if (_localSet.Add(name))
+                    Locals.Add(name);
+            }
+        }
+}
 }

@@ -118,10 +118,10 @@ assert factorials == {1, 1, 2, 6, 24, 120}
 # ── Math with class ──
 class Circle [radius]
     fun area []
-        return 3.14159 * pow[radius, 2]
+        return 3.14159 * pow[@radius, 2]
     end
     fun circumference []
-        return 2 * 3.14159 * radius
+        return 2 * 3.14159 * @radius
     end
 end
 

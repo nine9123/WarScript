@@ -512,7 +512,17 @@ namespace WarScript.Bytecode
                         var nameIdx = ReadU16(code, ref _frames[fi].IP);
                         var name = constants[nameIdx].TextValue;
                         if (_script.AuditSink != null) AuditGlobalWrite(name, fi);
-                        _script.MemoryContext.GetScope().Set(name, Peek());
+                        // In a function, method or lambda, every local is a
+                        // stack slot (T3.4): SetGlobal there is a write to a
+                        // name declared `global`, which goes to the instance
+                        // globals and creates the name there if needed. At
+                        // the top level and in a class body it still writes
+                        // the innermost scope that has the name, else the
+                        // current one.
+                        var setScope = _script.MemoryContext.GetScope();
+                        if (setScope.Kind == MemoryScopeKind.FunctionLocal || setScope.Kind == MemoryScopeKind.MethodLocal)
+                            setScope = _script.UserMemoryScope;
+                        setScope.Set(name, Peek());
                         break;
                     }
 
@@ -1190,8 +1200,13 @@ namespace WarScript.Bytecode
                                     argCount++;
                                 }
 
-                                // Push an inner scope for method-local variables
-                                _script.MemoryContext.PushScope(_script.MemoryContext.NewScope(MemoryScopeKind.MethodLocal));
+                                // The method's own scope. Its parent is the
+                                // instance globals, not the instance's fields:
+                                // a bare name in a method is a local or a
+                                // global (T3.4, DEC-6, PROP-20); fields are
+                                // `@x` / `this :: x`.
+                                _script.MemoryContext.PushScope(
+                                    _script.MemoryContext.NewScope(_script.UserMemoryScope, MemoryScopeKind.MethodLocal));
 
                                 var newBase = _sp - argCount;
                                 if (_frameCount >= FramesMax)
@@ -2628,6 +2643,9 @@ namespace WarScript.Bytecode
         private void AuditGlobalWrite(string name, int fi)
         {
             var start = _script.MemoryContext.GetScope();
+            // In a function, method or lambda SetGlobal writes a name
+            // declared `global` (T3.4): v2 behavior, nothing to report.
+            if (start.Kind == MemoryScopeKind.FunctionLocal || start.Kind == MemoryScopeKind.MethodLocal) return;
             if (start.HasLocal(name)) return;
             var holder = start.Resolve(name);
             if (holder == null) return; // creates a local of the current scope

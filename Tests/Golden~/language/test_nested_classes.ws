@@ -19,7 +19,7 @@ assert nested :: value == 42
 class Factory []
     class Product [name, price]
         fun describe []
-            return name + ": $" + price
+            return @name + ": $" + @price
         end
     end
 end
@@ -50,7 +50,7 @@ class GameWorld []
     end
 
     fun spawn [name]
-        entity_count += 1
+        @entity_count += 1
         return this :: new Entity [name]
     end
 end

@@ -1,36 +1,36 @@
 class Add [x, y]
     fun sum
-        return x + y
+        return @x + @y
     end
 end
 
 class Mul [a, b]
     fun mul
-        return a * b
+        return @a * @b
     end
 end
 
 class Sub [a, b]
     fun sub
-        return a - b
+        return @a - @b
     end
 end
 
 class Div [m, n]
     fun div
-        return m / n
+        return @m / @n
     end
 end
 
 class Exp [m, n]
     fun exp
-        return pow[m, n]
+        return pow[@m, @n]
     end
 end
 
 class Fib [ n ]
     fun fib
-        return fib [ n ]
+        return fib [ @n ]
     end
 
     fun fib [ n ]

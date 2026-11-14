@@ -172,6 +172,7 @@ assert add [1, add [2, add [3, 4]]] == 10
 # ── Function modifying global state ──
 global_counter = 0
 fun bump []
+    global global_counter
     global_counter += 1
 end
 bump []

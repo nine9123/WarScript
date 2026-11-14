@@ -196,6 +196,7 @@ assert bin_search [sorted_arr, 6, 0, 8] == -1
 # ── 10. Standalone functions still see globals ──
 counter = 0
 fun recursive_count [n]
+    global counter
     if n <= 0
         return
     end

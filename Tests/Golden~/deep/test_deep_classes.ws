@@ -9,13 +9,13 @@
 # ── 1. Composition: class holding another class ──
 class Engine [horsepower]
     fun describe []
-        return "Engine: " + horsepower + "hp"
+        return "Engine: " + @horsepower + "hp"
     end
 end
 
 class Car [make, engine]
     fun full_description []
-        return make + " with " + this :: engine :: describe []
+        return @make + " with " + this :: engine :: describe []
     end
 end
 
@@ -112,16 +112,16 @@ assert total > 340
 # ── 5. Class with class factory method ──
 class Vector2 [x, y]
     fun add [other]
-        return new Vector2 [x + other :: x, y + other :: y]
+        return new Vector2 [@x + other :: x, @y + other :: y]
     end
     fun scale [factor]
-        return new Vector2 [x * factor, y * factor]
+        return new Vector2 [@x * factor, @y * factor]
     end
     fun magnitude_squared []
-        return x * x + y * y
+        return @x * @x + @y * @y
     end
     fun equals [other]
-        return x == other :: x and y == other :: y
+        return @x == other :: x and @y == other :: y
     end
 end
 
@@ -180,17 +180,17 @@ assert ct :: history == {15, 18, 16, 0, 100}
 # ── 8. Multi-level inheritance with method at each level ──
 class Lifeform [name]
     fun identify []
-        return "Lifeform: " + name
+        return "Lifeform: " + @name
     end
 end
 class Animal [name, legs] : Lifeform [name]
     fun move []
-        return name + " moves on " + legs + " legs"
+        return @name + " moves on " + @legs + " legs"
     end
 end
 class Pet [name, legs, owner] : Animal [name, legs]
     fun greet []
-        return name + " belongs to " + owner
+        return @name + " belongs to " + @owner
     end
 end
 
@@ -244,17 +244,17 @@ assert team :: find_by_name ["Unknown"] == null
 # ── 10. Multiple inheritance method from each parent ──
 class JsonSerializable [data]
     fun to_json []
-        return "data=" + data
+        return "data=" + @data
     end
 end
 class Printable [label]
     fun to_display []
-        return "[" + label + "]"
+        return "[" + @label + "]"
     end
 end
 class LogEntry [data, label, timestamp] : JsonSerializable [data], Printable [label]
     fun full_log []
-        return this :: to_display [] + " " + timestamp + " " + this :: to_json []
+        return this :: to_display [] + " " + @timestamp + " " + this :: to_json []
     end
 end
 

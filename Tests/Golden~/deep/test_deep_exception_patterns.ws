@@ -118,6 +118,7 @@ assert cleanup_order == {"inner_begin", "inner_ensure", "outer_rescue", "outer_e
 # ── 8. Function that always cleans up ──
 resource_open = false
 fun use_resource []
+    global resource_open
     resource_open = true
     begin
         raise "oops"

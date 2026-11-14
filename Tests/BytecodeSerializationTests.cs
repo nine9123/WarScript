@@ -151,6 +151,7 @@ namespace Tests
             var script = new WarScriptLanguage("test", @"
                 hp = 100
                 fun damage [n]
+                    global hp
                     hp -= n
                 end
                 fun get_hp []

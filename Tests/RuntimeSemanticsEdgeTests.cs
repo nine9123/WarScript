@@ -75,17 +75,19 @@ end
         }
 
         [Test]
-        public void Lambda_DoesNotCaptureOuterLocal_ReadsAsNull()
+        public void Lambda_ReadingAnOuterLocal_IsACompileError()
         {
-            var output = Run(@"
+            // v1 read null here; v2 has no closures and says so (T3.4, PROP-16).
+            var e = Assert.Throws<WarScript.Exception.CompileError>(() => Run(@"
 fun make []
     local = 42
     return fun [] return local end
 end
 f = make []
 print f []
-");
-            Assert.AreEqual("null", output[0]);
+"));
+            StringAssert.Contains("closures are not supported", e.Message);
+            Assert.AreEqual(4, e.Line);
         }
 
         [Test]

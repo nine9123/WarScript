@@ -135,12 +135,12 @@ assert u is FullUser
 # ── Cast with method calls ──
 class Identifiable [id]
     fun get_id []
-        return id
+        return @id
     end
 end
 class Describable [description]
     fun describe []
-        return description
+        return @description
     end
 end
 class Item [id, description] : Identifiable [id], Describable [description]

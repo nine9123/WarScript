@@ -29,12 +29,5 @@ loop counter in 0..10
 end
 assert counter == 999
 
-# ── Variable with same name in a function should be safe ──
-fun check_scope
-    x = 42
-    loop x in 0..5
-    end
-    return x
-end
-result = check_scope[]
-assert result == 42
+# ── In a function, a loop variable may not shadow a local (T3.4, PROP-9):
+# that is a compile error now, see language/loop_variable_shadows_local.ws ──

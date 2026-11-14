@@ -148,6 +148,7 @@ namespace Tests
                         end
                         return risky [n - 1]
                     ensure
+                        global result
                         result = ""ensured""
                     end
                 end

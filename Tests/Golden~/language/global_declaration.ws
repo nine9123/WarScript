@@ -1,7 +1,7 @@
-# T3.3 (PROP-10): `global a, b` is a statement of a function, method, lambda
-# or class body, nested blocks included. Until name resolution (T3.4) it
-# compiles to nothing, so this checks only what v1 and v2 agree on: a
-# function writing a global that exists.
+# T3.3/T3.4 (PROP-10): `global a, b` is a statement of a function, method,
+# lambda or class body, nested blocks included; assignments to those names
+# write the instance globals. (In a class body it changes nothing yet: the
+# class field list is the second half of T3.4.)
 count = 0
 total = 0
 
@@ -25,7 +25,7 @@ class Counter [start]
     global count
     fun read []
         global total
-        return start
+        return @start
     end
 end
 

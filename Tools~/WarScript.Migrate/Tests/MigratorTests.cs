@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using WarScript.Migrate;
 
@@ -337,17 +338,18 @@ namespace Tests
                 .ToList();
             var result = new Migrator(new string[0]).Run(files);
             // The only files the v1 frontend rejects are the ones that test
-            // exactly that ('# expect-compile-error:') and the goldens of v2
-            // syntax added since (T3.3 and later), which are never migrated.
-            foreach (var e in result.Entries.Where(e => e.Rule == Rules.ParseError && !V2SyntaxGoldens.Contains(e.File)))
+            // exactly that ('# expect-compile-error:') and the files already
+            // in v2 syntax: the goldens added since T3.3 and the corpus the
+            // tool itself migrated for T3.4 (`global` declarations, `@x`).
+            foreach (var e in result.Entries.Where(e => e.Rule == Rules.ParseError && !UsesV2Syntax(files, e.File)))
                 StringAssert.Contains("expect-compile-error", File.ReadAllText(Path.Combine(root, e.File.TrimStart('/'))), e.Location);
-            Assert.Greater(result.Rewritten.Count, 0);
         }
 
-        private static readonly HashSet<string> V2SyntaxGoldens = new HashSet<string>
+        private static bool UsesV2Syntax(List<MigrationFile> files, string file)
         {
-            "/language/global_declaration.ws", // T3.3: `global` statements
-        };
+            var source = files.Single(f => f.Path == file).Source;
+            return Regex.IsMatch(source, @"(^|\s)global\s+[A-Za-z_]|@[A-Za-z_]");
+        }
 
         private static string CorpusRoot([CallerFilePath] string sourceFilePath = "") =>
             Path.GetFullPath(Path.Combine(Path.GetDirectoryName(sourceFilePath), "..", "..", "..", "Tests", "Golden~"));

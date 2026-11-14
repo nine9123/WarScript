@@ -95,7 +95,7 @@ namespace Tests
             var (_, output) = TestHelper.Run("test", @"
                 class Counter [n]
                     fun add [amount = 1]
-                        n = n + amount
+                        @n = @n + amount
                     end
                     fun get []
                         return this :: n

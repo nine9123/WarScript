@@ -5,17 +5,17 @@
 # ── 1. Three-parent inheritance ──
 class HasId [id]
     fun get_id []
-        return id
+        return @id
     end
 end
 class HasName [name]
     fun get_name []
-        return name
+        return @name
     end
 end
 class HasEmail [email]
     fun get_email []
-        return email
+        return @email
     end
 end
 class User [id, name, email] : HasId [id], HasName [name], HasEmail [email]
@@ -56,19 +56,19 @@ assert u2 :: name == "Two"
 # ── 4. Deep chain + multi-parent ──
 class Base [tag]
     fun get_tag []
-        return tag
+        return @tag
     end
 end
 class Mixin [extra]
     fun get_extra []
-        return extra
+        return @extra
     end
 end
 class Mid [tag, extra, level] : Base [tag], Mixin [extra]
 end
 class Leaf [tag, extra, level, detail] : Mid [tag, extra, level]
     fun info []
-        return this :: get_tag [] + "/" + this :: get_extra [] + "/" + level + "/" + detail
+        return this :: get_tag [] + "/" + this :: get_extra [] + "/" + @level + "/" + @detail
     end
 end
 
@@ -90,7 +90,7 @@ assert !is_unrelated
 # ── 6. Multiple classes inheriting same base ──
 class Drawable [color]
     fun get_color []
-        return color
+        return @color
     end
 end
 class CircleShape [color, radius] : Drawable [color]
