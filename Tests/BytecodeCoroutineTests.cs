@@ -633,5 +633,42 @@ namespace Tests
             Assert.AreEqual(new[] { "at 1", "at 2", "done" }, output);
             Assert.AreEqual(0, script.ActiveCoroutineCount);
         }
+
+        [Test]
+        public void YieldInsideAMethod_KeepsItsClassDefinitionsAcrossTicks()
+        {
+            // T3.5: the class's definitions are part of the suspended method
+            // frame; nothing is set aside on the DefinitionContext between ticks.
+            var (script, output) = TestHelper.Run("test", @"
+                fun label [] return ""top"" end
+                class Squad []
+                    class Member [n]
+                    end
+                    fun label [] return ""squad"" end
+                    fun march []
+                        print label []
+                        yield
+                        print label []
+                        m = new Member [3]
+                        print m :: n
+                    end
+                end
+                fun patrol []
+                    s = new Squad
+                    s :: march []
+                    print label []
+                end
+            ");
+            var depth = script.DefinitionContext.Depth;
+
+            script.StartCoroutine("patrol", System.Array.Empty<WarValue>());
+            Assert.AreEqual(new[] { "squad" }, output);
+            Assert.AreEqual(depth, script.DefinitionContext.Depth);
+
+            script.TickCoroutines(F64.FromDouble(0.016));
+            Assert.AreEqual(new[] { "squad", "squad", "3", "top" }, output);
+            Assert.AreEqual(depth, script.DefinitionContext.Depth);
+            Assert.AreEqual(0, script.ActiveCoroutineCount);
+        }
     }
 }

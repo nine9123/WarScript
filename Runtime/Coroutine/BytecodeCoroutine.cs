@@ -32,13 +32,6 @@ namespace WarScript
         private bool _started;
         private bool _faulted;
 
-        // Definition scopes the VM pushed for method and constructor calls
-        // still in flight when it yielded. They are set aside between ticks
-        // and pushed back on resume, so the VM's frames find them where they
-        // left them. Stored top-of-stack first. (Frames push no memory scopes
-        // since T3.5: names resolve through the frame.)
-        private readonly List<DefinitionScope> _suspendedDefinitions = new();
-
         // Yield timing
         private YieldType _yieldType;
         private F64 _waitRemaining;
@@ -102,12 +95,6 @@ namespace WarScript
             _script.MemoryContext.PushScope(_memoryScope);
             _script.ClearYield();
 
-            int definitionBase = _script.DefinitionContext.Depth;
-
-            for (int i = _suspendedDefinitions.Count - 1; i >= 0; i--)
-                _script.DefinitionContext.PushScope(_suspendedDefinitions[i]);
-            _suspendedDefinitions.Clear();
-
             try
             {
                 if (!_started)
@@ -135,15 +122,8 @@ namespace WarScript
             }
             finally
             {
-                // Take off whatever the VM left above our own scopes: keep it
-                // for the next resume if suspended, otherwise discard it.
-                bool suspended = _vm.IsYielded;
-                while (_script.DefinitionContext.Depth > definitionBase)
-                {
-                    var scope = _script.DefinitionContext.DetachScope();
-                    if (suspended) _suspendedDefinitions.Add(scope);
-                }
-
+                // A suspended VM's frames keep their own instance and
+                // definitions (T3.5): nothing to set aside between ticks.
                 _script.MemoryContext.EndScope();  // user memory scope
                 _script.DefinitionContext.EndScope();
 

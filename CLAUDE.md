@@ -250,7 +250,7 @@ p = new Point [3, 4]
 
 Stack-based VM with fixed-size arrays (no heap allocation in hot path):
 - **Value stack**: 1024 WarValue slots
-- **Call frames**: 128 CallFrame slots (Function, IP, StackBase, `FrameKind`: Script / Function / Method / Constructor — what the frame pushed on the `DefinitionContext` (a method or constructor its class scope; no frame pushes a `MemoryScope` since T3.5), popped by `PopFrameContexts`, and where its bare names resolve (`NameScope`); `Instance`: what `this` is, T3.5 — a method's or constructor's instance part, a function/lambda frame takes its caller's (so a method called by bare name sees the same instance), an entry frame has none; there is no `ClassInstanceContext` any more)
+- **Call frames**: 128 CallFrame slots (Function, IP, StackBase, `FrameKind`: Script / Function / Method / Constructor — where its bare names resolve (`NameScope`); no frame pushes anything on `MemoryContext` or `DefinitionContext` since T3.5, `ReleaseFrame` only drops its references; `Instance`: what `this` is, T3.5 — a method's or constructor's instance part, a function/lambda frame takes its caller's (so a method called by bare name sees the same instance), an entry frame has none; there is no `ClassInstanceContext` any more; `Definitions`: where `Call`/`TailCall` by name, `new` and an import look up functions and classes, T3.5 — a method's or constructor's class definition scope, a function/lambda frame takes its caller's, an entry frame the top of `DefinitionContext` when it started; so a suspended coroutine sets nothing aside between ticks)
 - **Exception handlers**: 32 TryHandler slots
 
 Function call dispatch (3 paths):

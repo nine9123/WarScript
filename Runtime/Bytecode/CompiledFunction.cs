@@ -42,19 +42,20 @@ namespace WarScript.Bytecode
     }
 
     /// <summary>
-    /// The kind of a <see cref="CallFrame"/>: what it pushed on the
-    /// DefinitionContext when it was entered, and where its bare names that
-    /// are not locals resolve (T3.5: no frame pushes a MemoryScope).
+    /// The kind of a <see cref="CallFrame"/>: where its bare names that are not
+    /// locals resolve, and whether its value is kept. Since T3.5 no frame
+    /// pushes anything on the context stacks: a frame carries its
+    /// <see cref="CallFrame.Instance"/> and <see cref="CallFrame.Definitions"/>.
     /// </summary>
     public enum FrameKind : byte
     {
-        /// <summary>An entry frame (script body, host call, coroutine): pushes nothing; names resolve in the globals.</summary>
+        /// <summary>An entry frame (script body, host call, coroutine): names resolve in the globals.</summary>
         Script,
-        /// <summary>A function or lambda call: pushes nothing; names resolve in the globals.</summary>
+        /// <summary>A function or lambda call: names resolve in the globals; it takes its caller's instance and definitions.</summary>
         Function,
-        /// <summary>A method call: pushes the class DefinitionScope; names resolve in the globals; its <see cref="CallFrame.Instance"/> is the instance part whose class defines the method.</summary>
+        /// <summary>A method call: names resolve in the globals; its <see cref="CallFrame.Instance"/> is the instance part whose class defines the method, its <see cref="CallFrame.Definitions"/> that class's definition scope.</summary>
         Method,
-        /// <summary>A constructor body (T1.1): pushes the class DefinitionScope; names resolve in the instance's fields, then the globals; its <see cref="CallFrame.Instance"/> is the instance part whose body it runs. Its return value is discarded.</summary>
+        /// <summary>A constructor body (T1.1): names resolve in the instance's fields, then the globals; its <see cref="CallFrame.Instance"/> is the instance part whose body it runs, its <see cref="CallFrame.Definitions"/> that class's definition scope. Its return value is discarded.</summary>
         Constructor
     }
 
@@ -68,8 +69,7 @@ namespace WarScript.Bytecode
         public int StackBase;
 
         /// <summary>
-        /// What the frame pushed on the context stacks when it was entered,
-        /// and so what returning from it or unwinding it pops.
+        /// What kind of code the frame runs (see <see cref="FrameKind"/>).
         /// </summary>
         public FrameKind Kind;
 
@@ -84,5 +84,17 @@ namespace WarScript.Bytecode
         /// outside a class: <c>this</c> raises NameError there.
         /// </summary>
         public WarScript.Expression.Value.ClassData Instance;
+
+        /// <summary>
+        /// Where the frame looks up the functions it calls by name and the
+        /// classes it instantiates (T3.5): a method or constructor frame's
+        /// class definition scope, a function or lambda frame's caller's
+        /// (as when the class scope was pushed on the DefinitionContext for
+        /// the method and every call it made), an entry frame's the top of
+        /// the DefinitionContext when it started (the instance's definitions,
+        /// or an import's). Nothing is pushed on the DefinitionContext for a
+        /// frame, so a suspended coroutine's frames keep theirs between ticks.
+        /// </summary>
+        public WarScript.Context.Definition.DefinitionScope Definitions;
     }
 }
