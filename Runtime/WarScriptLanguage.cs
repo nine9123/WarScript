@@ -533,6 +533,48 @@ namespace WarScript
             return _compileResult;
         }
 
+        /// <summary>
+        /// Expression spans recorded while parsing (T3.2): null, except
+        /// during <see cref="ParseForMigration"/>, so a normal parse records
+        /// nothing. The migration tool supplies a reference-equality map.
+        /// </summary>
+        internal Dictionary<Expression.IExpression, Expression.ExpressionSpan>? ExpressionSpans;
+
+        /// <summary>
+        /// Lexes and parses the script without compiling it, for the
+        /// migration tool (T3.2, plan 8.2): returns the token list, the
+        /// top-level statements and the definitions (the instance's own
+        /// definition scope, which keeps them), recording every expression's
+        /// span into <paramref name="spans"/>. Throws the parser's
+        /// <see cref="Exception.SyntaxException"/>. The instance is not
+        /// usable afterwards.
+        /// </summary>
+        internal (IReadOnlyList<Token.Token> Tokens, CompositeStatement TopLevel, DefinitionScope Definitions) ParseForMigration(
+            Dictionary<Expression.IExpression, Expression.ExpressionSpan> spans)
+        {
+            ExpressionSpans = spans;
+            DefinitionContext.PushScope(_definitionScope);
+            MemoryContext.PushScope(_memoryScope);
+            try
+            {
+                var tokens = LexicalParser.Parse(_sourceCode);
+                var statement = new CompositeStatement(this, null, ScriptName);
+                StatementParser.Parse(this, tokens, statement);
+                return (tokens, statement, _definitionScope);
+            }
+            catch (Exception.SyntaxException e)
+            {
+                e.LocateIn(ScriptName, _sourceCode);
+                throw;
+            }
+            finally
+            {
+                ExpressionSpans = null;
+                DefinitionContext.EndScope();
+                MemoryContext.EndScope();
+            }
+        }
+
         private void RollBackCompile(HashSet<string> constantsBefore)
         {
             _definitionScope.Clear();

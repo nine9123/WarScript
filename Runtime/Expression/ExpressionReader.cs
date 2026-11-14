@@ -21,6 +21,12 @@ namespace WarScript.Expression
         /// are positioned there (T3.1).
         /// </summary>
         private readonly Stack<Token.Token> _operatorTokens;
+
+        /// <summary>
+        /// The token-list index of each operator on <see cref="_operators"/>,
+        /// in step with it, for <see cref="WarScriptLanguage.ExpressionSpans"/>.
+        /// </summary>
+        private readonly Stack<int> _operatorIndexes;
         public TokensStack Tokens { get; private set; }
 
         private WarScriptLanguage _script;
@@ -39,6 +45,7 @@ namespace WarScript.Expression
             _operands = new Stack<IExpression>();
             _operators = new Stack<Operator.Operator>();
             _operatorTokens = new Stack<Token.Token>();
+            _operatorIndexes = new Stack<int>();
             Tokens = tokens;
         }
 
@@ -80,6 +87,7 @@ namespace WarScript.Expression
             reader._operands.Clear();
             reader._operators.Clear();
             reader._operatorTokens.Clear();
+            reader._operatorIndexes.Clear();
             reader._script = null!;
             reader.Tokens = null!;
             (_pool ??= new Stack<ExpressionReader>()).Push(reader);
@@ -133,6 +141,7 @@ namespace WarScript.Expression
                             case Operator.Operator.LeftParen:
                                 _operators.Push(op);
                                 _operatorTokens.Push(token);
+                                _operatorIndexes.Push(Tokens.Position - 1);
                                 lastWasOperand = false;
                                 break;
                             case Operator.Operator.RightParen:
@@ -143,6 +152,10 @@ namespace WarScript.Expression
                                         System.FormattableString.Invariant($"Unbalanced ')' at line {token.RowNumber}"), token.RowNumber, token.Column);
                                 _operators.Pop();
                                 _operatorTokens.Pop();
+                                var leftParen = _operatorIndexes.Pop();
+                                // A parenthesized operand spans its parentheses.
+                                if (_operands.Count > 0)
+                                    Span(_operands.Peek(), leftParen, Tokens.Position - 1);
                                 lastWasOperand = true;
                                 break;
                             default:
@@ -152,6 +165,7 @@ namespace WarScript.Expression
                                     ApplyTopOperator();
                                 _operators.Push(op);
                                 _operatorTokens.Push(token);
+                                _operatorIndexes.Push(Tokens.Position - 1);
                                 lastWasOperand = false;
                                 break;
                         }
@@ -166,6 +180,7 @@ namespace WarScript.Expression
                                 System.FormattableString.Invariant($"Unexpected `{token.Value}` at line {token.RowNumber}: expected an operator or end of expression"), token.RowNumber, token.Column);
 
                         var value = token.Value;
+                        var first = Tokens.Position - 1;
                         IExpression operand;
                         switch (token.Type)
                         {
@@ -209,9 +224,10 @@ namespace WarScript.Expression
                                 else if (Tokens.PeekSameLine(TokenType.GroupDivider, "{"))
                                     operand = ReadArrayValue(token);
                                 else
-                                    operand = new VariableExpression(_script, value);
+                                    operand = new VariableExpression(_script, value) { Line = token.RowNumber, Column = token.Column };
                                 break;
                         }
+                        Span(operand, first, Tokens.Position - 1);
                         _operands.Push(operand);
                         lastWasOperand = true;
                         break;
@@ -239,6 +255,7 @@ namespace WarScript.Expression
 
             var op = _operators.Pop();
             var token = _operatorTokens.Pop();
+            var index = _operatorIndexes.Pop();
 
             if (_operands.Count == 0)
                 throw new SyntaxException($"Malformed expression: operator '{op}' has no operands", token.RowNumber, token.Column);
@@ -251,12 +268,32 @@ namespace WarScript.Expression
                     throw new SyntaxException($"Malformed expression: binary operator '{op}' missing left-hand operand", token.RowNumber, token.Column);
 
                 var right = _operands.Pop();
-                _operands.Push(At(op.ToBinaryExpression(_script, right, left), token));
+                var binary = At(op.ToBinaryExpression(_script, right, left), token);
+                var spans = _script.ExpressionSpans;
+                if (spans != null && spans.TryGetValue(right, out var leftSpan) && spans.TryGetValue(left, out var rightSpan))
+                    Span(binary, leftSpan.First, rightSpan.Last);
+                _operands.Push(binary);
             }
             else
             {
-                _operands.Push(At(op.ToUnaryExpression(_script, left), token));
+                // Every unary operator is a prefix: it spans from its token.
+                var unary = At(op.ToUnaryExpression(_script, left), token);
+                var spans = _script.ExpressionSpans;
+                if (spans != null && spans.TryGetValue(left, out var operandSpan))
+                    Span(unary, index, operandSpan.Last);
+                _operands.Push(unary);
             }
+        }
+
+        /// <summary>
+        /// Records the tokens <paramref name="first"/> to <paramref name="last"/>
+        /// (token-list indexes) as the source of <paramref name="expression"/>,
+        /// when the instance records spans (the migration tool, T3.2).
+        /// </summary>
+        private void Span(IExpression expression, int first, int last)
+        {
+            var spans = _script.ExpressionSpans;
+            if (spans != null) spans[expression] = new ExpressionSpan(first, last);
         }
 
         // Position an expression at a token (T3.1).
@@ -419,7 +456,7 @@ namespace WarScript.Expression
 
         private ArrayValueOperator ReadArrayValue(Token.Token token)
         {
-            var array = new VariableExpression(_script, token.Value);
+            var array = new VariableExpression(_script, token.Value) { Line = token.RowNumber, Column = token.Column };
             var brace = Tokens.Next(TokenType.GroupDivider, "{");
             var arrayIndex = ReadExpression(_script, this);
             Tokens.Next(TokenType.GroupDivider, "}");

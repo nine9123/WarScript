@@ -22,3 +22,25 @@ namespace WarScript.Expression
         int Column { get; }
     }
 }
+
+namespace WarScript.Expression
+{
+    /// <summary>
+    /// The tokens an expression was read from: indexes into the lexer's
+    /// token list, first and last inclusive; a parenthesized expression
+    /// includes its parentheses. Recorded only into
+    /// <see cref="WarScriptLanguage.ExpressionSpans"/>, for the migration
+    /// tool (T3.2).
+    /// </summary>
+    internal readonly struct ExpressionSpan
+    {
+        public readonly int First;
+        public readonly int Last;
+
+        public ExpressionSpan(int first, int last)
+        {
+            First = first;
+            Last = last;
+        }
+    }
+}
