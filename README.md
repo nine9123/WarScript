@@ -69,8 +69,8 @@ using WarScript;
 using WarScript.Context.Definition;
 using WarScript.Expression.Value;
 
-// 1. Create the script. The logger receives everything `print` emits and any
-//    uncaught error's stack trace.
+// 1. Create the script. The logger receives everything `print` emits and the
+//    runtime's own log lines (an uncaught error with its call stack, warnings).
 var script = new WarScriptLanguage(
     scriptName:   "example",
     sourceCode:   sourceCode,
@@ -83,11 +83,14 @@ WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
 
 // 3. Run() parses, compiles to bytecode, and executes all top-level statements.
 //    This is also what makes functions callable — always call it first.
-script.Run();
+//    No entry point throws for a script error: check the ScriptResult.
+ScriptResult run = script.Run();
+if (!run.IsOk) Debug.LogError(run.Error);    // "example:3:0: DivisionByZero: Division by zero"
 
 // 4. Call into the script. Functions are looked up by (name, argument count).
-var tick = script.GetFunction("tick", 1);
-script.Call(tick, WarValue.FromNumeric(F64.Ratio(1, 60)));
+FunctionHandle tick = script.GetFunction("tick", 1);   // null if there is no tick[dt]
+ScriptResult r = script.Call(tick, WarValue.FromNumeric(F64.Ratio(1, 60)));
+// r.Value is tick's return value when r.IsOk
 
 // 5. If your scripts use `yield`, drive coroutines once per tick.
 script.TickCoroutines(F64.Ratio(1, 60));
@@ -1023,6 +1026,8 @@ public class WarScriptHost : MonoBehaviour
 
     void FixedUpdate()
     {
+        if (_script.IsHalted) return;   // an earlier error stopped this instance; see Fault
+
         if (_tick != null)
             _script.Call(_tick, WarValue.FromNumeric(Dt));
 
@@ -1030,6 +1035,10 @@ public class WarScriptHost : MonoBehaviour
     }
 }
 ```
+
+Skipping a halted instance is optional — every entry of a halted instance returns `Halted` at once —
+but it makes the intent explicit. Errors are logged through the logger as they halt the instance; a
+host that wants more (a UI message, a telemetry event) subscribes to `Faulted`.
 
 ### Coroutine API
 
@@ -1109,14 +1118,19 @@ model an optional numeric as `WarValue x = default` and read
 ### Safety budgets
 
 ```csharp
-script.InstructionBudget = 100_000;     // max bytecode instructions per Run()/Call()/coroutine resume
-script.MemoryBudget      = 1_000_000;   // max tracked heap bytes per Run()/Call()/coroutine resume
+script.InstructionBudget = 100_000;     // max bytecode instructions per host entry
+script.MemoryBudget      = 1_000_000;   // max tracked heap bytes per host entry
 ```
 
-`0` (the default) means unlimited. Both are enforced per host invocation, so a coroutine gets a
-fresh budget on every resume.
+`0` (the default) means unlimited. A budget is reset at every **outermost** host entry — `Run()`,
+`Call()`, each coroutine resume in `TickCoroutines` — and shared by everything that runs inside it:
+callbacks a native makes into the same instance, imports, constructors and coroutines the script
+starts all draw from the same budget.
 
-`Instruction budget exceeded` is raised as a normal script error and is reliably catchable:
+An exhausted **instruction budget** is not recoverable from script. Once it runs out, every further
+instruction raises the same error again, so no `rescue` or `ensure` body runs: the entry ends with
+an `Error` result of kind `InstructionBudgetExceeded` (its line and call stack are where the budget
+ran out), and the instance halts like for any other unhandled error.
 
 ```ruby
 begin
@@ -1124,15 +1138,15 @@ begin
         x = i
     end
 rescue err
-    print "caught: " + err     # → caught: Instruction budget exceeded
+    print "caught: " + err     # never runs: the entry ends with InstructionBudgetExceeded
 end
-print "still running"
 ```
 
-`Memory budget exceeded` is raised at allocation sites (strings, arrays, class instances) but is
-**only catchable at some of them** — for example `s = s + s` can be rescued, while
-`arr << "data"` currently escapes `begin`/`rescue` and stops the script with an uncaught error.
-Treat the memory budget as a hard backstop rather than a recoverable condition.
+`Memory budget exceeded` (kind `MemoryBudgetExceeded`) is raised at allocation sites — strings,
+arrays, class instances — before anything is allocated, and `begin`/`rescue` can catch it. The
+memory already counted stays counted until the next outermost entry, so a rescue body that
+allocates again (`print "caught: " + err`) can exceed the budget a second time. Treat the memory
+budget as a backstop rather than a recoverable condition.
 
 ### Debugger
 
@@ -1163,6 +1177,10 @@ script.Call(tickFunc, dt);                 // handles survive: this runs the new
 
 Global variables survive; function and class definitions are replaced; **all coroutines are
 stopped** (they hold bytecode that no longer exists), and top-level statements are *not* re-executed.
+`Reload` also clears a fault, so a halted instance runs again. Unlike the entry points, it
+**throws** a `SyntaxException` when the new source does not compile; `Compile()` then returns its
+diagnostics. The old definitions are gone at that point, so the next entry returns the
+`CompileError` result until a `Reload` with source that compiles.
 
 ```
 counter = 5; bump[] → 6         # before reload
@@ -1188,14 +1206,18 @@ var tick = script.GetFunction("tick", 1);
 ```
 
 Coroutines and `yield` behave identically whether the bytecode came from `Run()` or `LoadBytecode()`.
+`LoadBytecode` does not clear a fault (only `Reload` and `ClearFault` do), and does not run the
+top-level statements.
 
 `LoadBytecode` covers the entry point. To skip the front end for what the entry point imports as
 well, give the constructor a `bytecodeResolver` — see
 [Importing precompiled bytecode](#importing-precompiled-bytecode).
 
-> The serialized format version is `1`, but numeric constants are stored as the 64-bit **F64 raw**.
-> Files produced before the fixed-point migration share the version byte yet are binary
-> incompatible — regenerate them from source.
+> A `.wsbc` file starts with a format version (currently `4`) and a hash of the opcode table, and
+> the loader accepts only an exact match, so bytecode written by another WarScript version must be
+> regenerated from source. The loader verifies everything it reads: a truncated, corrupt or
+> mismatched file makes `LoadBytecode` throw `InvalidDataException` and leaves the instance
+> unchanged.
 
 ## Coroutines: making `yield` work
 
@@ -1221,7 +1243,8 @@ ingredients:
 | Log shows `Function 'start_coroutine' with 1 args is not defined` | Native functions match on exact arity. | `start_coroutine ["name", {}]` — pass the args array even when empty |
 | A `loop`+`yield` coroutine only advances one iteration per tick | Correct by design: one resume per coroutine per `TickCoroutines` call, regardless of how large `dt` is. | Tick more often, or don't `yield` in the inner loop |
 | A looping coroutine seems to skip a tick between repetitions | Also by design: `loop: true` restarts the function on the *next* tick after it completes. | — |
-| The coroutine vanished silently | An uncaught error inside a coroutine logs its message and drops that coroutine (`ActiveCoroutineCount` decreases). Or the code path ran `Reload()` / `LoadBytecode()`, both of which stop all coroutines. | Check the logger output; restart coroutines after a reload |
+| Every coroutine stopped, and nothing runs any more | An uncaught error inside a coroutine ended it, and — because `TickCoroutines` is a host entry — halted the instance, which clears all coroutines. `TickCoroutines` returned that error, `IsHalted` is true and `Fault` holds it. | Check the logger output or the result; `ClearFault()` and restart them |
+| A coroutine vanished | The code path ran `Reload()` / `LoadBytecode()`, both of which stop all coroutines, or a script called `stop_coroutine`. | Restart coroutines after a reload |
 | `script.IsYielded` is stuck `true` | `Call()`ing a function that hits a `yield` sets this script-level flag and nothing clears it. It is not a reliable signal. | Use `ActiveCoroutineCount`; call `script.ClearYield()` if you need the flag reset |
 
 ### A correct, minimal end-to-end example
@@ -1267,7 +1290,7 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 - `grid{0}{1}` does not chain — assign the inner array to a temporary first.
 - There is no postfix call on an index expression (`arr{0}[args]`) — use a temporary.
 - A `fun` nested inside another `fun` is not callable from the outer body; use a lambda value.
-- `this` outside a class method throws a host-level exception rather than a script error.
+- `this` outside a class method is a `NameError` (`'this' can only be used inside a class`).
 - A raw `"""..."""` literal cannot contain a run of three quotes, and does not interpolate.
 - An unknown escape sequence, an unterminated literal, and an unterminated `{` interpolation are
   all syntax errors — they used to be accepted silently.
@@ -1293,12 +1316,15 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 
 **Host**
 
-- `Call()` returns `void` — pass results back through a global.
+- `Run()`, `Call()`, `StartCoroutine()` and `TickCoroutines()` never throw for a script error; they
+  return a `ScriptResult`. An unhandled error halts the instance until `ClearFault()` or `Reload()`.
+  `Reload()` and `LoadBytecode()` do throw (`SyntaxException`, `InvalidDataException`).
 - Register libraries and bindings **before** `Run()`.
 - `LexicalParser` caches globally by source string; call `LexicalParser.ClearCache()` for hot reload.
 - `Reload()` and `LoadBytecode()` stop all coroutines. `FunctionHandle`s survive them and call the
   new definitions; a handle whose function is gone returns a `NameError` result.
-- `MemoryBudget` is not reliably catchable from script (see [Safety budgets](#safety-budgets)).
+- An exhausted `InstructionBudget` cannot be rescued from script, and an exhausted `MemoryBudget`
+  stays exhausted for the rest of the entry (see [Safety budgets](#safety-budgets)).
 
 ## License
 

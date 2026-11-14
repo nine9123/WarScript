@@ -140,6 +140,23 @@ Source string → LexicalParser.Parse() → IReadOnlyList<Token>
 
 After compilation, the AST is discarded. Bytecode is the source of truth.
 
+## Host API at a Glance (Phase 2, T2.9)
+
+```csharp
+var script = new WarScriptLanguage(name, source, fileResolver, logger /*, bytecodeResolver */);
+WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);   // natives/bindings before compiling
+script.InstanceLabel = "unit-42";                // optional: on every ScriptError and runtime log line
+CompileResult c = script.Compile();              // optional; never throws for script errors
+ScriptResult r = script.Run();                   // top-level code; Value null
+FunctionHandle tick = script.GetFunction("tick", 1);           // null if undefined; survives Reload
+r = script.Call(tick, WarValue.FromNumeric(dt));               // or Call(tick, ReadOnlySpan<WarValue>)
+r = script.StartCoroutine("patrol", args, false, out int id);  // runs to the first yield
+r = script.TickCoroutines(dt);                   // Ok: Value = active coroutine count
+if (!r.IsOk) { /* r.Status: Error / Halted / HostFault; r.Error: ScriptError (Kind, Line, CallStack) */ }
+```
+
+Entry points (`Run`, `Call`, `StartCoroutine`, `TickCoroutines`) return `ScriptResult` and never throw for a script error; an unhandled error or host fault at the outermost entry halts the instance (`IsHalted`, `Fault`, `Faulted`, logged unless `LogUnhandledErrors` is false) until `ClearFault()` or `Reload()`. `Reload` (`SyntaxException`) and `LoadBytecode` (`InvalidDataException`) throw. Budgets reset per outermost entry. The user-facing version of this is the "Host Integration (C#)" section of `README.md`; keep the two in step when the API changes.
+
 ## WarScript Language Syntax — Quick Reference
 
 ```ruby
