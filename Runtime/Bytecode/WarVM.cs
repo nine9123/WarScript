@@ -299,7 +299,7 @@ namespace WarScript.Bytecode
                 }
                 catch (ScriptErrorException e)
                 {
-                    RuntimeError(e.Message);
+                    _script.ExceptionContext.RaiseException(e.Message, e.Kind);
                     if (!HandleCaughtError()) break;
                 }
                 catch
@@ -1952,10 +1952,10 @@ namespace WarScript.Bytecode
         /// </summary>
         private void RaiseNativeFailure(string what, string name, System.Exception e)
         {
-            if (e is ScriptErrorException)
-                RuntimeError(e.Message);
+            if (e is ScriptErrorException scriptError)
+                _script.ExceptionContext.RaiseException(e.Message, scriptError.Kind);
             else
-                RuntimeError($"{what} '{name}' failed: {e.Message}");
+                _script.ExceptionContext.RaiseException($"{what} '{name}' failed: {e.Message}", ScriptErrorKind.NativeError);
         }
 
         /// <summary>

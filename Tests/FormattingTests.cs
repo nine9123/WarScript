@@ -226,7 +226,7 @@ rescue e
 end",
                 s => s.RegisterNativeFormatter<HostThing>(h =>
                     throw new WarScript.Exception.ScriptErrorException(
-                        WarScript.Exception.ScriptErrorKind.NativeError, "cannot format")));
+                        ScriptErrorKind.NativeError, "cannot format")));
             Assert.AreEqual(1, output.Count, string.Join(" | ", output));
             StringAssert.StartsWith("rescued: ", output[0]);
             StringAssert.Contains("cannot format", output[0]);
@@ -308,6 +308,11 @@ print ""f: "" + double");
             "LexicalParser.cs: segment",               // StringBuilder
             "StateHash.cs: value",                     // WarValue
             "PrintStatement.cs: value",                // WarValue
+            "ScriptResult.cs: raised.Value",           // WarValue
+            "ScriptResult.cs: Kind",                   // ScriptErrorKind
+            "ScriptResult.cs: Status",                 // ScriptStatus
+            "ScriptResult.cs: Error",                  // ScriptError
+            "ScriptResult.cs: text",                   // StringBuilder
         };
 
         [Test]

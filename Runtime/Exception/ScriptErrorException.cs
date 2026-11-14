@@ -1,13 +1,14 @@
-namespace WarScript.Exception
+namespace WarScript
 {
     /// <summary>
     /// The kinds of runtime error a script can raise (v2 plan, section 5.9).
-    /// v1 errors still reach scripts as message text only; the kind is carried
-    /// by <see cref="ScriptErrorException"/> now so natives can be written
-    /// against it, and becomes visible to the host with structured errors
-    /// (plan T2.5).
+    /// Scripts still see an error as message text only; the host sees the kind
+    /// in <see cref="ScriptError.Kind"/> (plan T2.3). Until structured errors
+    /// (T2.5) assign one at every raise, only compile errors, host faults,
+    /// native failures and errors thrown as <see cref="ScriptErrorException"/>
+    /// have their own kind; every other runtime error reports Raised.
     /// </summary>
-    public enum ScriptErrorKind
+    public enum ScriptErrorKind : byte
     {
         Raised,
         TypeError,
@@ -19,9 +20,16 @@ namespace WarScript.Exception
         NativeError,
         InstructionBudgetExceeded,
         MemoryBudgetExceeded,
-        LimitExceeded
+        LimitExceeded,
+        /// <summary>The script, or a file it imports, does not compile (plan T2.3; never raised inside a script).</summary>
+        CompileError,
+        /// <summary>An unexpected C# exception inside the VM (plan 6.3; never raised inside a script).</summary>
+        HostFault
     }
+}
 
+namespace WarScript.Exception
+{
     /// <summary>
     /// Thrown by a native function (or by runtime code running on behalf of
     /// the VM) to raise a script error of a given kind (plan 6.9). The VM

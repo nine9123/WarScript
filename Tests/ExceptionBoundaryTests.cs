@@ -172,7 +172,11 @@ end", null, (s, m) => output.Add(m));
             script.DebugHook = ctx => throw new InvalidOperationException("host failed");
             var before = Invariants.Capture(script);
 
-            Assert.AreEqual(0, script.TickCoroutines(F64.FromInt(1)));
+            var result = script.TickCoroutines(F64.FromInt(1));
+            Assert.AreEqual(ScriptStatus.HostFault, result.Status);
+            Assert.AreEqual(ScriptErrorKind.HostFault, result.Error.Kind);
+            Assert.IsInstanceOf<InvalidOperationException>(result.Error.HostException);
+            Assert.AreEqual(0, script.ActiveCoroutineCount);
             Assert.IsNull(Invariants.Violation(script, before));
             Assert.IsInstanceOf<InvalidOperationException>(script.LastHostFault);
         }
@@ -186,7 +190,11 @@ end
 f []", path => "fun g [\nreturn 1\nend", null);
             var before = Invariants.Capture(script);
 
-            Assert.Throws<SyntaxException>(() => script.Run());
+            var result = script.Run();
+
+            Assert.AreEqual(ScriptStatus.Error, result.Status);
+            Assert.AreEqual(ScriptErrorKind.CompileError, result.Error.Kind);
+            Assert.IsInstanceOf<SyntaxException>(result.Error.CompileException);
             Assert.IsNull(Invariants.Violation(script, before));
         }
     }

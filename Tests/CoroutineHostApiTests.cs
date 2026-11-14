@@ -188,18 +188,21 @@ end
         }
 
         [Test]
-        public void StartCoroutine_WrongArity_ReturnsMinusOneAndRaises()
+        public void StartCoroutine_WrongArity_ReturnsMinusOneAndANameError()
         {
-            var (script, _) = TestHelper.Run("co_wrong_arity", @"
+            var (script, output) = TestHelper.Run("co_wrong_arity", @"
 fun co [a]
     yield
 end
 ");
-            var id = script.StartCoroutine("co", null); // declared with 1 arg, given 0
+            var result = script.StartCoroutine("co", null, false, out var id); // declared with 1 arg, given 0
 
             Assert.AreEqual(-1, id);
-            Assert.IsTrue(script.ExceptionContext.IsRaised());
-            script.ExceptionContext.RescueException();
+            Assert.AreEqual(ScriptStatus.Error, result.Status);
+            Assert.AreEqual(ScriptErrorKind.NameError, result.Error.Kind);
+            Assert.AreEqual("Coroutine function 'co' with 0 arguments is not defined", result.Error.Message);
+            Assert.IsFalse(script.ExceptionContext.IsRaised(), "the error is the result's, logged at the outermost entry");
+            Assert.AreEqual(1, output.Count);
         }
 
         // ────────────────────────────────────────────────
@@ -226,8 +229,10 @@ end
             Assert.IsNotNull(function);
             Assert.IsNull(function.Compiled);
 
-            script.Call(function);
+            var result = script.Call(function);
 
+            Assert.AreEqual(ScriptStatus.Error, result.Status);
+            Assert.AreEqual(ScriptErrorKind.TypeError, result.Error.Kind);
             Assert.IsFalse(called(), "the host function is not run through Call");
             Assert.AreEqual(1, output.Count);
             StringAssert.Contains("Cannot call 'host_fn' in 'no_bytecode': it has no bytecode", output[0]);
@@ -235,18 +240,18 @@ end
         }
 
         [Test]
-        public void StartCoroutine_OnAFunctionWithoutBytecode_ReturnsMinusOneAndRaises()
+        public void StartCoroutine_OnAFunctionWithoutBytecode_ReturnsMinusOneAndATypeError()
         {
             var (script, _, called) = ScriptWithHostFunction();
 
-            var id = script.StartCoroutine("host_fn", null);
+            var result = script.StartCoroutine("host_fn", null, false, out var id);
 
             Assert.AreEqual(-1, id);
             Assert.IsFalse(called());
             Assert.AreEqual(0, script.ActiveCoroutineCount);
-            Assert.IsTrue(script.ExceptionContext.IsRaised());
-            StringAssert.Contains("has no bytecode", script.ExceptionContext.Exception.Value.TextValue);
-            script.ExceptionContext.RescueException();
+            Assert.AreEqual(ScriptErrorKind.TypeError, result.Error.Kind);
+            StringAssert.Contains("has no bytecode", result.Error.Message);
+            Assert.IsFalse(script.ExceptionContext.IsRaised());
         }
 
         // ────────────────────────────────────────────────

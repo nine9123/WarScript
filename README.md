@@ -101,8 +101,9 @@ ulong stateHash = script.ComputeStateHash();
 `Run()` compiles the script to bytecode if it has not been compiled yet. To find compile errors
 without running anything, call `Compile()` first: it returns a `CompileResult` (`Success` and
 `Diagnostics`, each with a severity, message, script name and line) instead of throwing, and later
-calls return the same result. An entry point (`Run`, `Call`, `StartCoroutine`) on a script that does
-not compile throws its `SyntaxException`. Every language feature (including `yield`) runs on the bytecode VM. Saving/loading bytecode
+calls return the same result. The entry points (`Run`, `Call`, `StartCoroutine`, `TickCoroutines`)
+return a `ScriptResult` — see [Results and errors](#results-and-errors); on a script that does not
+compile they return an `Error` result of kind `CompileError` and run nothing. Every language feature (including `yield`) runs on the bytecode VM. Saving/loading bytecode
 files is an optional build-time optimisation, not a requirement. See
 [Bytecode serialization](#bytecode-serialization).
 
@@ -866,13 +867,42 @@ if (!compiled.Success)
 ```
 
 The constructor no longer lexes, so a malformed source shows up in `Compile()` (or as the
-`SyntaxException` thrown by `Run()`), not in `new WarScriptLanguage(...)`. Register natives and
+`CompileError` result of `Run()`), not in `new WarScriptLanguage(...)`. Register natives and
 `[WsConst]`/`[WsEnum]` bindings before compiling: assignments to constants are checked at parse time.
+
+### Results and errors
+
+`Run()`, `Call()`, `StartCoroutine(..., out id)` and `TickCoroutines(dt)` return a `ScriptResult`
+and never throw for a script error:
+
+```csharp
+ScriptResult r = script.Call(script.GetFunction("compute", 2)!,
+                             WarValue.FromNumeric(F64.FromInt(3)),
+                             WarValue.FromNumeric(F64.FromInt(4)));
+if (r.IsOk)
+    Debug.Log(r.Value);                  // the function's return value (Run: null)
+else
+    Debug.LogError(r.Error);             // "file:line:column: Kind: message"
+```
+
+| `Status` | Meaning | `Value` | `Error` |
+|---|---|---|---|
+| `Ok` | The entry completed. | The return value (`TickCoroutines`: the number of active coroutines) | null |
+| `Error` | A script error escaped the entry, or the script does not compile (`Kind` `CompileError`). | null | The error |
+| `HostFault` | A C# exception occurred inside the VM (a VM bug or a host failure). | null | The error, with `HostException` set |
+
+A `ScriptError` has a `Kind`, a `Message`, the raised `Value`, a `ScriptName` and a `Line`. The
+error is still logged as before. Being written in stages: until structured errors land, most
+runtime errors report kind `Raised` (natives throwing `ScriptErrorException` and native failures
+already have their own kind) with line 0 and an empty `CallStack`, and an error does not yet halt
+the instance (`Halted` is not returned yet). A native that calls back into its own instance gets
+the callback's error as its result, and the error also continues in the calling script, where
+`begin/rescue` can catch it.
 
 ### Passing values in and out
 
-`Call()` returns `void`. To get a result back, have the script write a global and read it from the
-host:
+`Call()` returns the function's return value in its result's `Value`. Globals are the other way:
+have the script write a global and read it from the host:
 
 ```csharp
 // script:  result = 0
@@ -947,16 +977,17 @@ public class WarScriptHost : MonoBehaviour
 ### Coroutine API
 
 ```csharp
-int id    = script.StartCoroutine("patrol", new[] { WarValue.FromText("A") });
-int id2   = script.StartCoroutine("pulse", Array.Empty<WarValue>(), loop: true);
+ScriptResult started = script.StartCoroutine("patrol", new[] { WarValue.FromText("A") }, false, out int id);
+int id2   = script.StartCoroutine("pulse", Array.Empty<WarValue>(), loop: true);   // id only
 bool ok   = script.StopCoroutine(id);
 script.StopAllCoroutines();
-int alive = script.TickCoroutines(dt);        // resume all ready coroutines; returns the live count
+ScriptResult tick = script.TickCoroutines(dt);  // resume all ready coroutines; Ok: Value = the live count
 int count = script.ActiveCoroutineCount;
 ```
 
-`StartCoroutine` runs the function immediately up to its first `yield`, then returns. It returns
-`-1` if the function could not be found. Each call creates an independent coroutine with its own
+`StartCoroutine` runs the function immediately up to its first `yield`, then returns the result of
+that first run. The id is `-1` (and the result an `Error`) if the function could not be found.
+`TickCoroutines` returns the first error a resumed coroutine ended with, if any. Each call creates an independent coroutine with its own
 state, so the same function can run several times concurrently.
 
 ### Adding native functions
@@ -1124,8 +1155,7 @@ ingredients:
 | Code up to the first `yield` runs once, and calling the function again restarts it from the top | The function was invoked with `script.Call(fn)` instead of being started as a coroutine. `Call()` executes until the first `yield`, then returns — the suspended state is discarded. | `script.StartCoroutine("fn", args)` |
 | Code up to the first `yield` runs, then nothing ever happens again | The host never calls `TickCoroutines(dt)`. | Call `script.TickCoroutines(dt)` every tick |
 | `yield` advances but `yield wait N` never completes | `dt` is zero (paused game), or is not in seconds. | Pass real elapsed seconds as `F64` — e.g. `F64.Ratio(1, 60)` |
-| `StartCoroutine` returns `-1` and nothing runs | The function name/arity does not resolve: called **before `Run()`**, wrong argument count, or the name is a **class method** (only top-level functions can be coroutines). | Call `Run()` first; match the arity; move the body to a top-level function |
-| Nothing in the script runs at all, and the log shows `Coroutine function 'x' ... is not defined` | `StartCoroutine` was called before `Run()`. The failure leaves a raised error pending, which then aborts the following `Run()` before its first statement. | Always `Run()` before starting coroutines |
+| `StartCoroutine` returns `-1` and nothing runs | The function name/arity does not resolve: wrong argument count, or the name is a **class method** (only top-level functions can be coroutines). The result's `Error` says which. | Match the arity; move the body to a top-level function |
 | Log shows `Function 'start_coroutine' with 1 args is not defined` | Native functions match on exact arity. | `start_coroutine ["name", {}]` — pass the args array even when empty |
 | A `loop`+`yield` coroutine only advances one iteration per tick | Correct by design: one resume per coroutine per `TickCoroutines` call, regardless of how large `dt` is. | Tick more often, or don't `yield` in the inner loop |
 | A looping coroutine seems to skip a tick between repetitions | Also by design: `loop: true` restarts the function on the *next* tick after it completes. | — |

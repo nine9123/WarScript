@@ -160,19 +160,29 @@ namespace Tests
         }
 
         [Test]
-        public void EntryPoints_ThrowTheCompileError_WithContextsRestored()
+        public void EntryPoints_ReturnTheCompileError_WithContextsRestored()
         {
             var (script, output) = Script("print \"top\"\nfun co []\n    yield\nend\nx = (\n");
             var before = Invariants.Capture(script);
-            var message = script.Compile().Diagnostics[0].Message;
+            var diagnostic = script.Compile().Diagnostics[0];
 
-            var run = Assert.Throws<SyntaxException>(() => script.Run());
-            Assert.AreEqual(message, run.Message);
-            var start = Assert.Throws<SyntaxException>(() => script.StartCoroutine("co", null));
-            Assert.AreEqual(message, start.Message);
+            var run = script.Run();
+            Assert.AreEqual(ScriptStatus.Error, run.Status);
+            Assert.AreEqual(ScriptErrorKind.CompileError, run.Error.Kind);
+            Assert.AreEqual(diagnostic.Message, run.Error.Message);
+            Assert.AreEqual(diagnostic.ScriptName, run.Error.ScriptName);
+            Assert.IsTrue(run.Value.IsNull);
+            var start = script.StartCoroutine("co", null, false, out var id);
+            Assert.AreEqual(ScriptErrorKind.CompileError, start.Error.Kind);
+            Assert.AreEqual(-1, id);
 
-            Assert.AreEqual(0, output.Count);
+            CollectionAssert.AreEqual(new[]
+            {
+                "[WarScript] " + run.Error,
+                "[WarScript] " + start.Error,
+            }, output, "nothing runs; each failed entry logs the error");
             Assert.AreEqual(0, script.ActiveCoroutineCount);
+            Assert.IsFalse(script.ExceptionContext.IsRaised());
             Assert.IsNull(Invariants.Violation(script, before));
         }
 

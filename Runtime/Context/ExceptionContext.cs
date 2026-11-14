@@ -20,6 +20,14 @@ namespace WarScript.Context
             return default;
         }
 
+        /// <summary>Raises a runtime error of a known kind (plan T2.3; every raise gets one in T2.5).</summary>
+        internal WarValue RaiseException(string textValue, ScriptErrorKind kind)
+        {
+            Exception = new Exception.Exception(WarValue.FromText(textValue), kind);
+            _state = State.Raised;
+            return default;
+        }
+
         public WarValue RaiseException(string textValue)
         {
             return RaiseException(WarValue.FromText(textValue));

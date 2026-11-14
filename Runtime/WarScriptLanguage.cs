@@ -252,7 +252,7 @@ namespace WarScript
                 return false;
             if (EntryDepth > MaxHostNesting)
             {
-                ExceptionContext.RaiseException("Host nesting limit exceeded");
+                ExceptionContext.RaiseException("Host nesting limit exceeded", ScriptErrorKind.LimitExceeded);
                 return false;
             }
             if (EntryDepth == 0)
@@ -417,13 +417,66 @@ namespace WarScript
 
         /// <summary>
         /// Compile when needed; when the script does not compile, throw its
-        /// error. Until result types (T2.3) turn it into an <c>Error</c>
-        /// result, a compile error leaves every entry point as the
-        /// <see cref="Exception.SyntaxException"/> v1 threw from <c>Run()</c>.
+        /// error. Used by <see cref="Reload"/> and <see cref="SaveBytecode"/>,
+        /// which keep v1's exception; the entry points return it as an
+        /// <c>Error</c> result instead (<see cref="CompileFailure"/>).
         /// </summary>
         private void EnsureCompiled()
         {
             if (!Compile().Success) throw _compileError!;
+        }
+
+        /// <summary>
+        /// The <c>Error</c> result (kind CompileError) of an entry into a
+        /// script that does not compile, or null when it compiles. The error
+        /// is logged like an unhandled one (plan T2.3; halting comes with T2.4).
+        /// </summary>
+        private ScriptResult? CompileFailure()
+        {
+            var compiled = Compile();
+            if (compiled.Success) return null;
+            return ReportUnhandled(ScriptError.FromCompile(_compileError!, compiled.Diagnostics[0]));
+        }
+
+        /// <summary>
+        /// The CompileError result for a <see cref="Exception.SyntaxException"/>
+        /// from compiling an imported file while the outermost entry ran (the
+        /// VM has restored the context stacks; imports become compile-time in
+        /// Phase 3).
+        /// </summary>
+        internal ScriptResult ImportCompileFailure(Exception.SyntaxException e) =>
+            ReportUnhandled(ScriptError.FromCompile(e, Diagnose(e)));
+
+        /// <summary>Logs an error that ends an outermost entry without having been raised, and returns its result.</summary>
+        private ScriptResult ReportUnhandled(ScriptError error)
+        {
+            Logger?.Invoke(this, "[WarScript] " + error);
+            return ScriptResult.Failed(error);
+        }
+
+        /// <summary>
+        /// The result of an entry that ran: <paramref name="value"/>, or the
+        /// error it left raised. Call it before <see cref="EndEntry"/>, which
+        /// logs and clears the error at the outermost entry; a nested entry
+        /// leaves it raised for the calling script (PROP-1), and its caller
+        /// sees it in the result too.
+        /// </summary>
+        internal ScriptResult EntryResult(WarValue value) =>
+            ExceptionContext.IsRaised()
+                ? ScriptResult.Failed(ScriptError.FromRaised(ExceptionContext.Exception, ScriptName))
+                : ScriptResult.Ok(value);
+
+        /// <summary>
+        /// An entry that cannot start a function: raised for the calling
+        /// script when nested inside another entry (like a callback's error,
+        /// PROP-1), logged and cleared as unhandled at the outermost level.
+        /// </summary>
+        private ScriptResult RefuseEntry(ScriptErrorKind kind, string message)
+        {
+            ExceptionContext.RaiseException(message, kind);
+            var result = EntryResult(WarValue.Null);
+            if (EntryDepth == 0) ExceptionContext.PrintStackTrace();
+            return result;
         }
 
         /// <summary>
@@ -667,22 +720,32 @@ namespace WarScript
 
         /// <summary>
         /// Compile the script if needed (<see cref="Compile"/>), then execute
-        /// its top-level code. A compile error is thrown as the
-        /// <see cref="Exception.SyntaxException"/> it was, before anything runs
-        /// (until T2.3 returns it as an <c>Error</c> result).
+        /// its top-level code (plan 6.2). Returns <c>Ok</c> with a null value
+        /// when it completes; <c>Error</c> when a script error escapes it, or
+        /// with kind CompileError, before anything runs, when the script does
+        /// not compile (or, while it runs, a file it imports); <c>HostFault</c>
+        /// for a C# exception inside the VM. An error is also logged. Never
+        /// throws for a script error (plan T2.3).
         /// </summary>
-        public void Run()
+        public ScriptResult Run()
         {
-            EnsureCompiled();
-            if (!BeginEntry()) return;
+            var failed = CompileFailure();
+            if (failed != null) return failed.Value;
+            if (!BeginEntry()) return EntryResult(WarValue.Null);
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
 
+            ScriptResult result;
             try
             {
                 var vm = AcquireVM();
-                try { vm.Run(_cachedCompiled!); }
-                catch (System.Exception e) when (!(e is Exception.SyntaxException)) { ReportHostFault(e); }
+                try
+                {
+                    vm.Run(_cachedCompiled!);
+                    result = EntryResult(WarValue.Null);
+                }
+                catch (Exception.SyntaxException e) when (EntryDepth == 1) { result = ImportCompileFailure(e); }
+                catch (System.Exception e) when (!(e is Exception.SyntaxException)) { result = ReportHostFault(e); }
             }
             finally
             {
@@ -690,6 +753,7 @@ namespace WarScript
                 MemoryContext.EndScope();
                 EndEntry();
             }
+            return result;
         }
 
         // ────────────────────────────────────────────────────────
@@ -703,37 +767,41 @@ namespace WarScript
         /// is compiled (<see cref="Run"/>, <see cref="Reload"/>,
         /// <see cref="LoadBytecode"/>). A function without bytecode (a native
         /// function) cannot be called this way: the call is logged and does
-        /// nothing — there is no AST interpreter to run it (plan T2.1).
-        /// When the script did not compile, the compile error is thrown, as
-        /// from <see cref="Run"/> (plan T2.2).
+        /// nothing but an <c>Error</c> result (TypeError) — there is no AST
+        /// interpreter to run it (plan T2.1).
+        /// Returns <c>Ok</c> with the function's return value, or the error
+        /// that escaped it, as <see cref="Run"/> does (plan T2.3). Called from
+        /// a native while the instance runs (a nested entry, plan 6.5), an
+        /// error result's error also stays raised: it continues in the calling
+        /// script from the native call site (PROP-1).
         /// </summary>
-        public void Call(FunctionDefinition function, params WarValue[] arguments)
+        public ScriptResult Call(FunctionDefinition function, params WarValue[] arguments)
         {
-            EnsureCompiled();
+            var failed = CompileFailure();
+            if (failed != null) return failed.Value;
             if (function.Compiled != null)
-            {
-                CallBytecode(function, arguments);
-                return;
-            }
+                return CallBytecode(function, arguments ?? Array.Empty<WarValue>());
 
-            Logger?.Invoke(this,
-                $"[WarScript] Cannot call '{function.Details.Name}' in '{ScriptName}': it has no bytecode");
+            return RefuseEntry(ScriptErrorKind.TypeError, System.FormattableString.Invariant(
+                $"Cannot call '{function.Details.Name}' in '{ScriptName}': it has no bytecode"));
         }
 
-        private void CallBytecode(FunctionDefinition function, WarValue[] arguments)
+        private ScriptResult CallBytecode(FunctionDefinition function, WarValue[] arguments)
         {
-            if (!BeginEntry()) return;
+            if (!BeginEntry()) return EntryResult(WarValue.Null);
             DefinitionContext.PushScope(_definitionScope);
             MemoryContext.PushScope(_memoryScope);
             // Push a scope for function-local variables accessed via SetGlobal.
             // Parented to _memoryScope, matching the VM's OP_CALL behavior.
             MemoryContext.PushScope(MemoryContext.NewScope(UserMemoryScope, MemoryScopeKind.FunctionLocal));
 
+            ScriptResult result;
             try
             {
                 var vm = AcquireVM();
-                try { vm.RunFunction(function.Compiled!, arguments); }
-                catch (System.Exception e) when (!(e is Exception.SyntaxException)) { ReportHostFault(e); }
+                try { result = EntryResult(vm.RunFunction(function.Compiled!, arguments)); }
+                catch (Exception.SyntaxException e) when (EntryDepth == 1) { result = ImportCompileFailure(e); }
+                catch (System.Exception e) when (!(e is Exception.SyntaxException)) { result = ReportHostFault(e); }
             }
             finally
             {
@@ -742,6 +810,7 @@ namespace WarScript
                 MemoryContext.EndScope();
                 EndEntry();
             }
+            return result;
         }
 
         /// <summary>
@@ -752,17 +821,19 @@ namespace WarScript
         internal System.Exception? LastHostFault { get; private set; }
 
         /// <summary>
-        /// Reports a host fault caught at an entry point. By the time it gets
-        /// here the VM has restored the context stacks and reset itself, so
-        /// the instance can be called again. Until the v2 result types
-        /// (T2.3, T2.4) the fault is only logged, with its C# stack trace.
+        /// Reports a host fault caught at an entry point and returns its
+        /// <c>HostFault</c> result. By the time it gets here the VM has
+        /// restored the context stacks and reset itself, so the instance can
+        /// be called again (halting comes with T2.4). The fault is logged with
+        /// its C# stack trace.
         /// </summary>
-        internal void ReportHostFault(System.Exception e)
+        internal ScriptResult ReportHostFault(System.Exception e)
         {
             LastHostFault = e;
             if (ExceptionContext.IsRaised())
                 ExceptionContext.RescueException();
             Logger?.Invoke(this, $"[WarScript] Host fault in '{ScriptName}': {e}");
+            return ScriptResult.Failed(ScriptError.FromHostFault(e, ScriptName));
         }
 
         // ────────────────────────────────────────────────────────
@@ -832,39 +903,51 @@ namespace WarScript
 
         /// <summary>
         /// Start a coroutine on a script function and run it to its first
-        /// yield. Returns its id, or -1 with an error raised when there is no
-        /// such script function. Compiles the script if needed, so it can be
+        /// yield; <paramref name="id"/> is its id, or -1 when there is no such
+        /// script function (an <c>Error</c> result: NameError, or TypeError for
+        /// a native function). The result is the first run's: <c>Ok</c> (null
+        /// value) when it yielded or completed, else its error, which also
+        /// ends the coroutine. Compiles the script if needed, so it can be
         /// called before <see cref="Run"/> (the top-level code has then not
-        /// run); a compile error is thrown, as from <see cref="Run"/>.
+        /// run); a compile error is an <c>Error</c> result, as from
+        /// <see cref="Run"/>. Started from a native while the instance runs,
+        /// a missing function's error stays raised for the calling script.
         /// </summary>
-        public int StartCoroutine(string functionName, WarValue[] args, bool loop = false)
+        public ScriptResult StartCoroutine(string functionName, WarValue[] args, bool loop, out int id)
         {
-            EnsureCompiled();
+            id = -1;
+            var failed = CompileFailure();
+            if (failed != null) return failed.Value;
             var argCount = args?.Length ?? 0;
             var function = _definitionScope.GetFunction(functionName, argCount);
             if (function == null)
-            {
-                ExceptionContext.RaiseException(
+                return RefuseEntry(ScriptErrorKind.NameError,
                     System.FormattableString.Invariant($"Coroutine function '{functionName}' with {argCount} arguments is not defined"));
-                return -1;
-            }
             if (function.Compiled == null)
             {
                 // A native function: only script functions can be suspended.
-                ExceptionContext.RaiseException(
+                return RefuseEntry(ScriptErrorKind.TypeError,
                     System.FormattableString.Invariant($"Coroutine function '{functionName}' with {argCount} arguments has no bytecode"));
-                return -1;
             }
 
-            var id = _nextCoroutineId++;
+            id = _nextCoroutineId++;
             var safeArgs = args ?? Array.Empty<WarValue>();
 
             var bco = new BytecodeCoroutine(
                 this, function.Compiled, _definitionScope, _memoryScope,
                 safeArgs, loop, id);
             _coroutines.Add(bco);
-            bco.Resume();
+            return bco.Resume();
+        }
 
+        /// <summary>
+        /// <see cref="StartCoroutine(string, WarValue[], bool, out int)"/> for
+        /// a caller that only wants the id (-1: nothing started); an error is
+        /// logged, or stays raised when started from a native, but not returned.
+        /// </summary>
+        public int StartCoroutine(string functionName, WarValue[] args, bool loop = false)
+        {
+            StartCoroutine(functionName, args, loop, out var id);
             return id;
         }
 
@@ -883,16 +966,26 @@ namespace WarScript
 
         public void StopAllCoroutines() => _coroutines.Clear();
 
-        public int TickCoroutines(F64 dt)
+        /// <summary>
+        /// Advance every coroutine's wait by <paramref name="dt"/> and resume
+        /// the ready ones, newest first; each resume is a host entry. Returns
+        /// <c>Ok</c> with the number of active coroutines as its value, or the
+        /// first error a resume ended with (that coroutine ends). Until the
+        /// halt model (T2.4, PROP-3) the other coroutines still run after one
+        /// fails, as in v1.
+        /// </summary>
+        public ScriptResult TickCoroutines(F64 dt)
         {
+            ScriptResult? failed = null;
             for (var i = _coroutines.Count - 1; i >= 0; i--)
             {
                 var co = _coroutines[i];
                 if (!co.IsReady(dt)) continue;
-                co.Resume();
+                var result = co.Resume();
+                if (failed == null && !result.IsOk) failed = result;
                 if (co.IsComplete) _coroutines.RemoveAt(i);
             }
-            return _coroutines.Count;
+            return failed ?? ScriptResult.Ok(WarValue.FromNumeric(_coroutines.Count));
         }
 
         public int ActiveCoroutineCount => _coroutines.Count;

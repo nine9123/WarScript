@@ -50,7 +50,11 @@ namespace Tests
             setupScope?.Invoke(script, script.GlobalDefinitionScope);
             
             var before = Invariants.Capture(script);
-            script.Run();
+            var result = script.Run();
+            // Run() returns a compile error (T2.3); tests written against v1
+            // expect it thrown as the SyntaxException it was.
+            if (result.Error?.CompileException != null)
+                throw result.Error.CompileException;
             Invariants.Check(script, before);
             
             return (script, output);

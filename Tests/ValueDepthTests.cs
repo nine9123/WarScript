@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using NUnit.Framework;
+using WarScript;
 using WarScript.Exception;
 using WarScript.Expression.Value;
 

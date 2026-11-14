@@ -158,7 +158,7 @@ end", null, (w, m) => output.Add(m));
             script.InstructionBudget = Budget;
             script.Run();
             script.StartCoroutine("work", new WarValue[0]);
-            while (script.TickCoroutines(F64.One) > 0) { }
+            while (script.TickCoroutines(F64.One).Value.Numeric > 0) { }
 
             CollectionAssert.AreEqual(new[] { "step 0", "step 1", "step 2" }, output);
             Assert.IsNull(Unhandled(script));
@@ -291,7 +291,7 @@ end", null, (w, m) => output.Add(m));
             });
             s.Run();
             s.StartCoroutine("work", new WarValue[0]);
-            while (s.TickCoroutines(F64.One) > 0) { }
+            while (s.TickCoroutines(F64.One).Value.Numeric > 0) { }
 
             CollectionAssert.AreEqual(new[] { "first", "second" }, output);
             Assert.IsNull(s.LastHostFault);

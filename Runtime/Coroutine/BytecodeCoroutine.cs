@@ -79,16 +79,23 @@ namespace WarScript
             }
         }
 
-        public void Resume()
+        /// <summary>
+        /// Run the coroutine to its next yield or its end: a host entry.
+        /// Returns <c>Ok</c> (null value) when it yielded, completed or did
+        /// not run because it is complete or already running; otherwise the
+        /// error that ended this run (plan T2.3), which is logged.
+        /// </summary>
+        public ScriptResult Resume()
         {
-            if (IsComplete) return;
+            if (IsComplete) return ScriptResult.Ok(WarValue.Null);
             // Resumed from inside itself (a native it called ticked the
             // coroutines): its VM is busy and must not be reset (T1.5).
-            if (_vm.IsRunning) return;
+            if (_vm.IsRunning) return ScriptResult.Ok(WarValue.Null);
             // A host entry (T1.5): the outermost one resets the instance's
             // budgets. Too deeply nested, it does not run and the error
             // stays raised for the native that started or ticked it.
-            if (!_script.BeginEntry()) return;
+            if (!_script.BeginEntry()) return _script.EntryResult(WarValue.Null);
+            ScriptResult result = ScriptResult.Ok(WarValue.Null);
 
             // Push scopes so the VM's SetGlobal writes to our coroutine scope
             _script.DefinitionContext.PushScope(_definitionScope);
@@ -122,12 +129,18 @@ namespace WarScript
                     _vm.ResumeCoroutine();
                 }
             }
+            catch (Exception.SyntaxException e) when (_script.EntryDepth == 1)
+            {
+                // An imported file does not compile: the coroutine ends.
+                _faulted = true;
+                result = _script.ImportCompileFailure(e);
+            }
             catch (System.Exception e) when (!(e is Exception.SyntaxException))
             {
                 // Host fault: the VM has reset itself, so the coroutine is
                 // finished (a looping one too) and the fault is reported.
                 _faulted = true;
-                _script.ReportHostFault(e);
+                result = _script.ReportHostFault(e);
             }
             finally
             {
@@ -158,7 +171,10 @@ namespace WarScript
                 // even when the coroutine was started or ticked by a native
                 // (v1; not propagated to the caller like a nested Call's).
                 if (_script.ExceptionContext.IsRaised())
+                {
+                    result = _script.EntryResult(WarValue.Null);
                     _script.ExceptionContext.PrintStackTrace();
+                }
                 _script.EndEntry();
             }
 
@@ -188,6 +204,7 @@ namespace WarScript
                     IsComplete = true;
                 }
             }
+            return result;
         }
     }
 }

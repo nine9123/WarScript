@@ -99,7 +99,9 @@ namespace Tests
         public void ACompileErrorLeavesRunLikeASyntaxError()
         {
             var script = Script(Repeat(30000, i => "x = 1", "\n"));
-            Assert.Throws<CompileError>(() => script.Run());
+            var result = script.Run();
+            Assert.AreEqual(ScriptErrorKind.CompileError, result.Error.Kind);
+            Assert.IsInstanceOf<CompileError>(result.Error.CompileException);
             Assert.IsInstanceOf<SyntaxException>(new CompileError("r", null, 0));
         }
 

@@ -286,13 +286,17 @@ namespace Tests.Golden
             var before = Invariants.Capture(target);
             try
             {
-                target.Run();
-            }
-            catch (SyntaxException e)
-            {
-                // v1 compiles lazily inside Run().
-                run.CompileError = e.Message;
-                return run;
+                // Run() compiles when needed and returns a compile error,
+                // the script's own or an import's, as a result (T2.3).
+                var result = target.Run();
+                var compileError = result.Error?.CompileException;
+                if (compileError != null)
+                {
+                    // Take the error's log line back out of the printed output.
+                    run.Output.Remove("[WarScript] " + result.Error);
+                    run.CompileError = compileError.Message;
+                    return run;
+                }
             }
             catch (System.Exception e)
             {

@@ -10,6 +10,7 @@ namespace WarScript
         int Id { get; }
         bool IsComplete { get; }
         bool IsReady(F64 dt);
-        void Resume();
+        /// <summary>Runs it to its next yield or its end (a host entry); the error that ended the run, if any.</summary>
+        ScriptResult Resume();
     }
 }
