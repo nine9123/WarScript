@@ -729,9 +729,18 @@ namespace Tests
         [Test]
         public void Interpolation_StartingWithAHole_IsText()
         {
-            // "{a}{b}" desugars to "" + (a) + (b), so two numbers are not added.
+            // "{a}{b}" desugars to ("" + (a) + (b)), so two numbers are not added.
             CollectionAssert.AreEqual(new[] { "12", "true" },
                 Run("a = 1\nb = 2\nprint \"{a}{b}\"\nprint \"{a}\" == \"1\""));
+        }
+
+        [Test]
+        public void Interpolation_IsOneOperand()
+        {
+            // The whole literal is parenthesized, so an operator after it
+            // applies to the whole text, not to its last part.
+            CollectionAssert.AreEqual(new[] { "x1x1", "x1-" },
+                Run("a = 1\nprint \"x{a}\" * 2\nprint \"x{a}\" + \"-\""));
         }
 
         // ────────────────────────────────────────────────

@@ -282,6 +282,8 @@ namespace WarScript
             StringBuilder segment = null;
             var emittedAny = false;
             var terminated = false;
+            var firstToken = _tokens.Count;
+            var hasHole = false;
 
             while (!AtEnd)
             {
@@ -344,6 +346,7 @@ namespace WarScript
 
                     Add(TokenType.Operator, ")", exprRow, holeCol);
                     emittedAny = true;
+                    hasHole = true;
 
                     // Next text segment starts after the }
                     segStart = _pos;
@@ -372,6 +375,15 @@ namespace WarScript
                 if (emittedAny)
                     Add(TokenType.Operator, "+", segRow, segCol);
                 Add(TokenType.Text, tail, segRow, segCol);
+            }
+
+            // An interpolation is one operand: ( "x" + (a) + "y" ), so
+            // "x{a}" * 2 repeats the whole text and "{a}{b}"{0} indexes it
+            // rather than binding to the last part (T3.6 review).
+            if (hasHole)
+            {
+                _tokens.Insert(firstToken, new Token.Token(TokenType.Operator, "(", openRow, openCol));
+                Add(TokenType.Operator, ")", _row, ColumnAt(_pos));
             }
 
             _pos++; // skip closing quote

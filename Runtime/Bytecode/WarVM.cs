@@ -2439,10 +2439,6 @@ namespace WarScript.Bytecode
         // ── Ordering ──
 
         /// <summary>
-        /// <see cref="WarValue.CompareTo"/>, with the number case first and
-        /// the audit events for the cases v2 rejects (plan 8.1).
-        /// </summary>
-        /// <summary>
         /// Orders two values for <paramref name="op"/> (plan 5.3, PROP-17):
         /// numbers with numbers, text with text (ordinal). Any other pair,
         /// logical values included, raises TypeError and returns false.

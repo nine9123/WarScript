@@ -93,7 +93,11 @@ namespace Tests
             //                               1234567890123456789
             var tokens = LexicalParser.Parse("x = \"ab{n + 1}cd\"");
 
-            var open = tokens.First(t => t.Value == "(");
+            // The whole interpolation is parenthesized: its '(' is at the
+            // literal's quote, its ')' at the closing quote.
+            Assert.AreEqual(5, tokens.First(t => t.Value == "(").Column);
+            Assert.AreEqual(17, tokens.Last(t => t.Value == ")").Column);
+            var open = tokens.Where(t => t.Value == "(").ElementAt(1);
             var close = tokens.First(t => t.Value == ")");
             Assert.AreEqual(8, open.Column, "the '{' of the hole");
             Assert.AreEqual(8, close.Column);
@@ -110,8 +114,10 @@ namespace Tests
         {
             var tokens = LexicalParser.Parse("a = 1\n  print $\"v={a}\"");
 
-            Assert.AreEqual(2, tokens.First(t => t.Value == "(").RowNumber);
-            Assert.AreEqual(13, tokens.First(t => t.Value == "(").Column);
+            var hole = tokens.Where(t => t.Value == "(").ElementAt(1);
+            Assert.AreEqual(2, hole.RowNumber);
+            Assert.AreEqual(13, hole.Column);
+            Assert.AreEqual(9, tokens.First(t => t.Value == "(").Column, "the interpolation's own '(': the '$'");
             Assert.AreEqual(14, tokens.Last(t => t.Value == "a").Column);
         }
 

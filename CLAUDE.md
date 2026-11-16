@@ -298,7 +298,7 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 
 ## Existing Desugar Patterns
 
-1. **String interpolation** — Lexer: `"hello {x}"` → `"hello " + (x)` tokens; a literal that starts with a hole starts with `""` (`"{a}{b}"` → `"" + (a) + (b)`), so an interpolation is always text. `$"..."` is the same path. Escapes are folded into the `Text` token at lex time; `"""..."""` skips both and emits one verbatim `Text` token.
+1. **String interpolation** — Lexer: `"hello {x}"` → `("hello " + (x))` tokens; a literal that starts with a hole starts with `""` (`"{a}{b}"` → `("" + (a) + (b))`), so an interpolation is always text, and the whole literal is parenthesized (its `(` at the opening quote or `$`, its `)` at the closing quote), so `"x{a}" * 2` repeats all of it. An index or `::` directly after an interpolated literal is a syntax error (the expression reader takes neither after `)`). `$"..."` is the same path. Escapes are folded into the `Text` token at lex time; `"""..."""` skips both and emits one verbatim `Text` token.
 2. **Default parameters** — Parser: `fun f [a, b = 1]` → inject `if b == null then b = 1` body prefix. Multi-arity registration. VM null-pads stack.
 3. **Compound assignment** — Expression reader: `x += 1` → `x = x + 1`
 4. **Constants** — Parser: `const X = 5` → assignment + `ConstantNames.Add()`. Parse-time immutability.
