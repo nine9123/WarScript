@@ -74,7 +74,8 @@ rescue e
 end
 print Array_contains [c, 1]              # expect: true
 
-# Instances count as a level too.
+# Instances compare by identity (plan 5.4, T3.6), so equality does not
+# walk into them however deep they nest.
 class Box [v]
 end
 p = new Box [1]
@@ -83,8 +84,6 @@ loop i in 0..300
     p = new Box [p]
     q = new Box [q]
 end
-begin
-    print p == q
-rescue e
-    print "instances: " + e              # expect: instances: Value nested too deeply
-end
+print p == q                             # expect: false
+print p == p                             # expect: true
+print {p} == {p}                         # expect: true

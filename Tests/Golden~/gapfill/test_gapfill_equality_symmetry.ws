@@ -114,11 +114,16 @@ assert !(m1 != m2)
 class Point[x, y]
 end
 
-# ── Equal instances ──
+# ── Instances compare by identity (plan 5.4, T3.6) ──
 p1 = new Point[10, 20]
 p2 = new Point[10, 20]
-assert p1 == p2
-assert !(p1 != p2)
+assert !(p1 == p2)
+assert p1 != p2
+assert !(p2 == p1)
+same = p1
+assert p1 == same
+assert same == p1
+assert !(p1 != same)
 
 # ── Different instances ──
 p3 = new Point[10, 30]
@@ -128,22 +133,22 @@ assert p1 != p3
 # ── Zero-value instances ──
 z1 = new Point[0, 0]
 z2 = new Point[0, 0]
-assert z1 == z2
-assert !(z1 != z2)
+assert z1 != z2
+assert z1 == z1
 
 # ── Null property instances ──
 np1 = new Point[null, null]
 np2 = new Point[null, null]
-assert np1 == np2
-assert !(np1 != np2)
+assert np1 != np2
+assert np1 == np1
 
 # ── String property class ──
 class Name[first, last]
 end
 nm1 = new Name["John", "Doe"]
 nm2 = new Name["John", "Doe"]
-assert nm1 == nm2
-assert !(nm1 != nm2)
+assert nm1 != nm2
+assert !(nm1 == nm2)
 
 nm3 = new Name["Jane", "Doe"]
 assert !(nm1 == nm3)
@@ -161,8 +166,14 @@ end
 
 d1 = new Dog["Rex"]
 d2 = new Dog["Rex"]
-assert d1 == d2
-assert !(d1 != d2)
+assert d1 != d2
+assert !(d1 == d2)
+
+# ── A cast is the same instance (PROP-8) ──
+assert d1 == (d1 as Animal)
+assert (d1 as Animal) == d1
+assert !((d1 as Animal) != d1)
+assert (d1 as Animal) != (d2 as Animal)
 
 d3 = new Dog["Buddy"]
 assert !(d1 == d3)
@@ -197,11 +208,18 @@ assert entered == false
 
 # ── Loop condition with != ──
 p = new Point[0, 0]
-target = new Point[0, 0]
+target = p
 count = 0
 loop p != target
     count += 1
     break
 end
-# p == target so loop should never execute
+# p is target, so the loop should never execute
 assert count == 0
+# a different instance with the same fields is not equal (plan 5.4)
+target = new Point[0, 0]
+loop p != target
+    count += 1
+    break
+end
+assert count == 1

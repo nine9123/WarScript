@@ -33,8 +33,17 @@ assert msg == "Area is 12"
 class Vec2[x, y]
 end
 
-arr = {new Vec2[1, 2], new Vec2[3, 4], new Vec2[5, 6]}
+# Instances compare by identity (plan 5.4, T3.6): a copy with the same
+# fields is not found, the instance itself is.
 target = new Vec2[3, 4]
+arr = {new Vec2[1, 2], target, new Vec2[5, 6]}
+copy_found = false
+loop item in arr
+    if item == new Vec2[3, 4]
+        copy_found = true
+    end
+end
+assert copy_found == false
 found = false
 loop item in arr
     if item == target

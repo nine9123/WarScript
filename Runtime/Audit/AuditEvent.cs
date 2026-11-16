@@ -47,7 +47,7 @@ namespace WarScript.Audit
         GlobalShadowedInClass,
         /// <summary>A top-level read of a name last assigned inside a top-level block, which v1 reads as null. v2 reads the value (DEC-4). Not raised since T3.4 (no block has a scope; T3.5 removed the opcodes).</summary>
         BlockVariableEscapes,
-        /// <summary><c>==</c>/<c>!=</c> finding two different instances structurally equal. v2: false (DEC-9).</summary>
+        /// <summary><c>==</c>/<c>!=</c> finding two different instances structurally equal. v2: false (DEC-9). Not raised since T3.6, which compares instances by identity.</summary>
         ClassStructuralEquality,
     }
 

@@ -28,14 +28,18 @@ n2 = {{1, 2}, {3, 4}}
 assert n1 == n2
 assert !(n1 != n2)
 
-# ── Class instance equality must be symmetric ──
+# ── Class instance equality must be symmetric (identity, plan 5.4) ──
 class Point [x, y]
 end
 
 p1 = new Point[10, 20]
 p2 = new Point[10, 20]
-assert p1 == p2
-assert !(p1 != p2)
+assert !(p1 == p2)
+assert !(p2 == p1)
+assert p1 != p2
+p4 = p1
+assert p1 == p4
+assert p4 == p1
 
 p3 = new Point[10, 30]
 assert !(p1 == p3)

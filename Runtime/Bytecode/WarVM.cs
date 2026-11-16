@@ -650,21 +650,19 @@ namespace WarScript.Bytecode
                     // ══════════════════════════════════════════════
 
                     // Equality (plan 5.4): values of different types are
-                    // not equal and raise nothing; null equals only null.
+                    // not equal and raise nothing; null equals only null;
+                    // instances are equal when they are the same instance
+                    // (ClassData.Root, PROP-8).
                     case OpCode.Equal:
                     {
                         var b = Pop(); var a = Pop();
-                        var equal = a.Equals(b);
-                        if (equal && a.IsClass && _script.AuditSink != null) AuditClassEquality(a, b, "==", fi);
-                        Push(WarValue.FromLogical(equal));
+                        Push(WarValue.FromLogical(a.Equals(b)));
                         break;
                     }
                     case OpCode.NotEqual:
                     {
                         var b = Pop(); var a = Pop();
-                        var equal = a.Equals(b);
-                        if (equal && a.IsClass && _script.AuditSink != null) AuditClassEquality(a, b, "!=", fi);
-                        Push(WarValue.FromLogical(!equal));
+                        Push(WarValue.FromLogical(!a.Equals(b)));
                         break;
                     }
                     case OpCode.Less:
@@ -2256,7 +2254,8 @@ namespace WarScript.Bytecode
             }
             _constructors.Clear();
             _allocationPath.Clear();
-            var classData = AllocateInstance(definition, scope, args, new Dictionary<string, ClassData>(), null, null);
+            var relations = new Dictionary<string, ClassData>();
+            var classData = AllocateInstance(definition, scope, args, relations, null, null);
             _allocationPath.Clear();
             _unboundRefs.Clear();
             if (classData == null)
@@ -2264,6 +2263,8 @@ namespace WarScript.Bytecode
                 _constructors.Clear();
                 return default;
             }
+            // Every part is the same instance for == (5.4, PROP-8).
+            foreach (var part in relations.Values) part.Root = classData;
             return WarValue.FromClass(classData);
         }
 
@@ -2513,36 +2514,6 @@ namespace WarScript.Bytecode
         {
             try { return v.Format(_script.NativeFormatters); }
             finally { _script.ThrowPendingHostFault(); }
-        }
-
-        /// <summary>
-        /// A value for an audit detail: its type and a short form. Never calls
-        /// ToString on an array, instance or native object (a cyclic array
-        /// would recurse, CRASH-1; host objects are not formatted, R1).
-        /// </summary>
-        private static string Describe(in WarValue v)
-        {
-            switch (v.Tag)
-            {
-                case ValueTag.Null: return "null";
-                case ValueTag.Numeric:
-                    return "number " + WarValue.FormatNumber(v.Numeric); // culture-invariant (T1.6)
-                case ValueTag.Logical: return "logical " + (v.LogicalValue ? "true" : "false");
-                case ValueTag.Text:
-                    var t = v.TextValue;
-                    return "text \"" + (t.Length <= 40 ? t : t.Substring(0, 37) + "...") + "\"";
-                case ValueTag.Array: return "array of " + v.ArrayValue.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                case ValueTag.Class: return v.ClassValue.Definition.ClassDetails.Name + " instance";
-                case ValueTag.NativeObject: return "native " + (v.Ref?.GetType().Name ?? "null");
-                default: return v.Tag.ToString();
-            }
-        }
-
-        private void AuditClassEquality(in WarValue a, in WarValue b, string op, int fi)
-        {
-            if (ReferenceEquals(a.Ref, b.Ref)) return;
-            Audit(AuditKind.ClassStructuralEquality, fi,
-                  Describe(a) + " " + op + " " + Describe(b) + ": two instances, structurally equal");
         }
 
         /// <summary>A property write on an instance that misses the inline cache: does it create an undeclared field?</summary>

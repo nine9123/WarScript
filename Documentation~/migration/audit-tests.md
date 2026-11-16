@@ -10,7 +10,7 @@ Covered: every `TestHelper.Run`/`RunFile` (site `<fixture>.<test>: <script>:<lin
 
 Each section lists the sites of one kind with the functions they ran in, the number of events and the first event's values. Plan 8.3 step 4 reviews this together with the game-session reports and the migration tool's report.
 
-Events: 33, sites (kind, script, line): 32.
+Events: 14, sites (kind, script, line): 13.
 
 | Kind | Sites | Events |
 |---|---:|---:|
@@ -33,7 +33,7 @@ Events: 33, sites (kind, script, line): 32.
 | `FieldAccessViaBareName` | 0 | 0 |
 | `GlobalShadowedInClass` | 0 | 0 |
 | `BlockVariableEscapes` | 0 | 0 |
-| `ClassStructuralEquality` | 19 | 19 |
+| `ClassStructuralEquality` | 0 | 0 |
 
 ## UndefinedRead
 
@@ -52,27 +52,3 @@ Events: 33, sites (kind, script, line): 32.
 | Golden~/language/undefined_names.ws:26 | Broken#ctor | 1 | absent |
 | Golden~/language/undefined_names.ws:36 | <lambda> | 1 | not_there |
 | Golden~/regression/test_regression_is_null.ws:17 | <script> | 1 | undefined_var |
-
-## ClassStructuralEquality
-
-| Site | Function | Events | First seen |
-|---|---|---:|---|
-| GapFillTests.GapFill_NotEquals_EqualClasses_ReturnsFalse: inline:5 | <script> | 1 | P instance == P instance: two instances, structurally equal |
-| GapFillTests.GapFill_NotEquals_EqualClasses_ReturnsFalse: inline:6 | <script> | 1 | P instance != P instance: two instances, structurally equal |
-| Golden~/gapfill/test_gapfill_cross_feature.ws:40 | <script> | 1 | Vec2 instance == Vec2 instance: two instances, structurally equal |
-| Golden~/gapfill/test_gapfill_cross_feature.ws:50 | <script> | 1 | Vec2 instance != Vec2 instance: two instances, structurally equal |
-| Golden~/gapfill/test_gapfill_equality_symmetry.ws:120 | <script> | 1 | Point instance == Point instance: two instances, structurally equal |
-| Golden~/gapfill/test_gapfill_equality_symmetry.ws:121 | <script> | 1 | Point instance != Point instance: two instances, structurally equal |
-| Golden~/gapfill/test_gapfill_equality_symmetry.ws:131 | <script> | 1 | Point instance == Point instance: two instances, structurally equal |
-| Golden~/gapfill/test_gapfill_equality_symmetry.ws:132 | <script> | 1 | Point instance != Point instance: two instances, structurally equal |
-| Golden~/gapfill/test_gapfill_equality_symmetry.ws:137 | <script> | 1 | Point instance == Point instance: two instances, structurally equal |
-| Golden~/gapfill/test_gapfill_equality_symmetry.ws:138 | <script> | 1 | Point instance != Point instance: two instances, structurally equal |
-| Golden~/gapfill/test_gapfill_equality_symmetry.ws:145 | <script> | 1 | Name instance == Name instance: two instances, structurally equal |
-| Golden~/gapfill/test_gapfill_equality_symmetry.ws:146 | <script> | 1 | Name instance != Name instance: two instances, structurally equal |
-| Golden~/gapfill/test_gapfill_equality_symmetry.ws:164 | <script> | 1 | Dog instance == Dog instance: two instances, structurally equal |
-| Golden~/gapfill/test_gapfill_equality_symmetry.ws:165 | <script> | 1 | Dog instance != Dog instance: two instances, structurally equal |
-| Golden~/gapfill/test_gapfill_equality_symmetry.ws:202 | <script> | 1 | Point instance != Point instance: two instances, structurally equal |
-| Golden~/regression/test_regression_equals_symmetry.ws:37 | <script> | 1 | Point instance == Point instance: two instances, structurally equal |
-| Golden~/regression/test_regression_equals_symmetry.ws:38 | <script> | 1 | Point instance != Point instance: two instances, structurally equal |
-| Golden~/repro/A14_class_equality.ws:9 | <script> | 1 | P instance == P instance: two instances, structurally equal |
-| Golden~/repro/A14_class_equality.ws:13 | <script> | 1 | Derived instance == Base instance: two instances, structurally equal |

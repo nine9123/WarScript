@@ -184,7 +184,7 @@ assert v :: y == 4
         }
 
         [Test]
-        public void GapFill_NotEquals_EqualClasses_ReturnsFalse()
+        public void GapFill_EqualClasses_CompareByIdentity()
         {
             var (script, output) = TestHelper.Run("inline",
                 "class P[x, y]\n" +
@@ -194,9 +194,11 @@ assert v :: y == 4
                 "print a == b\n" +
                 "print a != b");
 
+            // Plan 5.4 (DEC-9, T3.6): two instances are never equal, however
+            // equal their fields.
             Assert.AreEqual(2, output.Count);
-            Assert.AreEqual("true", output[0], "== on equal class instances should be True");
-            Assert.AreEqual("false", output[1], "!= on equal class instances should be False");
+            Assert.AreEqual("false", output[0], "== on two instances with equal fields");
+            Assert.AreEqual("true", output[1], "!= on two instances with equal fields");
         }
 
         [Test]

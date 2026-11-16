@@ -158,8 +158,8 @@ namespace WarScript.Expression.Value
         /// <summary>Message of the LimitExceeded error raised by equality beyond <see cref="MaxValueDepth"/>.</summary>
         internal const string ValueTooDeepMessage = "Value nested too deeply";
 
-        // GetHashCode looks at most this many elements (or properties) of an
-        // array (or instance), and this many levels deep. Equal values still
+        // GetHashCode looks at most this many elements of an array, and this
+        // many levels deep. Equal values still
         // hash equal: Equals compares the counts and every element.
         private const int HashElements = 8;
         private const int HashDepth = 3;
@@ -167,10 +167,11 @@ namespace WarScript.Expression.Value
         public bool Equals(WarValue other) => Equals(other, 0);
 
         /// <summary>
-        /// Equality of a value nested <paramref name="depth"/> arrays or
-        /// instances deep. Throws <see cref="WarScriptLimitException"/>, which
-        /// the VM raises as a script error, when arrays or instances nest
-        /// deeper than <see cref="MaxValueDepth"/> (CRASH-1).
+        /// Equality of a value nested <paramref name="depth"/> arrays deep
+        /// (plan 5.4: arrays structurally, instances by the identity of their
+        /// root, T3.6). Throws <see cref="WarScriptLimitException"/>, which
+        /// the VM raises as a script error, when arrays nest deeper than
+        /// <see cref="MaxValueDepth"/> (CRASH-1).
         /// </summary>
         internal bool Equals(in WarValue other, int depth)
         {
@@ -179,12 +180,12 @@ namespace WarScript.Expression.Value
         }
 
         /// <summary>
-        /// Equality with a memo of the array and instance pairs already found
+        /// Equality with a memo of the array pairs already found
         /// equal, so that arrays shared inside a value (a DAG such as
         /// <c>a = {a, a}</c> repeated) are compared once per pair instead of
         /// once per path, which is exponential (BUDGET-3). The memo is created
         /// on the first pair worth remembering, so flat values allocate
-        /// nothing. <paramref name="height"/> is the number of array/instance
+        /// nothing. <paramref name="height"/> is the number of array
         /// levels the comparison walked, this value included (0 for a scalar):
         /// a memo hit raises the same depth error the walk would have.
         /// </summary>
@@ -215,9 +216,9 @@ namespace WarScript.Expression.Value
                     if (below > 0) EqualityMemo.Add(ref memo, a, b, height);
                     return true;
                 case ValueTag.Class:
-                    if (depth >= MaxValueDepth)
-                        throw new WarScriptLimitException(ValueTooDeepMessage);
-                    return ClassValue.StructuralEquals(other.ClassValue, depth, ref memo, out height);
+                    // Identity of the root instance (5.4, PROP-8): a cast
+                    // to a base class is the same instance.
+                    return ReferenceEquals(ClassValue.Root, other.ClassValue.Root);
                 case ValueTag.NativeObject:
                     return Ref != null && Ref.Equals(other.Ref);
                 default: return false;
@@ -225,10 +226,10 @@ namespace WarScript.Expression.Value
         }
 
         /// <summary>
-        /// Array and instance pairs one equality comparison has already found
+        /// Array pairs one equality comparison has already found
         /// equal, with the height of each pair's comparison (see
         /// <see cref="Equals(in WarValue, int, ref EqualityMemo?, out int)"/>).
-        /// Only pairs with nested arrays or instances are recorded. Lives for
+        /// Only pairs with nested arrays are recorded. Lives for
         /// one comparison; no static state (R1).
         /// </summary>
         internal sealed class EqualityMemo
@@ -273,10 +274,10 @@ namespace WarScript.Expression.Value
         public override int GetHashCode() => GetHashCode(0);
 
         /// <summary>
-        /// Hash of a value nested <paramref name="depth"/> arrays or
-        /// instances deep: at most the first 8 elements of an array, and
-        /// nothing below 3 levels, so cyclic and deeply nested values hash in
-        /// bounded time.
+        /// Hash of a value nested <paramref name="depth"/> arrays deep: at
+        /// most the first 8 elements of an array, and nothing below 3 levels,
+        /// so cyclic and deeply nested values hash in bounded time. An
+        /// instance hashes its root's identity, as it compares (5.4).
         /// </summary>
         internal int GetHashCode(int depth)
         {
@@ -294,7 +295,7 @@ namespace WarScript.Expression.Value
                     for (int i = 0; i < n; i++) hash = hash * 31 + list[i].GetHashCode(depth + 1);
                     return hash;
                 case ValueTag.Class:
-                    return depth >= HashDepth ? 17 : ClassValue.StructuralHashCode(depth);
+                    return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(ClassValue.Root);
                 case ValueTag.NativeObject: return Ref?.GetHashCode() ?? 0;
                 default: return 0;
             }

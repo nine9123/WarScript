@@ -220,7 +220,9 @@ two arrays; `-`, `/`, `%` and unary `-` take numbers; `*` takes numbers or a tex
 `<`, `<=`, `>`, `>=` take two numbers or two texts (compared ordinally); `<<` needs an array.
 Anything else raises a `TypeError` such as `Cannot apply '-' to text and number`. `==` and `!=`
 never raise: values of different types are simply not equal, so `1 == "1"` is `false`,
-`null == null` is `true` and `null == 0` is `false`.
+`null == null` is `true` and `null == 0` is `false`. Arrays compare element by element; class
+instances compare by identity, so two instances with the same fields are not equal, while an
+instance and a cast of it (`d == (d as Base)`) are.
 
 ### Strings
 
