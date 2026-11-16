@@ -777,9 +777,16 @@ namespace WarScript.Bytecode
                         CompiledFunction? lambdaFunc = null;
                         if (def == null)
                         {
-                            var funcVal = NameScope(fi).Get(funcName);
-                            if (funcVal.IsNativeObject && funcVal.Ref is CompiledFunction cf)
-                                lambdaFunc = cf;
+                            var fv = AsFunctionValue(NameScope(fi).Get(funcName));
+                            if (fv != null)
+                            {
+                                if (!OwnedHere(fv.Owner, "'" + funcName + "'"))
+                                {
+                                    if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                    return;
+                                }
+                                lambdaFunc = fv.Function;
+                            }
                             else
                             {
                                 RuntimeError(ScriptErrorKind.NameError, System.FormattableString.Invariant($"Function '{funcName}' with {argCount} args is not defined"));
@@ -876,14 +883,20 @@ namespace WarScript.Bytecode
                         // Call a function value on the stack.
                         // Stack layout: [..., funcValue, arg0, arg1, ...]
                         var argCount = (int)code[_frames[fi].IP++];
-                        var funcVal = _stack[_sp - argCount - 1];
+                        var calledValue = AsFunctionValue(_stack[_sp - argCount - 1]);
 
-                        if (!(funcVal.IsNativeObject && funcVal.Ref is CompiledFunction lambdaCF))
+                        if (calledValue == null)
                         {
                             RuntimeError(ScriptErrorKind.TypeError, "Value is not callable");
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
+                        if (!OwnedHere(calledValue.Owner, "<fun " + (calledValue.Name == "<lambda>" ? "lambda" : calledValue.Name) + ">"))
+                        {
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
+                        var lambdaCF = calledValue.Function;
 
                         if (!StackFits(_sp - argCount - 1, lambdaCF))
                         {
@@ -932,9 +945,16 @@ namespace WarScript.Bytecode
                         CompiledFunction? tailLambda = null;
                         if (def == null)
                         {
-                            var funcVal = NameScope(fi).Get(funcName);
-                            if (funcVal.IsNativeObject && funcVal.Ref is CompiledFunction cf)
-                                tailLambda = cf;
+                            var fv = AsFunctionValue(NameScope(fi).Get(funcName));
+                            if (fv != null)
+                            {
+                                if (!OwnedHere(fv.Owner, "'" + funcName + "'"))
+                                {
+                                    if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                    return;
+                                }
+                                tailLambda = fv.Function;
+                            }
                             else
                             {
                                 RuntimeError(ScriptErrorKind.NameError, System.FormattableString.Invariant($"Function '{funcName}' with {argCount} args is not defined"));
@@ -1061,6 +1081,13 @@ namespace WarScript.Bytecode
                         }
 
                         var classData = instance.ClassValue;
+                        // Fields of a foreign instance are plain data; its
+                        // methods are not (6.7, Q-1).
+                        if (!OwnedHere(classData.Owner, "method '" + methodName + "'"))
+                        {
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         var classDef = FindClassWithMethod(classData.Definition, methodName, argCount);
                         if (classDef == null)
                         {
@@ -1372,6 +1399,12 @@ namespace WarScript.Bytecode
                         if (!parent.IsClass)
                         {
                             RuntimeError(ScriptErrorKind.TypeError, "Cannot instantiate nested class on non-class value");
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
+                        // Its constructor is the other instance's code (6.7, Q-1).
+                        if (!OwnedHere(parent.ClassValue.Owner, "the constructor of nested class '" + className + "'"))
+                        {
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -2182,6 +2215,34 @@ namespace WarScript.Bytecode
         internal static string UndefinedVariableMessage(string name) => "undefined variable '" + name + "'";
 
         /// <summary>
+        /// The TypeError message for calling code that another instance owns
+        /// (plan 6.7, Q-1): <paramref name="what"/> names the call, e.g.
+        /// <c>method 'speak'</c>.
+        /// </summary>
+        internal static string ForeignOwnerMessage(string what) =>
+            "Cannot call " + what + ": it belongs to another script instance";
+
+        /// <summary>
+        /// Whether code owned by <paramref name="owner"/> may run in this VM's
+        /// instance (plan 6.7, Q-1): it must be the same instance, or have no
+        /// owner (built by the host). Otherwise raises TypeError
+        /// (<see cref="ForeignOwnerMessage"/>).
+        /// </summary>
+        private bool OwnedHere(WarScriptLanguage? owner, string what)
+        {
+            if (owner == null || ReferenceEquals(owner, _script)) return true;
+            RuntimeError(ScriptErrorKind.TypeError, ForeignOwnerMessage(what));
+            return false;
+        }
+
+        /// <summary>
+        /// The function value <paramref name="value"/> holds, or null: a
+        /// <see cref="FunctionValue"/> in a <c>NativeObject</c>.
+        /// </summary>
+        private static FunctionValue? AsFunctionValue(in WarValue value) =>
+            value.IsNativeObject ? value.Ref as FunctionValue : null;
+
+        /// <summary>
         /// Allocation step for <c>new className [args]</c>: the class and its
         /// base classes are looked up from <paramref name="scope"/> (the
         /// definitions of the frame executing <c>new</c>, or the parent
@@ -2271,7 +2332,7 @@ namespace WarScript.Bytecode
                 }
             }
 
-            var classData = new ClassData(definition, fields, relations);
+            var classData = new ClassData(definition, fields, relations, _script);
             classData.PropertyValues = valueRefs;
             relations[definition.ClassDetails.Name] = classData;
 

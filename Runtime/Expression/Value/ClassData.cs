@@ -23,12 +23,29 @@ namespace WarScript.Expression.Value
         /// </summary>
         internal ValueReference[] PropertyValues;
 
+        /// <summary>
+        /// The instance whose script created this instance (plan 6.7, Q-1,
+        /// T3.5): its fields may be read and written from any instance, but
+        /// calling one of its methods (or instantiating one of its nested
+        /// classes) from another instance raises TypeError "belongs to
+        /// another script instance". Null for an instance the host built
+        /// (such as a generated <c>[WsEnum]</c>), which any instance may use.
+        /// </summary>
+        public readonly WarScriptLanguage? Owner;
+
         public ClassData(ClassDefinition definition, MemoryScope memoryScope, Dictionary<string, ClassData> relations)
+            : this(definition, memoryScope, relations, null)
+        {
+        }
+
+        public ClassData(ClassDefinition definition, MemoryScope memoryScope, Dictionary<string, ClassData> relations,
+            WarScriptLanguage? owner)
         {
             Definition = definition;
             MemoryScope = memoryScope;
             Relations = relations;
             PropertyValues = System.Array.Empty<ValueReference>();
+            Owner = owner;
         }
 
         public ClassData? GetRelation(string name)

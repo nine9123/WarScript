@@ -1411,7 +1411,8 @@ namespace WarScript.Bytecode
                 case LambdaExpression lambda:
                 {
                     var compiled = CompileLambdaBody(lambda);
-                    var funcValue = WarValue.FromNativeObject(compiled);
+                    // Owned by the instance compiling it (6.7, Q-1).
+                    var funcValue = WarValue.FromNativeObject(new FunctionValue(compiled, _script));
                     Chunk.EmitConstant(funcValue, lambda.Line);
                     break;
                 }

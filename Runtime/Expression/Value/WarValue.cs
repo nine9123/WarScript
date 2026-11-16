@@ -347,7 +347,7 @@ namespace WarScript.Expression.Value
                     return "null";
                 case F64Vec3 v:
                     return "(" + FormatNumber(v.X) + ", " + FormatNumber(v.Y) + ", " + FormatNumber(v.Z) + ")";
-                case CompiledFunction f:
+                case FunctionValue f:
                     return "<fun " + (f.Name == "<lambda>" ? "lambda" : f.Name) + ">";
             }
             if (formatters != null && !formatters.IsEmpty && formatters.TryFormat(obj, out var text))

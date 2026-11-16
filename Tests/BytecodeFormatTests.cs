@@ -282,7 +282,7 @@ namespace Tests
         {
             var inner = Function("<lambda>", 0, new[] { Null_, Ret });
             for (int i = 0; i < 1000; i++)
-                inner = Function("<lambda>", 0, new[] { Null_, Ret }, new[] { WarValue.FromNativeObject(inner) });
+                inner = Function("<lambda>", 0, new[] { Null_, Ret }, new[] { WarValue.FromNativeObject(new FunctionValue(inner, null)) });
             Rejected(File_(inner), "nest deeper than 32");
         }
 
@@ -786,8 +786,8 @@ end", null, null);
                 if (f == null) return;
                 result.Add((name, f));
                 foreach (var c in f.Chunk.Constants)
-                    if (c.Tag == ValueTag.NativeObject && c.Ref is CompiledFunction lambda)
-                        AddFunction(name + "/" + lambda.Name, lambda);
+                    if (c.Tag == ValueTag.NativeObject && c.Ref is FunctionValue lambda)
+                        AddFunction(name + "/" + lambda.Name, lambda.Function);
             }
             void AddScope(string prefix, DefinitionScope s)
             {

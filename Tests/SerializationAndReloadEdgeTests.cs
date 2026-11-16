@@ -8,7 +8,7 @@ namespace Tests
     /// <summary>
     /// Pins serialization and hot-reload behavior that the format/docs promise
     /// but no test previously exercised:
-    ///   - lambda constants (NativeObject(CompiledFunction)) survive a
+    ///   - lambda constants (NativeObject(FunctionValue)) survive a
     ///     SaveBytecode/LoadBytecode round-trip (format v1 feature),
     ///   - const and enum definitions survive a round-trip,
     ///   - default-parameter functions keep all registered arities,

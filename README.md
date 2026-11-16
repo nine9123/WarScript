@@ -1086,6 +1086,15 @@ if (v.IsText)    { string s = v.TextValue; }
 if (v.IsArray)   { var list = v.ArrayValue; }
 ```
 
+**Values from another instance.** A value one instance returned may be passed to another (a room
+handing a unit to a map script, say). Plain data crosses freely: numbers, text, arrays, and class
+instances whose fields the other script reads and writes (`u :: hp = 0`). Code does not: calling a
+method of a class instance another instance created, instantiating one of its nested classes, or
+calling a function value (a lambda, a `FunctionValue` in a `NativeObject`) another instance compiled
+raises a rescuable `TypeError` "Cannot call method 'heal': it belongs to another script instance".
+Instances the host builds itself (`new ClassData(...)` without an owner, such as generated `[WsEnum]`
+values) belong to no instance and may be used anywhere.
+
 `F64` has **no** conversion operator to `int`/`float`/`double`: `(int)someF64` does not compile. Use
 `F64.RoundToInt(x)` to round or `F64.FromInt(n)` to build. Comparisons against `int` do work, so
 `someF64 == 3` is fine.

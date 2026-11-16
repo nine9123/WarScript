@@ -172,9 +172,10 @@ namespace WarScript.Bytecode
                 case ValueTag.Logical:
                     w.Write((byte)(val.LogicalValue ? 1 : 0));
                     break;
-                case ValueTag.NativeObject when val.Ref is CompiledFunction:
-                    // Lambda function value — serialize the compiled function inline
-                    WriteCompiledFunction(w, (CompiledFunction)val.Ref);
+                case ValueTag.NativeObject when val.Ref is FunctionValue fv:
+                    // Lambda function value — serialize the compiled function
+                    // inline (not its owner: the loading instance owns it)
+                    WriteCompiledFunction(w, fv.Function);
                     break;
                 default:
                     throw new InvalidOperationException(
@@ -206,7 +207,7 @@ namespace WarScript.Bytecode
         public static (CompiledFunction topLevel, DefinitionScope scope) Load(
             BinaryReader r, WarScriptLanguage script, DefinitionScope parentScope)
         {
-            var reader = new BoundedReader(r);
+            var reader = new BoundedReader(r) { Owner = script };
             try
             {
                 // Header
@@ -426,8 +427,9 @@ namespace WarScript.Bytecode
                 case ValueTag.Logical: return WarValue.FromLogical(r.U8() != 0);
                 case ValueTag.NativeObject:
                     // Lambda function value — deserialize the compiled function
+                    // owned by the instance loading it (6.7, Q-1)
                     var cf = ReadCompiledFunction(r, depth + 1);
-                    return WarValue.FromNativeObject(cf);
+                    return WarValue.FromNativeObject(new FunctionValue(cf, r.Owner));
                 default:
                     throw new InvalidDataException(System.FormattableString.Invariant($"Unknown constant tag: {(byte)tag}"));
             }
@@ -444,6 +446,9 @@ namespace WarScript.Bytecode
 
             private readonly BinaryReader _r;
             private readonly long _end;
+
+            /// <summary>The instance loading the file: it owns the lambda constants (6.7, Q-1).</summary>
+            public WarScriptLanguage? Owner;
 
             public BoundedReader(BinaryReader r)
             {
