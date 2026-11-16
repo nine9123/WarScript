@@ -11,7 +11,7 @@ assert "a\"b" == "a" + q + "b"
 assert "she said \"hi\"" == "she said " + q + "hi" + q
 
 # ── 2. Escaped backslash ──
-assert "a\\b" - "\\" == "ab"
+assert Text_remove ["a\\b", "\\"] == "ab"
 assert "\\" + "\\" == "\\\\"
 
 # ── 3. Escaped braces suppress interpolation ──

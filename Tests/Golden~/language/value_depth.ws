@@ -32,12 +32,12 @@ loop i in 0..255
     x = {x}
     y = {y}
 end
-print x == y                             # expect: True
+print x == y                             # expect: true
 y = {}
 loop i in 0..255
     y = {y, 1}
 end
-print x == y                             # expect: False
+print x == y                             # expect: false
 
 # ...and one level more is an error, for '==', '!=' and the array natives.
 x = {x}
@@ -72,7 +72,7 @@ begin
 rescue e
     print "remove: " + e                 # expect: remove: Value nested too deeply
 end
-print Array_contains [c, 1]              # expect: True
+print Array_contains [c, 1]              # expect: true
 
 # Instances count as a level too.
 class Box [v]

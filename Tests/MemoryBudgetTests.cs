@@ -143,7 +143,7 @@ namespace Tests
                 s.MemoryBudget = 10000;
             });
 
-            Assert.AreEqual(new[] { "True" }, output);
+            Assert.AreEqual(new[] { "true" }, output);
         }
 
         [Test]

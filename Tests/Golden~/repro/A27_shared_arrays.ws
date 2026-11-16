@@ -11,15 +11,15 @@ loop i in 0..40
     a = {a, a}
     b = {b, b}
 end
-print a == b                             # expect: True
-print a != b                             # expect: False
-print Array_contains [{0, a}, b]         # expect: True
+print a == b                             # expect: true
+print a != b                             # expect: false
+print Array_contains [{0, a}, b]         # expect: true
 c = {2}
 loop i in 0..40
     c = {c, c}
 end
 c{1} = 3
-print a == c                             # expect: False
+print a == c                             # expect: false
 # (Formatting is checked in Tests/ValueDepthTests.cs: its text is longer
 # than MaxTextLength, so a script cannot hold it.)
 
@@ -39,7 +39,7 @@ loop i in 0..54
     x = {x}
     y = {y}
 end
-print {d, x} == {e, y}                   # expect: True
+print {d, x} == {e, y}                   # expect: true
 # One level more and it is too deep, as without the memo.
 x = {x}
 y = {y}

@@ -41,9 +41,9 @@ p3 = new Point[10, 30]
 assert !(p1 == p3)
 assert p1 != p3
 
-# ── Mixed type comparisons (string fallback) ──
-assert !(42 != "42")
-assert 42 == "42"
+# ── Mixed type comparisons: different types are not equal (DEC-8) ──
+assert 42 != "42"
+assert !(42 == "42")
 
 # ── Null symmetry ──
 assert null == null

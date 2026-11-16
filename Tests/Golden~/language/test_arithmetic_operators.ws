@@ -70,8 +70,8 @@ assert "hi" * 0 == ""
 assert 3 * "ab" == "ababab"
 
 # ── String subtraction (Replace removes ALL occurrences) ──
-assert "hello world" - "world" == "hello "
-assert "test" - "xyz" == "test"
+assert Text_remove ["hello world", "world"] == "hello "
+assert Text_remove ["test", "xyz"] == "test"
 
 # ── String concatenation via + ──
 assert "hello" + " " + "world" == "hello world"

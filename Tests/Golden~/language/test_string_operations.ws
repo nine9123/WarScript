@@ -17,8 +17,8 @@ assert 42 + " is the answer" == "42 is the answer"
 assert "pi: " + 3.14 == "pi: 3.14"
 
 # ── Concatenation with booleans ──
-assert "flag: " + true == "flag: True"
-assert "flag: " + false == "flag: False"
+assert "flag: " + true == "flag: true"
+assert "flag: " + false == "flag: false"
 
 # ── String repetition ──
 assert "abc" * 0 == ""
@@ -31,12 +31,12 @@ assert "-" * 5 == "-----"
 assert 3 * "xy" == "xyxyxy"
 
 # ── String subtraction (Replace removes ALL occurrences) ──
-assert "hello world" - "world" == "hello "
-assert "hello world" - "hello " == "world"
-assert "abcabc" - "abc" == ""
-assert "test" - "xyz" == "test"
-assert "aaa" - "a" == ""
-assert "banana" - "na" == "ba"
+assert Text_remove ["hello world", "world"] == "hello "
+assert Text_remove ["hello world", "hello "] == "world"
+assert Text_remove ["abcabc", "abc"] == ""
+assert Text_remove ["test", "xyz"] == "test"
+assert Text_remove ["aaa", "a"] == ""
+assert Text_remove ["banana", "na"] == "ba"
 
 # ── Character indexing (must use variable, not literal) ──
 s = "hello"

@@ -134,9 +134,8 @@ data = null
 
 print x         # → 42
 print name      # → hello
-print active    # → True
+print active    # → true
 print data      # → null
-print never_set # → null
 ```
 
 ### Types
@@ -146,7 +145,7 @@ WarScript has 7 value types:
 | Type | Example | Notes |
 |---|---|---|
 | **Numeric** | `42`, `0.5`, `-3` | `F64` 32.32 fixed-point — *not* a float or double |
-| **Logical** | `true`, `false` | prints as `True` / `False` |
+| **Logical** | `true`, `false` | prints as `true` / `false` |
 | **Text** | `"hello"` | interpolation, escapes, and raw `"""..."""` |
 | **Array** | `{1, 2, 3}` | prints as `[1, 2, 3]` |
 | **Class** | `new Point [1, 2]` | prints as the class name |
@@ -196,17 +195,17 @@ print 10 / 4    # → 2.5
 print 10 % 3    # → 1
 
 # Comparison
-print 1 == 1    # → True
-print 1 != 2    # → True
-print 1 < 2     # → True
-print 2 <= 2    # → True
-print 3 > 2     # → True
-print 3 >= 4    # → False
+print 1 == 1    # → true
+print 1 != 2    # → true
+print 1 < 2     # → true
+print 2 <= 2    # → true
+print 3 > 2     # → true
+print 3 >= 4    # → false
 
 # Logical
-print true and false   # → False
-print true or false    # → True
-print !true            # → False
+print true and false   # → false
+print true or false    # → true
+print !true            # → false
 
 # Compound assignment
 x = 10
@@ -216,19 +215,23 @@ x *= 2    # 24
 x /= 4    # 6
 ```
 
-Comparison coerces to text when the operands differ, so `1 == "1"` is `True` and `"a" < "b"` is
-`True`. `null == null` is `True`, but `null == 0` is `False`.
+Operators do not coerce. `+` concatenates when either operand is text, adds two numbers and joins
+two arrays; `-`, `/`, `%` and unary `-` take numbers; `*` takes numbers or a text and a count;
+`<`, `<=`, `>`, `>=` take two numbers or two texts (compared ordinally); `<<` needs an array.
+Anything else raises a `TypeError` such as `Cannot apply '-' to text and number`. `==` and `!=`
+never raise: values of different types are simply not equal, so `1 == "1"` is `false`,
+`null == null` is `true` and `null == 0` is `false`.
 
 ### Strings
 
 ```ruby
 print "hello" + " world"        # → hello world   (concatenate)
-print "hello world" - "world"   # → "hello "      (remove first occurrence)
 print "ab" * 3                  # → ababab        (repeat)
-print "n=" + 5                  # → n=5           (numbers coerce to text)
+print "n=" + 5                  # → n=5           (text + anything is text)
 print "abc"{1}                  # → b             (one-character text)
 ```
 
+There is no text subtraction; `Text_remove [s, sub]` removes every occurrence of `sub`.
 Text is immutable: `s{0} = "x"` raises a `TypeError`. Reading past either end raises an
 `IndexError`, as for arrays.
 
@@ -299,7 +302,7 @@ print arr                 # → [1, 99, 3, 4]
 print Array_length [arr]  # → 4
 
 mixed = {1, "a", true, null}
-print mixed               # → [1, a, True, null]
+print mixed               # → [1, a, true, null]
 ```
 
 The index must be a number (a fraction truncates toward zero, so `arr{1.9}` is `arr{1}`); any
@@ -660,8 +663,8 @@ print s :: get_name []    # → Ann
 #### Type tests and casts
 
 ```ruby
-print d is Dog       # → True
-print d is Animal    # → True
+print d is Dog       # → true
+print d is Animal    # → true
 a = d as Animal      # cast, or null if incompatible
 print a :: name      # → Rex
 ```
@@ -851,7 +854,7 @@ whether the bytecode it holds is still that file. `ScriptRunner` exposes the hoo
 ## Standard Library
 
 Registered by `WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope)`. Note the
-naming: **Math and Utility functions are unprefixed, Array functions carry an `Array_` prefix.**
+naming: **Math and Utility functions are unprefixed, Array and Text functions carry an `Array_` / `Text_` prefix.**
 
 ### Math
 
@@ -899,10 +902,20 @@ Deterministic randomness is supplied by the host as its own module.
 
 ```ruby
 arr = {10, 20, 30, 40}
-print Array_contains [arr, 20]   # → True
+print Array_contains [arr, 20]   # → true
 print Array_index_of [arr, 30]   # → 2
 print Array_pop [arr]            # → 40
 print arr                        # → [10, 20, 30]
+```
+
+### Text
+
+| Function | Description |
+|---|---|
+| `Text_remove [s, sub]` | `s` without any occurrence of `sub` (ordinal); an empty `sub` returns `s` |
+
+```ruby
+print Text_remove ["banana", "na"]   # → ba
 ```
 
 ### Coroutine
@@ -1412,8 +1425,10 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
   code around one is a compile error.
 - Default parameters cannot distinguish an omitted argument from an explicit `null`.
 - Functions are keyed by `(name, arity)`; native functions require an exact arity match.
-- Comparison coerces to text across types, so `1 == "1"` is `True`.
-- Booleans print as `True`/`False`, and arrays print as `[1, 2, 3]` even though the literal is `{1, 2, 3}`.
+- Operators do not coerce: mixed types raise a `TypeError` (except `text + anything`, which
+  concatenates), and `==` across types is `false`, so `1 == "1"` is `false`.
+- Text subtraction is gone; use `Text_remove [s, sub]`.
+- Booleans print as `true`/`false`, and arrays print as `[1, 2, 3]` even though the literal is `{1, 2, 3}`.
 
 **Numerics**
 

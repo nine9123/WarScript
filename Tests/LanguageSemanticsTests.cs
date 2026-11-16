@@ -29,6 +29,10 @@ namespace Tests
             return output;
         }
 
+        /// <summary>The message of the error evaluating <paramref name="expression"/> raises, as <c>rescue e</c> sees it.</summary>
+        private static string Rescued(string expression) =>
+            Run("begin\nx = " + expression + "\nprint \"no error\"\nrescue e\nprint e\nend")[0];
+
         // ────────────────────────────────────────────────
         //  Negative-literal disambiguation (regression)
         // ────────────────────────────────────────────────
@@ -225,10 +229,10 @@ namespace Tests
             Assert.AreEqual("T", output[0]);
         }
 
-        [Test] public void Not_NonZeroNumber_IsFalse() => Assert.AreEqual("False", Run("print !5")[0]);
-        [Test] public void Not_Zero_IsTrue() => Assert.AreEqual("True", Run("print !0")[0]);
-        [Test] public void Not_Null_IsTrue() => Assert.AreEqual("True", Run("print !null")[0]);
-        [Test] public void Not_String_IsFalse() => Assert.AreEqual("False", Run("print !\"a\"")[0]);
+        [Test] public void Not_NonZeroNumber_IsFalse() => Assert.AreEqual("false", Run("print !5")[0]);
+        [Test] public void Not_Zero_IsTrue() => Assert.AreEqual("true", Run("print !0")[0]);
+        [Test] public void Not_Null_IsTrue() => Assert.AreEqual("true", Run("print !null")[0]);
+        [Test] public void Not_String_IsFalse() => Assert.AreEqual("false", Run("print !\"a\"")[0]);
 
         // ────────────────────────────────────────────────
         //  Array semantics
@@ -256,15 +260,22 @@ namespace Tests
         }
 
         [Test]
-        public void ArrayPlusScalar_AppendsScalar()
+        public void ArrayPlusScalar_IsTypeError()
         {
-            Assert.AreEqual("[1, 2, 3]", Run("print {1, 2} + 3")[0]);
+            // PROP-6 (T3.6): use '<<' to append.
+            Assert.AreEqual("Cannot apply '+' to array and number", Rescued("{1, 2} + 3"));
         }
 
         [Test]
-        public void ScalarPlusArray_PrependsScalar()
+        public void ScalarPlusArray_IsTypeError()
         {
-            Assert.AreEqual("[3, 1, 2]", Run("print 3 + {1, 2}")[0]);
+            Assert.AreEqual("Cannot apply '+' to number and array", Rescued("3 + {1, 2}"));
+        }
+
+        [Test]
+        public void TextPlusArray_FormatsTheArray()
+        {
+            Assert.AreEqual("a[1, 2]", Run("print \"a\" + {1, 2}")[0]);
         }
 
         [Test]
@@ -280,10 +291,10 @@ namespace Tests
         }
 
         [Test]
-        public void AppendOperator_OnNonArray_IsSilentNoOp()
+        public void AppendOperator_OnNonArray_IsTypeError()
         {
-            var output = Run("s = \"ab\"\ns << \"c\"\nprint s");
-            Assert.AreEqual("ab", output[0]);
+            var output = Run("s = \"ab\"\nbegin\ns << \"c\"\nrescue e\nprint e\nend\nprint s");
+            CollectionAssert.AreEqual(new[] { "Cannot apply '<<' to text and text", "ab" }, output);
         }
 
         [Test]
@@ -312,9 +323,18 @@ namespace Tests
         }
 
         [Test]
-        public void StringMinus_RemovesAllOccurrences()
+        public void StringMinus_IsTypeError()
         {
-            Assert.AreEqual("bb", Run("print \"ababa\" - \"a\"")[0]);
+            // PROP-7 (T3.6): text subtraction is removed.
+            Assert.AreEqual("Cannot apply '-' to text and text", Rescued("\"ababa\" - \"a\""));
+        }
+
+        [Test]
+        public void TextRemove_RemovesAllOccurrences()
+        {
+            var (_, output) = TestHelper.Run("semantics", "print Text_remove [\"ababa\", \"a\"]\nprint Text_remove [\"ab\", \"\"]",
+                (script, scope) => WarScript.Native.TextLibrary.Register(script, scope));
+            CollectionAssert.AreEqual(new[] { "bb", "ab" }, output);
         }
 
         [Test]
@@ -346,40 +366,52 @@ namespace Tests
         // ────────────────────────────────────────────────
 
         [Test]
-        public void CompareStringToNumber_UsesOrdinalToString()
+        public void CompareStringToNumber_IsTypeError()
         {
-            // Cross-type comparison falls back to ordinal string comparison:
-            // "5" vs "10" compares '5' > '1'.
-            Assert.AreEqual("False", Run("print \"5\" < 10")[0]);
-            Assert.AreEqual("True", Run("print 10 < \"5\"")[0]);
+            // DEC-8 (T3.6): ordering needs two numbers or two texts.
+            Assert.AreEqual("Cannot apply '<' to text and number", Rescued("\"5\" < 10"));
+            Assert.AreEqual("Cannot apply '>=' to number and text", Rescued("10 >= \"5\""));
+            Assert.AreEqual("Cannot apply '<=' to logical and logical", Rescued("true <= false"));
         }
 
         [Test]
-        public void NegateString_YieldsZero()
+        public void CompareTexts_IsOrdinal()
         {
-            // Unary minus reads the numeric payload of the value, which is 0
-            // for reference tags. Deterministic, if surprising.
-            Assert.AreEqual("0", Run("print -\"abc\"")[0]);
+            CollectionAssert.AreEqual(new[] { "true", "false", "true" },
+                Run("print \"B\" < \"a\"\nprint \"b\" <= \"a\"\nprint \"ab\" > \"a\""));
         }
 
         [Test]
-        public void NegateTrue_YieldsMinusOne()
+        public void EqualityAcrossTypes_IsFalse_NotAnError()
         {
-            Assert.AreEqual("-1", Run("print -true")[0]);
+            CollectionAssert.AreEqual(new[] { "false", "true", "false", "false" },
+                Run("print 1 == \"1\"\nprint 1 != \"1\"\nprint true == 1\nprint null == false"));
+        }
+
+        [Test]
+        public void NegateString_IsTypeError()
+        {
+            Assert.AreEqual("Cannot apply '-' to text", Rescued("-\"abc\""));
+        }
+
+        [Test]
+        public void NegateTrue_IsTypeError()
+        {
+            Assert.AreEqual("Cannot apply '-' to logical", Rescued("-true"));
         }
 
         [Test]
         public void MultiplyStrings_IsRuntimeError_Catchable()
         {
             var output = Run("begin\nprint \"a\" * \"b\"\nrescue e\nprint \"err: \" + e\nend");
-            Assert.AreEqual("err: Unable to multiply non-numeric values", output[0]);
+            Assert.AreEqual("err: Cannot apply '*' to text and text", output[0]);
         }
 
         [Test]
         public void DivideStrings_IsRuntimeError_Catchable()
         {
             var output = Run("begin\nprint \"a\" / \"b\"\nrescue e\nprint \"err: \" + e\nend");
-            Assert.AreEqual("err: Unable to divide non-numeric values", output[0]);
+            Assert.AreEqual("err: Cannot apply '/' to text and text", output[0]);
         }
 
         [Test]
@@ -401,13 +433,13 @@ namespace Tests
         [Test]
         public void Is_OnNumber_IsFalse()
         {
-            Assert.AreEqual("False", Run("class Foo end\nprint 5 is Foo")[0]);
+            Assert.AreEqual("false", Run("class Foo end\nprint 5 is Foo")[0]);
         }
 
         [Test]
         public void Is_OnNull_IsFalse()
         {
-            Assert.AreEqual("False", Run("class Foo end\nprint null is Foo")[0]);
+            Assert.AreEqual("false", Run("class Foo end\nprint null is Foo")[0]);
         }
 
         [Test]
@@ -524,7 +556,7 @@ namespace Tests
         public void RescueVariable_IsTheRaisedString()
         {
             var output = Run("begin\nraise \"boom\"\nrescue e\nprint e == \"boom\"\nend");
-            Assert.AreEqual("True", output[0]);
+            Assert.AreEqual("true", output[0]);
         }
 
         [Test]
@@ -629,7 +661,7 @@ namespace Tests
         [Test]
         public void Lambda_EqualityIsReferenceIdentity()
         {
-            Assert.AreEqual("True", Run("f = fun [x] return x end\ng = f\nprint f == g")[0]);
+            Assert.AreEqual("true", Run("f = fun [x] return x end\ng = f\nprint f == g")[0]);
         }
 
         [Test]
@@ -639,7 +671,7 @@ namespace Tests
                 "f = fun [x] return x end\n" +
                 "g = fun [x] return x end\n" +
                 "print f == g");
-            Assert.AreEqual("False", output[0]);
+            Assert.AreEqual("false", output[0]);
         }
 
         [Test]
@@ -687,13 +719,19 @@ namespace Tests
         }
 
         [Test]
-        public void Interpolation_OfArray_ProducesArrayViaPlusDesugar()
+        public void Interpolation_OfArray_FormatsTheArray()
         {
-            // Interpolation desugars to `+`, and string + array follows the
-            // array-concat rule — the result is an array, not text. Pinned as
-            // the current (surprising but deterministic) behavior.
+            // Text + anything is text (plan 5.3, T3.6); v1 made an array here.
             var output = Run("a = {1, 2}\nprint \"arr: {a}\"");
-            Assert.AreEqual("[arr: , 1, 2]", output[0]);
+            Assert.AreEqual("arr: [1, 2]", output[0]);
+        }
+
+        [Test]
+        public void Interpolation_StartingWithAHole_IsText()
+        {
+            // "{a}{b}" desugars to "" + (a) + (b), so two numbers are not added.
+            CollectionAssert.AreEqual(new[] { "12", "true" },
+                Run("a = 1\nb = 2\nprint \"{a}{b}\"\nprint \"{a}\" == \"1\""));
         }
 
         // ────────────────────────────────────────────────

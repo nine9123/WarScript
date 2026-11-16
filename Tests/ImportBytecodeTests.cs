@@ -102,7 +102,7 @@ namespace Tests
             // in-script rather than by parsing the printed text
             var (_, output) = Run(
                 "import \"mathy\"\nprint abs [hypot [3, 4] - 5] < 0.001", bytecode);
-            Assert.AreEqual("True", output[0]);
+            Assert.AreEqual("true", output[0]);
         }
 
         [Test]

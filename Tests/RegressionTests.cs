@@ -74,8 +74,8 @@ namespace Tests
                 "print a != b");
             Assert.IsFalse(script.ExceptionContext.IsRaised());
             Assert.AreEqual(2, output.Count);
-            Assert.AreEqual("True", output[0], "a == b should be True");
-            Assert.AreEqual("False", output[1], "a != b should be False (symmetric with ==)");
+            Assert.AreEqual("true", output[0], "a == b should be True");
+            Assert.AreEqual("false", output[1], "a != b should be False (symmetric with ==)");
         }
 
         // AST caching

@@ -179,8 +179,8 @@ assert v :: y == 4
                 "print a != b");
 
             Assert.AreEqual(2, output.Count);
-            Assert.AreEqual("True", output[0], "== on equal arrays should be True");
-            Assert.AreEqual("False", output[1], "!= on equal arrays should be False");
+            Assert.AreEqual("true", output[0], "== on equal arrays should be True");
+            Assert.AreEqual("false", output[1], "!= on equal arrays should be False");
         }
 
         [Test]
@@ -195,8 +195,8 @@ assert v :: y == 4
                 "print a != b");
 
             Assert.AreEqual(2, output.Count);
-            Assert.AreEqual("True", output[0], "== on equal class instances should be True");
-            Assert.AreEqual("False", output[1], "!= on equal class instances should be False");
+            Assert.AreEqual("true", output[0], "== on equal class instances should be True");
+            Assert.AreEqual("false", output[1], "!= on equal class instances should be False");
         }
 
         [Test]
@@ -211,10 +211,10 @@ assert v :: y == 4
                 (s, scope) => WarScript.Native.UtilityLibrary.Register(s, scope));
 
             Assert.AreEqual(4, output.Count);
-            Assert.AreEqual("True", output[0], "is_null[null] should be True");
-            Assert.AreEqual("False", output[1], "is_null[0] should be False");
-            Assert.AreEqual("False", output[2], "is_null[\"\"] should be False");
-            Assert.AreEqual("True", output[3], "is_null[x] where x=null should be True");
+            Assert.AreEqual("true", output[0], "is_null[null] should be True");
+            Assert.AreEqual("false", output[1], "is_null[0] should be False");
+            Assert.AreEqual("false", output[2], "is_null[\"\"] should be False");
+            Assert.AreEqual("true", output[3], "is_null[x] where x=null should be True");
         }
     }
 }

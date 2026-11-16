@@ -172,10 +172,10 @@ assert d1 != d3
 #  Cross-type comparisons
 # ════════════════════════════════════════════════
 
-# ── String representation fallback ──
-assert 42 == "42"
-assert !(42 != "42")
-assert !("42" != 42)
+# ── Values of different types are never equal (DEC-8) ──
+assert !(42 == "42")
+assert 42 != "42"
+assert "42" != 42
 
 # ── Different types that differ ──
 assert 42 != "43"

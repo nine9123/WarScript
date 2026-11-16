@@ -46,7 +46,7 @@ namespace Tests
                 print is_even [10000]
                 print is_odd [10001]
             ");
-            Assert.AreEqual(new[] { "True", "True" }, output);
+            Assert.AreEqual(new[] { "true", "true" }, output);
         }
 
         [Test]

@@ -115,7 +115,7 @@ namespace Tests
                 b = 3
                 print $""{a} + {b} = {a + b}"" == ""{a} + {b} = {a + b}""
             ");
-            Assert.AreEqual(new[] { "True" }, output);
+            Assert.AreEqual(new[] { "true" }, output);
         }
 
         [Test]
@@ -174,14 +174,14 @@ namespace Tests
         public void EmptyRawLiteral()
         {
             var (_, output) = TestHelper.Run("test", "print \"\"\"\"\"\" == \"\"");
-            Assert.AreEqual(new[] { "True" }, output);
+            Assert.AreEqual(new[] { "true" }, output);
         }
 
         [Test]
         public void RawLiteralHoldingOnlyItsDelimiterLinesIsEmpty()
         {
             var (_, output) = TestHelper.Run("test", "text = \"\"\"\n    \"\"\"\nprint text == \"\"");
-            Assert.AreEqual(new[] { "True" }, output);
+            Assert.AreEqual(new[] { "true" }, output);
         }
 
         [Test]
@@ -278,7 +278,8 @@ namespace Tests
         [Test]
         public void StringLiteralScript()
         {
-            var (script, output) = TestHelper.RunFile("test_string_literals.ws");
+            var (script, output) = TestHelper.RunFile("test_string_literals.ws",
+                (s, scope) => WarScript.Native.TextLibrary.Register(s, scope));
 
             Assert.IsFalse(script.ExceptionContext.IsRaised(),
                 $"Script raised an unhandled exception. Output:\n{string.Join("\n", output)}");

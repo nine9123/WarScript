@@ -511,16 +511,31 @@ namespace WarScript.Bytecode
                     //  Arithmetic
                     // ══════════════════════════════════════════════
 
+                    // Operand types follow the strict table of plan 5.3
+                    // (T3.6, DEC-8, PROP-6, PROP-17): anything outside it
+                    // raises TypeError "Cannot apply '<op>' to <type> and
+                    // <type>" (OperandError); there is no coercion through
+                    // text except for '+' with a text operand.
+
                     case OpCode.Add:
                     {
                         var b = Pop(); var a = Pop();
-                        if (a.IsNumeric && b.IsNumeric)
-                            Push(WarValue.FromNumeric(a.Numeric + b.Numeric));
-                        else if (a.IsArray || b.IsArray)
+                        if (a.IsText || b.IsText)
                         {
-                            if (a.IsArray != b.IsArray && _script.AuditSink != null)
-                                Audit(AuditKind.ArrayPlusValue, fi, Describe(a) + " + " + Describe(b));
-                            long length = (a.IsArray ? a.ArrayValue.Count : 1L) + (b.IsArray ? b.ArrayValue.Count : 1L);
+                            var left = Text(a); var right = Text(b);
+                            long length = (long)left.Length + right.Length;
+                            if (!CheckTextLength(length) || !TrackAlloc(EstimateTextBytes(length)))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
+                            Push(WarValue.FromText(_interner.Intern(left + right)));
+                        }
+                        else if (a.IsNumeric && b.IsNumeric)
+                            Push(WarValue.FromNumeric(a.Numeric + b.Numeric));
+                        else if (a.IsArray && b.IsArray)
+                        {
+                            long length = (long)a.ArrayValue.Count + b.ArrayValue.Count;
                             if (!CheckArrayLength(length) || !TrackAlloc(EstimateArrayBytes(length)))
                             {
                                 if (DoHandleException(ref fi, ref code, ref constants)) break;
@@ -530,15 +545,9 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            if (_script.AuditSink != null) AuditConcatenation(a, b, fi);
-                            var left = Text(a); var right = Text(b);
-                            long length = (long)left.Length + right.Length;
-                            if (!CheckTextLength(length) || !TrackAlloc(EstimateTextBytes(length)))
-                            {
-                                if (DoHandleException(ref fi, ref code, ref constants)) break;
-                                return;
-                            }
-                            Push(WarValue.FromText(_interner.Intern(left + right)));
+                            OperandError("+", a, b);
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
                         }
                         break;
                     }
@@ -549,19 +558,10 @@ namespace WarScript.Bytecode
                             Push(WarValue.FromNumeric(a.Numeric - b.Numeric));
                         else
                         {
-                            if (_script.AuditSink != null)
-                                Audit(AuditKind.TextSubtraction, fi, Describe(a) + " - " + Describe(b));
-                            // The result is never longer than the left operand, so
-                            // there is no length check. 'text - ""' leaves the text
-                            // as it is (String.Replace rejects an empty pattern; T1.4).
-                            var left = Text(a); var right = Text(b);
-                            var s = _interner.Intern(right.Length == 0 ? left : left.Replace(right, ""));
-                            if (!TrackAlloc(EstimateTextBytes(s.Length)))
-                            {
-                                if (DoHandleException(ref fi, ref code, ref constants)) break;
-                                return;
-                            }
-                            Push(WarValue.FromText(s));
+                            // No text subtraction in v2: Text_remove (PROP-7).
+                            OperandError("-", a, b);
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
                         }
                         break;
                     }
@@ -584,7 +584,7 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            RuntimeError(ScriptErrorKind.TypeError, "Unable to multiply non-numeric values");
+                            OperandError("*", a, b);
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -605,7 +605,7 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            RuntimeError(ScriptErrorKind.TypeError, "Unable to divide non-numeric values");
+                            OperandError("/", a, b);
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -626,7 +626,7 @@ namespace WarScript.Bytecode
                         }
                         else
                         {
-                            RuntimeError(ScriptErrorKind.TypeError, "Unable to perform modulo for non-numeric values");
+                            OperandError("%", a, b);
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
@@ -635,8 +635,12 @@ namespace WarScript.Bytecode
                     case OpCode.Negate:
                     {
                         var v = Pop();
-                        if (!v.IsNumeric && _script.AuditSink != null)
-                            Audit(AuditKind.NegateNonNumeric, fi, "-" + Describe(v));
+                        if (!v.IsNumeric)
+                        {
+                            RuntimeError(ScriptErrorKind.TypeError, "Cannot apply '-' to " + TypeName(v));
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         Push(WarValue.FromNumeric(-v.Numeric));
                         break;
                     }
@@ -645,66 +649,39 @@ namespace WarScript.Bytecode
                     //  Comparison
                     // ══════════════════════════════════════════════
 
+                    // Equality (plan 5.4): values of different types are
+                    // not equal and raise nothing; null equals only null.
                     case OpCode.Equal:
                     {
                         var b = Pop(); var a = Pop();
-                        if (a.IsNull || b.IsNull)
-                            Push(WarValue.FromLogical(a.IsNull && b.IsNull));
-                        else if (a.Tag == b.Tag)
-                        {
-                            var equal = a.Equals(b);
-                            if (equal && a.IsClass && _script.AuditSink != null) AuditClassEquality(a, b, "==", fi);
-                            Push(WarValue.FromLogical(equal));
-                        }
-                        else
-                        {
-                            var equal = Text(a) == Text(b);
-                            if (_script.AuditSink != null) AuditMixedEquality(a, b, "==", equal, fi);
-                            Push(WarValue.FromLogical(equal));
-                        }
+                        var equal = a.Equals(b);
+                        if (equal && a.IsClass && _script.AuditSink != null) AuditClassEquality(a, b, "==", fi);
+                        Push(WarValue.FromLogical(equal));
                         break;
                     }
                     case OpCode.NotEqual:
                     {
                         var b = Pop(); var a = Pop();
-                        if (a.IsNull || b.IsNull)
-                            Push(WarValue.FromLogical(!(a.IsNull && b.IsNull)));
-                        else if (a.Tag == b.Tag)
-                        {
-                            var equal = a.Equals(b);
-                            if (equal && a.IsClass && _script.AuditSink != null) AuditClassEquality(a, b, "!=", fi);
-                            Push(WarValue.FromLogical(!equal));
-                        }
-                        else
-                        {
-                            var equal = Text(a) == Text(b);
-                            if (_script.AuditSink != null) AuditMixedEquality(a, b, "!=", !equal, fi);
-                            Push(WarValue.FromLogical(!equal));
-                        }
+                        var equal = a.Equals(b);
+                        if (equal && a.IsClass && _script.AuditSink != null) AuditClassEquality(a, b, "!=", fi);
+                        Push(WarValue.FromLogical(!equal));
                         break;
                     }
                     case OpCode.Less:
-                    {
-                        var b = Pop(); var a = Pop();
-                        Push(WarValue.FromLogical(Compare(a, b, fi) < 0));
-                        break;
-                    }
                     case OpCode.LessEqual:
-                    {
-                        var b = Pop(); var a = Pop();
-                        Push(WarValue.FromLogical(Compare(a, b, fi) <= 0));
-                        break;
-                    }
                     case OpCode.Greater:
-                    {
-                        var b = Pop(); var a = Pop();
-                        Push(WarValue.FromLogical(Compare(a, b, fi) > 0));
-                        break;
-                    }
                     case OpCode.GreaterEqual:
                     {
                         var b = Pop(); var a = Pop();
-                        Push(WarValue.FromLogical(Compare(a, b, fi) >= 0));
+                        if (!Compare(a, b, instruction, out var order))
+                        {
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
+                        Push(WarValue.FromLogical(instruction == OpCode.Less ? order < 0
+                            : instruction == OpCode.LessEqual ? order <= 0
+                            : instruction == OpCode.Greater ? order > 0
+                            : order >= 0));
                         break;
                     }
 
@@ -717,7 +694,12 @@ namespace WarScript.Bytecode
                     {
                         var offset = ReadU16(code, ref _frames[fi].IP);
                         var b = Pop(); var a = Pop();
-                        if (!(Compare(a, b, fi) < 0))
+                        if (!Compare(a, b, OpCode.Less, out var order))
+                        {
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
+                        if (!(order < 0))
                             _frames[fi].IP += offset;
                         break;
                     }
@@ -1301,8 +1283,12 @@ namespace WarScript.Bytecode
                             }
                             arr.ArrayAppend(value);
                         }
-                        else if (_script.AuditSink != null)
-                            Audit(AuditKind.AppendToNonArray, fi, Describe(arr) + " << " + Describe(value));
+                        else
+                        {
+                            OperandError("<<", arr, value);
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         break;
                     }
 
@@ -1584,10 +1570,7 @@ namespace WarScript.Bytecode
 
                     case OpCode.Print:
                     {
-                        var printed = Pop();
-                        if (_script.AuditSink != null && ContainsLogical(printed, 0))
-                            Audit(AuditKind.LogicalFormatted, fi, "print " + Describe(printed));
-                        _script.Print(Text(printed));
+                        _script.Print(Text(Pop()));
                         break;
                     }
 
@@ -2183,24 +2166,10 @@ namespace WarScript.Bytecode
         // ── Array concatenation ──
         private static WarValue AddArrays(in WarValue a, in WarValue b)
         {
-            if (a.IsArray && b.IsArray)
-            {
-                var lv = a.ArrayValue; var rv = b.ArrayValue;
-                var list = new List<WarValue>(lv.Count + rv.Count);
-                list.AddRange(lv); list.AddRange(rv);
-                return WarValue.FromArray(list);
-            }
-            if (a.IsArray)
-            {
-                var lv = a.ArrayValue;
-                var list = new List<WarValue>(lv.Count + 1);
-                list.AddRange(lv); list.Add(b);
-                return WarValue.FromArray(list);
-            }
-            var rv2 = b.ArrayValue;
-            var list2 = new List<WarValue>(rv2.Count + 1);
-            list2.Add(a); list2.AddRange(rv2);
-            return WarValue.FromArray(list2);
+            var lv = a.ArrayValue; var rv = b.ArrayValue;
+            var list = new List<WarValue>(lv.Count + rv.Count);
+            list.AddRange(lv); list.AddRange(rv);
+            return WarValue.FromArray(list);
         }
 
         // ── Class instantiation (T1.1) ──
@@ -2473,18 +2442,36 @@ namespace WarScript.Bytecode
         /// <see cref="WarValue.CompareTo"/>, with the number case first and
         /// the audit events for the cases v2 rejects (plan 8.1).
         /// </summary>
-        private int Compare(in WarValue a, in WarValue b, int fi)
+        /// <summary>
+        /// Orders two values for <paramref name="op"/> (plan 5.3, PROP-17):
+        /// numbers with numbers, text with text (ordinal). Any other pair,
+        /// logical values included, raises TypeError and returns false.
+        /// </summary>
+        private bool Compare(in WarValue a, in WarValue b, OpCode op, out int order)
         {
-            if (a.IsNumeric && b.IsNumeric) return a.Numeric.CompareTo(b.Numeric);
-            if (_script.AuditSink != null && !(a.IsText && b.IsText))
+            if (a.IsNumeric && b.IsNumeric)
             {
-                if (a.IsLogical && b.IsLogical)
-                    Audit(AuditKind.LogicalOrdering, fi, Describe(a) + " <=> " + Describe(b));
-                else
-                    Audit(AuditKind.MixedTypeOrdering, fi, Describe(a) + " <=> " + Describe(b) + " (compared as text)");
+                order = a.Numeric.CompareTo(b.Numeric);
+                return true;
             }
-            return a.CompareTo(b);
+            if (a.IsText && b.IsText)
+            {
+                order = string.Compare(a.TextValue, b.TextValue, StringComparison.Ordinal);
+                return true;
+            }
+            order = 0;
+            OperandError(op == OpCode.LessEqual ? "<=" : op == OpCode.Greater ? ">"
+                : op == OpCode.GreaterEqual ? ">=" : "<", a, b);
+            return false;
         }
+
+        /// <summary>
+        /// Raises the TypeError of a binary operator whose operands the
+        /// table of plan 5.3 does not accept (T3.6, DEC-8).
+        /// </summary>
+        private void OperandError(string op, in WarValue a, in WarValue b) =>
+            RuntimeError(ScriptErrorKind.TypeError,
+                "Cannot apply '" + op + "' to " + TypeName(a) + " and " + TypeName(b));
 
         // ── Audit mode (plan 8.1, T0.8; temporary) ──
         // Every caller checks _script.AuditSink != null first, so with no
@@ -2555,33 +2542,11 @@ namespace WarScript.Bytecode
             }
         }
 
-        /// <summary>True if formatting <paramref name="v"/> writes a logical value (inside arrays too, to a fixed depth).</summary>
-        private static bool ContainsLogical(in WarValue v, int depth)
-        {
-            if (v.IsLogical) return true;
-            if (!v.IsArray || depth >= 8) return false;
-            foreach (var element in v.ArrayValue)
-                if (ContainsLogical(element, depth + 1)) return true;
-            return false;
-        }
-
-        private void AuditMixedEquality(in WarValue a, in WarValue b, string op, bool result, int fi) =>
-            Audit(AuditKind.MixedTypeEquality, fi,
-                  Describe(a) + " " + op + " " + Describe(b) + " (v1: " + (result ? "true" : "false") + ")");
-
         private void AuditClassEquality(in WarValue a, in WarValue b, string op, int fi)
         {
             if (ReferenceEquals(a.Ref, b.Ref)) return;
             Audit(AuditKind.ClassStructuralEquality, fi,
                   Describe(a) + " " + op + " " + Describe(b) + ": two instances, structurally equal");
-        }
-
-        private void AuditConcatenation(in WarValue a, in WarValue b, int fi)
-        {
-            if (!a.IsText && !b.IsText)
-                Audit(AuditKind.NonTextConcatenation, fi, Describe(a) + " + " + Describe(b));
-            if (a.IsLogical || b.IsLogical)
-                Audit(AuditKind.LogicalFormatted, fi, Describe(a) + " + " + Describe(b));
         }
 
         /// <summary>A property write on an instance that misses the inline cache: does it create an undeclared field?</summary>

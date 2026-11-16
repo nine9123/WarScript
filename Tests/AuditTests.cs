@@ -24,19 +24,11 @@ namespace Tests
         private static string Format(IEnumerable<AuditEvent> events) =>
             string.Join("\n", events.Select(e => e.ToString()));
 
-        [TestCase("a = 1 == \"1\"", AuditKind.MixedTypeEquality, 1)]
-        [TestCase("a = 1 != \"2\"", AuditKind.MixedTypeEquality, 1)]
-        [TestCase("a = 1 < \"2\"", AuditKind.MixedTypeOrdering, 1)]
-        [TestCase("a = {1} >= {2}", AuditKind.MixedTypeOrdering, 1)]
-        [TestCase("a = true < false", AuditKind.LogicalOrdering, 1)]
-        [TestCase("a = \"ab\" - \"b\"", AuditKind.TextSubtraction, 1)]
-        [TestCase("a = 1\nb = true + a", AuditKind.NonTextConcatenation, 2)]
-        [TestCase("print true", AuditKind.LogicalFormatted, 1)]
-        [TestCase("x = {1, {false}}\nprint x", AuditKind.LogicalFormatted, 2)]
-        [TestCase("ok = true\nprint \"ok: {ok}\"", AuditKind.LogicalFormatted, 2)]
-        [TestCase("a = -\"a\"", AuditKind.NegateNonNumeric, 1)]
-        [TestCase("a = {1} + 2", AuditKind.ArrayPlusValue, 1)]
-        [TestCase("j = 5\nj << 1", AuditKind.AppendToNonArray, 2)]
+        // MixedTypeEquality, MixedTypeOrdering, LogicalOrdering,
+        // TextSubtraction, NonTextConcatenation, LogicalFormatted,
+        // NegateNonNumeric, ArrayPlusValue and AppendToNonArray have no v1
+        // path left since T3.6: the operators follow the table of plan 5.3
+        // and logical values print as true/false.
         // IndexReadInvalid, IndexWriteInvalid, TextIndexAssign and
         // PropertyWriteOnNonInstance have no v1 path left since T3.6: those
         // reads and writes raise IndexError or TypeError (5.5).
@@ -125,52 +117,50 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "fun sub [a, b]\n  return a - b\nend\nx = 1 == \"1\""
+                ["lib"] = "class P [x]\nend\nfun same [a, b]\n  return a == b\nend\na1 = new P [1]\na2 = new P [1]\nx = a1 == a2"
             };
-            var events = Audit("import \"lib\"\ny = sub [\"ab\", \"b\"]", path => files.TryGetValue(path, out var s) ? s : null);
+            var events = Audit("import \"lib\"\ny = same [new P [2], new P [2]]", path => files.TryGetValue(path, out var s) ? s : null);
 
-            var equality = events.Single(e => e.Kind == AuditKind.MixedTypeEquality);
-            Assert.AreEqual("lib", equality.Script);
-            Assert.AreEqual(4, equality.Line);
+            var topLevel = events.Single(e => e.Kind == AuditKind.ClassStructuralEquality && e.Line == 8);
+            Assert.AreEqual("lib", topLevel.Script);
 
-            var subtraction = events.Single(e => e.Kind == AuditKind.TextSubtraction);
-            Assert.AreEqual("lib", subtraction.Script, "a function defined in the import, called from the entry script");
-            Assert.AreEqual(2, subtraction.Line);
-            Assert.AreEqual("sub", subtraction.Function);
+            var inFunction = events.Single(e => e.Kind == AuditKind.ClassStructuralEquality && e.Line == 4);
+            Assert.AreEqual("lib", inFunction.Script, "a function defined in the import, called from the entry script");
+            Assert.AreEqual("same", inFunction.Function);
         }
 
         [Test]
         public void ReportGroupsEventsBySite()
         {
             var report = new AuditReport();
-            TestHelper.Run("main", "loop i in 0..3\n  a = i == \"1\"\nend\nb = true < false",
-                           (script, scope) => script.AuditSink = report.Add);
+            TestHelper.Run("main", "class P [x]\nend\na = new P [1]\nb = new P [1]\nloop i in 0..3\n  c = a == b\nend\nr = undefined_thing",
+                           (script, scope) => { script.AuditSink = report.Add; script.LogUnhandledErrors = false; });
 
             Assert.AreEqual(4, report.EventCount);
             var entries = report.Entries;
             Assert.AreEqual(2, entries.Count);
-            Assert.AreEqual(AuditKind.MixedTypeEquality, entries[0].Kind);
-            Assert.AreEqual(2, entries[0].Line);
-            Assert.AreEqual(3, entries[0].Count);
-            Assert.AreEqual("number 0 == text \"1\" (v1: false)", entries[0].FirstDetail);
-            Assert.AreEqual(AuditKind.LogicalOrdering, entries[1].Kind);
+            Assert.AreEqual(AuditKind.UndefinedRead, entries[0].Kind);
+            Assert.AreEqual(AuditKind.ClassStructuralEquality, entries[1].Kind);
+            Assert.AreEqual(6, entries[1].Line);
+            Assert.AreEqual(3, entries[1].Count);
+            Assert.AreEqual("P instance == P instance: two instances, structurally equal", entries[1].FirstDetail);
 
             var markdown = report.ToMarkdown("Test");
             StringAssert.StartsWith("# Test\n\nEvents: 4, sites (kind, script, line): 2.\n", markdown);
-            StringAssert.Contains("| `MixedTypeEquality` | 1 | 3 |", markdown);
-            StringAssert.Contains("| `UndefinedRead` | 0 | 0 |", markdown);
-            StringAssert.Contains("| main:2 | <script> | 3 | number 0 == text \"1\" (v1: false) |", markdown);
+            StringAssert.Contains("| `ClassStructuralEquality` | 1 | 3 |", markdown);
+            StringAssert.Contains("| `MixedTypeEquality` | 0 | 0 |", markdown);
+            StringAssert.Contains("| main:6 | <script> | 3 | P instance == P instance: two instances, structurally equal |", markdown);
 
             var json = report.ToJson();
             StringAssert.StartsWith("{\"events\": 4, \"sites\": [\n", json);
-            StringAssert.Contains("{\"kind\": \"MixedTypeEquality\", \"script\": \"main\", \"line\": 2, \"count\": 3, " +
-                                  "\"functions\": [\"<script>\"], \"first\": \"number 0 == text \\\"1\\\" (v1: false)\"}", json);
+            StringAssert.Contains("{\"kind\": \"ClassStructuralEquality\", \"script\": \"main\", \"line\": 6, \"count\": 3, " +
+                                  "\"functions\": [\"<script>\"], \"first\": \"P instance == P instance: two instances, structurally equal\"}", json);
         }
 
         [Test]
         public void AuditingDoesNotChangeTheRun()
         {
-            const string source = "x = {1, true}\nprint x\nprint 1 == \"1\"\ny = \"ab\" - \"b\"\nprint y";
+            const string source = "class P [x]\nend\nx = {1, true}\nprint x\nprint new P [1] == new P [1]\ny = undefined_thing";
             var (plain, plainOutput) = TestHelper.Run("a", source, (script, scope) => script.AuditSink = null);
             var (audited, auditedOutput) = TestHelper.Run("a", source, (script, scope) => script.AuditSink = e => { });
             CollectionAssert.AreEqual(plainOutput, auditedOutput);

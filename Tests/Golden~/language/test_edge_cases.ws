@@ -49,8 +49,8 @@ assert "" * 10 == ""
 # ── Boolean as values ──
 assert true != 1
 assert false != 0
-assert "flag: " + true == "flag: True"
-assert "flag: " + false == "flag: False"
+assert "flag: " + true == "flag: true"
+assert "flag: " + false == "flag: false"
 
 # ── Array of one element ──
 single = {42}

@@ -208,9 +208,10 @@ print LIMIT
         [Test]
         public void ChainedComparison_EvaluatesLeftToRight_NotMathematically()
         {
-            // (1 < 2) → true, then true < 3 falls back to ToString comparison
-            // ("True" < "3" is false). There is no Python-style chaining.
-            Assert.AreEqual("False", Run("print 1 < 2 < 3")[0]);
+            // (1 < 2) → true, then true < 3 is a TypeError (DEC-8, T3.6).
+            // There is no Python-style chaining.
+            Assert.AreEqual("Cannot apply '<' to logical and number",
+                Run("begin\nprint 1 < 2 < 3\nrescue e\nprint e\nend")[0]);
         }
 
         [Test]

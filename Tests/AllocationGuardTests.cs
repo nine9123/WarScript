@@ -97,13 +97,6 @@ end", maxText);
             Assert.AreEqual("Text too long", TextOutcome("", @"""ab"" * 2000000000", int.MaxValue));
         }
 
-        [Test]
-        public void SubtractingEmptyText_LeavesTheTextAsItIs()
-        {
-            var output = RunWithLimits(@"print ""abc"" - """"");
-            CollectionAssert.AreEqual(new[] { "abc" }, output);
-        }
-
         // ── Arrays ──────────────────────────────────────────────────────
 
         [Test]
@@ -111,10 +104,7 @@ end", maxText);
         {
             Assert.AreEqual("3", Outcome("", "{1, 2} + {3}", maxArray: 3));
             Assert.AreEqual("Array too long", Outcome("", "{1, 2} + {3, 4}", maxArray: 3));
-            Assert.AreEqual("3", Outcome("", "{1, 2} + 3", maxArray: 3));
-            Assert.AreEqual("3", Outcome("", "1 + {2, 3}", maxArray: 3));
-            Assert.AreEqual("Array too long", Outcome("", "{1, 2, 3} + 4", maxArray: 3));
-            Assert.AreEqual("Array too long", Outcome("", "0 + {1, 2, 3}", maxArray: 3));
+            Assert.AreEqual("Array too long", Outcome("", "{} + {1, 2, 3, 4}", maxArray: 3));
         }
 
         [Test]

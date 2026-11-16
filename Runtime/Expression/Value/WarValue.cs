@@ -317,7 +317,7 @@ namespace WarScript.Expression.Value
             {
                 case ValueTag.Null: return "null";
                 case ValueTag.Numeric: return FormatNumber(Numeric);
-                case ValueTag.Logical: return LogicalValue ? "True" : "False";
+                case ValueTag.Logical: return LogicalValue ? "true" : "false"; // DEC-11
                 case ValueTag.Text: return TextValue;
                 case ValueTag.Array:
                     var sb = new StringBuilder();

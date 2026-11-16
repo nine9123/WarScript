@@ -23,9 +23,9 @@ assert "{a} % {b} = {a % b}" == "10 % 3 = 1"
 
 # ── 4. Comparison in interpolation ──
 x = 5
-assert "x > 3: {x > 3}" == "x > 3: True"
-assert "x < 3: {x < 3}" == "x < 3: False"
-assert "x == 5: {x == 5}" == "x == 5: True"
+assert "x > 3: {x > 3}" == "x > 3: true"
+assert "x < 3: {x < 3}" == "x < 3: false"
+assert "x == 5: {x == 5}" == "x == 5: true"
 
 # ── 5. Class property in interpolation ──
 class Person [name, age]
@@ -74,8 +74,8 @@ assert "value: {nothing}" == "value: null"
 
 # ── 11. Interpolation with boolean ──
 flag = true
-assert "active: {flag}" == "active: True"
-assert "inactive: {!flag}" == "inactive: False"
+assert "active: {flag}" == "active: true"
+assert "inactive: {!flag}" == "inactive: false"
 
 # ── 12. Interpolation with function call ──
 fun format_number [n]

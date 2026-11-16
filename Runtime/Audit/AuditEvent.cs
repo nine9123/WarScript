@@ -9,23 +9,23 @@ namespace WarScript.Audit
     /// </summary>
     public enum AuditKind
     {
-        /// <summary><c>==</c>/<c>!=</c> on operands of different types, neither null. v1 compares their text; v2 returns false (DEC-8).</summary>
+        /// <summary><c>==</c>/<c>!=</c> on operands of different types, neither null. v1 compares their text; v2 returns false (DEC-8). Not raised since T3.6, which applies the v2 rule.</summary>
         MixedTypeEquality,
-        /// <summary>Ordering (<c>&lt;</c> and friends) that falls back to comparing text. v2: TypeError.</summary>
+        /// <summary>Ordering (<c>&lt;</c> and friends) that falls back to comparing text. v2: TypeError. Not raised since T3.6, which applies the v2 rule.</summary>
         MixedTypeOrdering,
-        /// <summary>Ordering two logical values. v2: TypeError (PROP-17).</summary>
+        /// <summary>Ordering two logical values. v2: TypeError (PROP-17). Not raised since T3.6, which applies the v2 rule.</summary>
         LogicalOrdering,
-        /// <summary><c>-</c> on non-numbers (the text-replace path). v2: TypeError; use <c>Text_remove</c> (PROP-7).</summary>
+        /// <summary><c>-</c> on non-numbers (the text-replace path). v2: TypeError; use <c>Text_remove</c> (PROP-7). Not raised since T3.6, which applies the v2 rule.</summary>
         TextSubtraction,
-        /// <summary><c>+</c> taking the text path although neither operand is text, e.g. <c>true + 1</c>. v2: TypeError.</summary>
+        /// <summary><c>+</c> taking the text path although neither operand is text, e.g. <c>true + 1</c>. v2: TypeError. Not raised since T3.6, which applies the v2 rule.</summary>
         NonTextConcatenation,
-        /// <summary>A logical value formatted by <c>print</c>, concatenation or interpolation. v2 prints <c>true</c>/<c>false</c> (DEC-11).</summary>
+        /// <summary>A logical value formatted by <c>print</c>, concatenation or interpolation. v2 prints <c>true</c>/<c>false</c> (DEC-11). Not raised since T3.6, which applies the v2 rule.</summary>
         LogicalFormatted,
-        /// <summary>Unary minus on a value that is not a number. v2: TypeError.</summary>
+        /// <summary>Unary minus on a value that is not a number. v2: TypeError. Not raised since T3.6, which applies the v2 rule.</summary>
         NegateNonNumeric,
-        /// <summary><c>+</c> with exactly one array operand. v2: TypeError (PROP-6).</summary>
+        /// <summary><c>+</c> with exactly one array operand. v2: TypeError (PROP-6). Not raised since T3.6, which applies the v2 rule.</summary>
         ArrayPlusValue,
-        /// <summary><c>&lt;&lt;</c> on a target that is not an array. v2: TypeError.</summary>
+        /// <summary><c>&lt;&lt;</c> on a target that is not an array. v2: TypeError. Not raised since T3.6, which applies the v2 rule.</summary>
         AppendToNonArray,
         /// <summary>An index read that yields null: out of bounds, non-numeric index, or a target that cannot be indexed. v2: IndexError or TypeError. Not raised since T3.6, which raises those errors.</summary>
         IndexReadInvalid,

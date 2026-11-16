@@ -42,6 +42,12 @@ public static class WarScriptLibraryRegistry
         },
         new LibraryInfo
         {
+            Name = "Text",
+            Description = "Text helpers: removing a part of a text.",
+            Register = TextLibrary.Register
+        },
+        new LibraryInfo
+        {
             Name = "Coroutine",
             Description = "Coroutine lifecycle management: start, stop, loop.",
             Register = CoroutineLibrary.Register

@@ -7,7 +7,7 @@ n = 42
 s = "hello"
 b = true
 nl = null
-assert "n={n} s={s} b={b} nl={nl}" == "n=42 s=hello b=True nl=null"
+assert "n={n} s={s} b={b} nl={nl}" == "n=42 s=hello b=true nl=null"
 
 # ── 2. Interpolation with arithmetic ──
 x = 10
@@ -19,9 +19,9 @@ assert "{x}%{y}={x % y}" == "10%3=1"
 
 # ── 3. Interpolation with comparison results ──
 a = 5
-assert "a>3: {a > 3}" == "a>3: True"
-assert "a<3: {a < 3}" == "a<3: False"
-assert "a==5: {a == 5}" == "a==5: True"
+assert "a>3: {a > 3}" == "a>3: true"
+assert "a<3: {a < 3}" == "a<3: false"
+assert "a==5: {a == 5}" == "a==5: true"
 
 # ── 4. Interpolation with class properties ──
 class Player [name, level, hp]

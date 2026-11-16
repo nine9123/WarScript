@@ -308,7 +308,11 @@ namespace WarScript
                 {
                     // Emit the text segment before the { (if non-empty)
                     var text = TakeSegment(ref segment, ref segStart);
-                    if (text.Length > 0)
+                    // A literal that starts with a hole starts with "" so the
+                    // whole chain is text concatenation: "{a}{b}" with two
+                    // numbers is "12", not 3 (T3.6, DEC-8: '+' only formats
+                    // when an operand is text).
+                    if (text.Length > 0 || !emittedAny)
                     {
                         if (emittedAny)
                             Add(TokenType.Operator, "+", segRow, segCol);

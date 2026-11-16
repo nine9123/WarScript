@@ -56,9 +56,11 @@ namespace Tests
         }
 
         [Test]
-        public void StringSubtraction()
+        public void TextRemove()
         {
-            var (_, output) = TestHelper.Run("test", "print \"hello world\" - \"world\"");
+            // Text subtraction is gone (PROP-7, T3.6); Text_remove replaces it.
+            var (_, output) = TestHelper.Run("test", "print Text_remove [\"hello world\", \"world\"]",
+                (script, scope) => WarScript.Native.TextLibrary.Register(script, scope));
             Assert.AreEqual(new[] { "hello " }, output);
         }
 
@@ -357,21 +359,21 @@ namespace Tests
         public void LogicalAnd()
         {
             var (_, output) = TestHelper.Run("test", "print true and false");
-            Assert.AreEqual(new[] { "False" }, output);
+            Assert.AreEqual(new[] { "false" }, output);
         }
 
         [Test]
         public void LogicalOr()
         {
             var (_, output) = TestHelper.Run("test", "print false or true");
-            Assert.AreEqual(new[] { "True" }, output);
+            Assert.AreEqual(new[] { "true" }, output);
         }
 
         [Test]
         public void LogicalNot()
         {
             var (_, output) = TestHelper.Run("test", "print !true");
-            Assert.AreEqual(new[] { "False" }, output);
+            Assert.AreEqual(new[] { "false" }, output);
         }
 
         [Test]
@@ -414,7 +416,7 @@ namespace Tests
                 print 5 != 3
                 print ""a"" == ""a""
             ");
-            Assert.AreEqual(new[] { "True", "True", "True" }, output);
+            Assert.AreEqual(new[] { "true", "true", "true" }, output);
         }
 
         [Test]
@@ -424,7 +426,7 @@ namespace Tests
                 print null == null
                 print null != 5
             ");
-            Assert.AreEqual(new[] { "True", "True" }, output);
+            Assert.AreEqual(new[] { "true", "true" }, output);
         }
 
         // String Concatenation

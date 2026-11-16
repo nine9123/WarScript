@@ -34,8 +34,8 @@ assert "double: {a * 2}" == "double: 20"
 
 # ── Interpolation with comparison ──
 val = 5
-assert "check: {val > 3}" == "check: True"
-assert "check: {val < 3}" == "check: False"
+assert "check: {val > 3}" == "check: true"
+assert "check: {val < 3}" == "check: false"
 
 # ── Interpolation with function call ──
 fun double [n]
@@ -68,7 +68,7 @@ assert greeting == "hi world"
 
 # ── Interpolation with boolean ──
 flag = true
-assert "flag is {flag}" == "flag is True"
+assert "flag is {flag}" == "flag is true"
 
 # ── Interpolation with null ──
 nothing = null
