@@ -12,14 +12,19 @@ namespace Tests
         [Test]
         public void Bug1_TextValue_SetValue_Direct()
         {
+            // Text is immutable since T3.6 (DEC-10): the write raises
+            // TypeError and the text keeps its value.
             var (script, output) = TestHelper.Run("inline",
                 "s = \"abcde\"\n" +
+                "begin\n" +
                 "s{2} = \"Z\"\n" +
+                "rescue e\n" +
+                "print e\n" +
+                "end\n" +
                 "print s");
 
-            Assert.AreEqual(1, output.Count);
-            Assert.AreEqual("abZde", output[0],
-                "SetValue should replace the character at the index, not insert before it");
+            CollectionAssert.AreEqual(
+                new[] { "Cannot assign to an index of text: text is immutable", "abcde" }, output);
         }
 
         [Test]

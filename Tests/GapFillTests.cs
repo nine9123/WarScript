@@ -124,21 +124,23 @@ assert v :: y == 4
         // ────────────────────────────────────────────────
 
         [Test]
-        public void GapFill_StringIndexReplace_DoesNotChangeLength()
+        public void GapFill_StringIndexReplace_IsTypeError_TextUnchanged()
         {
+            // Text is immutable since T3.6 (DEC-10).
             var (script, output) = TestHelper.Run("inline",
                 "s = \"abcde\"\n" +
+                "begin\n" +
                 "s{2} = \"X\"\n" +
+                "rescue e\n" +
+                "print e\n" +
+                "end\n" +
                 "print s\n" +
                 "print s{0}\n" +
                 "print s{2}\n" +
                 "print s{4}");
 
-            Assert.AreEqual(4, output.Count);
-            Assert.AreEqual("abXde", output[0], "String should be 'abXde' after replace at index 2");
-            Assert.AreEqual("a", output[1]);
-            Assert.AreEqual("X", output[2]);
-            Assert.AreEqual("e", output[3]);
+            CollectionAssert.AreEqual(
+                new[] { "Cannot assign to an index of text: text is immutable", "abcde", "a", "c", "e" }, output);
         }
 
         [Test]

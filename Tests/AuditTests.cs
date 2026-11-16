@@ -37,14 +37,9 @@ namespace Tests
         [TestCase("a = -\"a\"", AuditKind.NegateNonNumeric, 1)]
         [TestCase("a = {1} + 2", AuditKind.ArrayPlusValue, 1)]
         [TestCase("j = 5\nj << 1", AuditKind.AppendToNonArray, 2)]
-        [TestCase("arr = {1}\nk = arr{5}", AuditKind.IndexReadInvalid, 2)]
-        [TestCase("arr = {1}\nk = arr{\"a\"}", AuditKind.IndexReadInvalid, 2)]
-        [TestCase("five = 5\nm = five{0}", AuditKind.IndexReadInvalid, 2)]
-        [TestCase("n = {1}\nn{9} = 1", AuditKind.IndexWriteInvalid, 2)]
-        [TestCase("n = 4\nn{0} = 1", AuditKind.IndexWriteInvalid, 2)]
-        [TestCase("t = \"abc\"\nt{0} = \"z\"", AuditKind.TextIndexAssign, 2)]
-        [TestCase("fun f [t]\n  t{0} = \"z\"\nend\nf [\"abc\"]", AuditKind.TextIndexAssign, 2)]
-        [TestCase("q = 3\nq :: p = 1", AuditKind.PropertyWriteOnNonInstance, 2)]
+        // IndexReadInvalid, IndexWriteInvalid, TextIndexAssign and
+        // PropertyWriteOnNonInstance have no v1 path left since T3.6: those
+        // reads and writes raise IndexError or TypeError (5.5).
         [TestCase("class P [x]\nend\np = new P [1]\np :: z = 4", AuditKind.DynamicPropertyCreated, 4)]
         [TestCase("r = undefined_thing", AuditKind.UndefinedRead, 1)]
         // GlobalWriteFromFunction, FieldAccessViaBareName, GlobalShadowedInClass

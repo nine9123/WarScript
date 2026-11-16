@@ -1186,23 +1186,25 @@ namespace WarScript.Bytecode
                     case OpCode.IndexGet:
                     {
                         var index = Pop(); var target = Pop();
-                        WarValue element;
-                        if (target.IsArray && index.IsNumeric)
-                            element = target.GetArrayElement(WarValue.ToInt(index.Numeric));
-                        else if (target.IsText && index.IsNumeric)
-                            element = target.GetTextChar(WarValue.ToInt(index.Numeric));
-                        else
-                            element = WarValue.Null;
-                        if (element.IsNull && _script.AuditSink != null) AuditIndexRead(target, index, fi);
-                        Push(element);
+                        if (!CheckIndex(target, index, write: false, out var i))
+                        {
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
+                        Push(target.IsArray
+                            ? target.ArrayValue[i]
+                            : WarValue.FromText(target.TextValue.Substring(i, 1)));
                         break;
                     }
                     case OpCode.IndexSet:
                     {
                         var value = Pop(); var index = Pop(); var target = Pop();
-                        if (_script.AuditSink != null) AuditIndexWrite(target, index, textWriteBack: false, fi);
-                        if (target.IsArray && index.IsNumeric)
-                            target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
+                        if (!CheckIndex(target, index, write: true, out var i))
+                        {
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
+                        target.ArrayValue[i] = value;
                         Push(value);
                         break;
                     }
@@ -1212,20 +1214,12 @@ namespace WarScript.Bytecode
                         var slot = ReadU16(code, ref _frames[fi].IP);
                         var value = Pop(); var index = Pop();
                         var target = _stack[_frames[fi].StackBase + slot];
-                        if (_script.AuditSink != null) AuditIndexWrite(target, index, textWriteBack: true, fi);
-                        if (target.IsArray && index.IsNumeric)
-                            target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
-                        else if (target.IsText && index.IsNumeric)
+                        if (!CheckIndex(target, index, write: true, out var i))
                         {
-                            var replacement = Text(value);
-                            if (!TextWriteFits(target, index, replacement))
-                            {
-                                if (DoHandleException(ref fi, ref code, ref constants)) break;
-                                return;
-                            }
-                            var newText = target.SetTextChar(WarValue.ToInt(index.Numeric), replacement);
-                            _stack[_frames[fi].StackBase + slot] = newText;
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
                         }
+                        target.ArrayValue[i] = value;
                         Push(value);
                         break;
                     }
@@ -1243,20 +1237,12 @@ namespace WarScript.Bytecode
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
                         }
-                        if (_script.AuditSink != null) AuditIndexWrite(target, index, textWriteBack: true, fi);
-                        if (target.IsArray && index.IsNumeric)
-                            target.SetArrayElement(WarValue.ToInt(index.Numeric), value);
-                        else if (target.IsText && index.IsNumeric)
+                        if (!CheckIndex(target, index, write: true, out var i))
                         {
-                            var replacement = Text(value);
-                            if (!TextWriteFits(target, index, replacement))
-                            {
-                                if (DoHandleException(ref fi, ref code, ref constants)) break;
-                                return;
-                            }
-                            var newText = target.SetTextChar(WarValue.ToInt(index.Numeric), replacement);
-                            nameScope.Set(name, newText);
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
                         }
+                        target.ArrayValue[i] = value;
                         Push(value);
                         break;
                     }
@@ -1287,27 +1273,19 @@ namespace WarScript.Bytecode
                                 }
                             }
 
-                            if (_script.AuditSink != null) AuditIndexWrite(propVal, index, textWriteBack: true, fi);
-                            if (propVal.IsArray && index.IsNumeric)
-                                propVal.SetArrayElement(WarValue.ToInt(index.Numeric), value);
-                            else if (propVal.IsText && index.IsNumeric)
+                            if (!CheckIndex(propVal, index, write: true, out var i))
                             {
-                                var replacement = Text(value);
-                                if (!TextWriteFits(propVal, index, replacement))
-                                {
-                                    if (DoHandleException(ref fi, ref code, ref constants)) break;
-                                    return;
-                                }
-                                var newText = propVal.SetTextChar(WarValue.ToInt(index.Numeric), replacement);
-                                if (ReferenceEquals(cache.CachedType, details))
-                                    cd.SetPropertyByIndex(cache.CachedIndex, newText);
-                                else
-                                    cd.SetProperty(constants[nameIdx].TextValue, newText);
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
                             }
+                            propVal.ArrayValue[i] = value;
                         }
-                        else if (_script.AuditSink != null)
-                            Audit(AuditKind.IndexWriteInvalid, fi,
-                                  Describe(inst) + " :: " + constants[nameIdx].TextValue + "{" + Describe(index) + "} = ...: not an instance");
+                        else
+                        {
+                            RuntimeError(ScriptErrorKind.TypeError, "Cannot access property '" + constants[nameIdx].TextValue + "' on non-class value");
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         Push(value);
                         break;
                     }
@@ -1487,9 +1465,13 @@ namespace WarScript.Bytecode
                                 }
                             }
                         }
-                        else if (_script.AuditSink != null)
-                            Audit(AuditKind.PropertyWriteOnNonInstance, fi,
-                                  Describe(inst) + " :: " + constants[nameIdx].TextValue + " = " + Describe(value));
+                        else
+                        {
+                            // A property write on a non-instance (DEC-10, 5.5).
+                            RuntimeError(ScriptErrorKind.TypeError, "Cannot set property '" + constants[nameIdx].TextValue + "' on non-class value");
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         Push(value);
                         break;
                     }
@@ -1968,15 +1950,60 @@ namespace WarScript.Bytecode
         }
 
         /// <summary>
-        /// Whether <c>text{index} = replacement</c> stays within the text
-        /// limit. An index out of range changes nothing, so it always fits.
+        /// Checks <c>target{index}</c> (plan 5.5, DEC-10, T3.6): the target
+        /// must be an array, or text when reading (text is immutable, so a
+        /// write raises TypeError); the index must be a number, truncated
+        /// toward zero (D1), and inside the bounds, else IndexError. On
+        /// success <paramref name="i"/> is the element's position; otherwise
+        /// the error is raised and the caller handles it.
         /// </summary>
-        private bool TextWriteFits(in WarValue text, in WarValue index, string replacement)
+        private bool CheckIndex(in WarValue target, in WarValue index, bool write, out int i)
         {
-            var i = WarValue.ToInt(index.Numeric);
-            var length = text.TextValue.Length;
-            if (i < 0 || i >= length) return true;
-            return CheckTextLength(length - 1L + replacement.Length);
+            i = 0;
+            int length;
+            if (target.IsArray)
+                length = target.ArrayValue.Count;
+            else if (target.IsText && !write)
+                length = target.TextValue.Length;
+            else
+            {
+                RuntimeError(ScriptErrorKind.TypeError, target.IsText
+                    ? "Cannot assign to an index of text: text is immutable"
+                    : "Cannot index " + TypeName(target));
+                return false;
+            }
+            if (!index.IsNumeric)
+            {
+                RuntimeError(ScriptErrorKind.TypeError, "Index must be a number, not " + TypeName(index));
+                return false;
+            }
+            i = WarValue.ToInt(index.Numeric);
+            if (i < 0 || i >= length)
+            {
+                RuntimeError(ScriptErrorKind.IndexError,
+                    System.FormattableString.Invariant($"Index {i} is out of bounds (length {length})"));
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// A value's type as error messages name it (plan 5.3): <c>null</c>,
+        /// <c>number</c>, <c>logical</c>, <c>text</c>, <c>array</c>,
+        /// <c>instance of C</c>, <c>native T</c>.
+        /// </summary>
+        internal static string TypeName(in WarValue v)
+        {
+            switch (v.Tag)
+            {
+                case ValueTag.Null: return "null";
+                case ValueTag.Numeric: return "number";
+                case ValueTag.Logical: return "logical";
+                case ValueTag.Text: return "text";
+                case ValueTag.Array: return "array";
+                case ValueTag.Class: return "instance of " + v.ClassValue.Definition.ClassDetails.Name;
+                default: return "native " + (v.Ref?.GetType().Name ?? "null");
+            }
         }
 
         /// <summary>Estimate heap cost of a string (UTF-16 + object overhead).</summary>
@@ -2555,44 +2582,6 @@ namespace WarScript.Bytecode
                 Audit(AuditKind.NonTextConcatenation, fi, Describe(a) + " + " + Describe(b));
             if (a.IsLogical || b.IsLogical)
                 Audit(AuditKind.LogicalFormatted, fi, Describe(a) + " + " + Describe(b));
-        }
-
-        private void AuditIndexRead(in WarValue target, in WarValue index, int fi)
-        {
-            string why;
-            if (!target.IsArray && !target.IsText) why = "not indexable";
-            else if (!index.IsNumeric) why = "index is not a number";
-            else
-            {
-                var i = WarValue.ToInt(index.Numeric);
-                var count = target.IsArray ? target.ArrayValue.Count : target.TextValue.Length;
-                if (i >= 0 && i < count) return; // an element that is null
-                why = "out of bounds";
-            }
-            Audit(AuditKind.IndexReadInvalid, fi, Describe(target) + "{" + Describe(index) + "}: " + why);
-        }
-
-        /// <param name="textWriteBack">The opcode writes a changed text back to its variable or property.</param>
-        private void AuditIndexWrite(in WarValue target, in WarValue index, bool textWriteBack, int fi)
-        {
-            var site = Describe(target) + "{" + Describe(index) + "} = ...";
-            if (target.IsArray && index.IsNumeric)
-            {
-                var i = WarValue.ToInt(index.Numeric);
-                if (i < 0 || i >= target.ArrayValue.Count)
-                    Audit(AuditKind.IndexWriteInvalid, fi, site + ": out of bounds, ignored");
-            }
-            else if (textWriteBack && target.IsText && index.IsNumeric)
-            {
-                var i = WarValue.ToInt(index.Numeric);
-                var ignored = i < 0 || i >= target.TextValue.Length;
-                Audit(AuditKind.TextIndexAssign, fi, site + (ignored ? ": out of bounds, ignored" : ": text rewritten"));
-            }
-            else
-            {
-                var why = !index.IsNumeric && (target.IsArray || target.IsText) ? "index is not a number" : "not indexable";
-                Audit(AuditKind.IndexWriteInvalid, fi, site + ": " + why + ", ignored");
-            }
         }
 
         /// <summary>A property write on an instance that misses the inline cache: does it create an undeclared field?</summary>

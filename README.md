@@ -226,7 +226,11 @@ print "hello" + " world"        # → hello world   (concatenate)
 print "hello world" - "world"   # → "hello "      (remove first occurrence)
 print "ab" * 3                  # → ababab        (repeat)
 print "n=" + 5                  # → n=5           (numbers coerce to text)
+print "abc"{1}                  # → b             (one-character text)
 ```
+
+Text is immutable: `s{0} = "x"` raises a `TypeError`. Reading past either end raises an
+`IndexError`, as for arrays.
 
 #### Interpolation
 
@@ -298,7 +302,11 @@ mixed = {1, "a", true, null}
 print mixed               # → [1, a, True, null]
 ```
 
-Reading an out-of-range or negative index yields `null` — it is not an error.
+The index must be a number (a fraction truncates toward zero, so `arr{1.9}` is `arr{1}`); any
+other index, or indexing anything but an array or text, raises a `TypeError`. Reading or writing
+an index below 0 or past the end raises an `IndexError` (`Index 3 is out of bounds (length 3)`):
+arrays never grow by index assignment — append with `<<`. Assigning a property of something that
+is not a class instance (`x :: hp = 5` with `x = null`) raises a `TypeError`, as reading it does.
 
 **Nested arrays cannot be indexed in one expression.** `grid{0}{1}` silently parses as something
 else; assign to a temporary first:
@@ -1399,7 +1407,7 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 **Semantics**
 
 - Reading a variable that was never assigned raises a `NameError` (`undefined variable 'x'`);
-  a variable assigned `null` reads as `null`. An out-of-range array index still yields `null` silently.
+  a variable assigned `null` reads as `null`. An out-of-range index raises an `IndexError`.
 - Lambdas have no closures — their own parameters and locals, and globals; reading a local of the
   code around one is a compile error.
 - Default parameters cannot distinguish an omitted argument from an explicit `null`.

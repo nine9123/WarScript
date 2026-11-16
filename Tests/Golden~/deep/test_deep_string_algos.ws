@@ -60,9 +60,15 @@ assert str_contains ["aaa", "a", 3, 1]
 # ── 4. Build padded number ──
 fun pad_left [n, width]
     s = "" + n
-    # count length via index (strings aren't iterable)
+    # count length via index (strings aren't iterable; past the end is an
+    # IndexError since T3.6)
     len = 0
-    loop s{len} != null
+    loop true
+        begin
+            c = s{len}
+        rescue e
+            break
+        end
         len += 1
     end
     loop len < width
@@ -135,8 +141,14 @@ assert !ew
 # ── 8. Capitalize first letter (simple) ──
 fun str_length [s]
     n = 0
-    # strings aren't iterable; probe index until null
-    loop s{n} != null
+    # strings aren't iterable; probe the index until it is out of bounds
+    # (an IndexError since T3.6)
+    loop true
+        begin
+            c = s{n}
+        rescue e
+            break
+        end
         n += 1
     end
     return n

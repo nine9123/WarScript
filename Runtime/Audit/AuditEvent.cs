@@ -27,13 +27,13 @@ namespace WarScript.Audit
         ArrayPlusValue,
         /// <summary><c>&lt;&lt;</c> on a target that is not an array. v2: TypeError.</summary>
         AppendToNonArray,
-        /// <summary>An index read that yields null: out of bounds, non-numeric index, or a target that cannot be indexed. v2: IndexError or TypeError.</summary>
+        /// <summary>An index read that yields null: out of bounds, non-numeric index, or a target that cannot be indexed. v2: IndexError or TypeError. Not raised since T3.6, which raises those errors.</summary>
         IndexReadInvalid,
-        /// <summary>An index write that is silently ignored. v2: IndexError or TypeError.</summary>
+        /// <summary>An index write that is silently ignored. v2: IndexError or TypeError. Not raised since T3.6, which raises those errors.</summary>
         IndexWriteInvalid,
-        /// <summary>An index write into text (v1 writes a new text back). v2: TypeError, text is immutable.</summary>
+        /// <summary>An index write into text (v1 writes a new text back). v2: TypeError, text is immutable. Not raised since T3.6, which raises those errors.</summary>
         TextIndexAssign,
-        /// <summary><c>x :: name = ...</c> where <c>x</c> is not an instance (v1 ignores it). v2: TypeError.</summary>
+        /// <summary><c>x :: name = ...</c> where <c>x</c> is not an instance (v1 ignores it). v2: TypeError. Not raised since T3.6, which raises those errors.</summary>
         PropertyWriteOnNonInstance,
         /// <summary>A property write outside the class body that creates a field the class never declared. v2: NameError (PROP-15).</summary>
         DynamicPropertyCreated,

@@ -98,27 +98,6 @@ end", maxText);
         }
 
         [Test]
-        public void IndexWrite_AtTheLimitSucceeds_PastItFails()
-        {
-            // s{0} = "ab" replaces one character with two.
-            var output = RunWithLimits(@"
-s = ""123456789""
-s{0} = ""ab""
-print s
-t = ""1234567890""
-begin
-    t{0} = ""ab""
-rescue e
-    print e
-end
-print t
-t{10} = ""ab""
-print t", maxText: 10);
-            // Out of range (the last write): nothing changes, so nothing is checked.
-            CollectionAssert.AreEqual(new[] { "ab23456789", "Text too long", "1234567890", "1234567890" }, output);
-        }
-
-        [Test]
         public void SubtractingEmptyText_LeavesTheTextAsItIs()
         {
             var output = RunWithLimits(@"print ""abc"" - """"");

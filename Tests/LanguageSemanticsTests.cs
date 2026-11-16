@@ -90,8 +90,9 @@ namespace Tests
         [Test]
         public void NegativeIndexExpression_InArrayBraces()
         {
-            // arr{-1} is out of bounds and reads as null
-            Assert.AreEqual("null", Run("arr = {1, 2}\nprint arr{-1}")[0]);
+            // arr{-1} is out of bounds: IndexError since T3.6 (DEC-10)
+            Assert.AreEqual("Index -1 is out of bounds (length 2)",
+                Run("arr = {1, 2}\nbegin\nprint arr{-1}\nrescue e\nprint e\nend")[0]);
         }
 
         // ────────────────────────────────────────────────
@@ -234,16 +235,17 @@ namespace Tests
         // ────────────────────────────────────────────────
 
         [Test]
-        public void ArrayRead_OutOfBounds_IsNull()
+        public void ArrayRead_OutOfBounds_IsIndexError()
         {
-            Assert.AreEqual("null", Run("arr = {1, 2}\nprint arr{99}")[0]);
+            Assert.AreEqual("Index 99 is out of bounds (length 2)",
+                Run("arr = {1, 2}\nbegin\nprint arr{99}\nrescue e\nprint e\nend")[0]);
         }
 
         [Test]
-        public void ArrayWrite_OutOfBounds_IsSilentlyIgnored()
+        public void ArrayWrite_OutOfBounds_IsIndexError_AndChangesNothing()
         {
-            var output = Run("arr = {1, 2}\narr{99} = 5\nprint arr");
-            Assert.AreEqual("[1, 2]", output[0]);
+            var output = Run("arr = {1, 2}\nbegin\narr{99} = 5\nrescue e\nprint e\nend\nprint arr");
+            CollectionAssert.AreEqual(new[] { "Index 99 is out of bounds (length 2)", "[1, 2]" }, output);
         }
 
         [Test]
@@ -296,15 +298,17 @@ namespace Tests
         // ────────────────────────────────────────────────
 
         [Test]
-        public void StringIndexRead_OutOfBounds_IsNull()
+        public void StringIndexRead_OutOfBounds_IsIndexError()
         {
-            Assert.AreEqual("null", Run("s = \"ab\"\nprint s{5}")[0]);
+            Assert.AreEqual("Index 5 is out of bounds (length 2)",
+                Run("s = \"ab\"\nbegin\nprint s{5}\nrescue e\nprint e\nend")[0]);
         }
 
         [Test]
-        public void StringIndexWrite_MultiCharacter_InsertsWholeReplacement()
+        public void StringIndexWrite_IsTypeError_TextIsImmutable()
         {
-            Assert.AreEqual("XYbc", Run("s = \"abc\"\ns{0} = \"XY\"\nprint s")[0]);
+            var output = Run("s = \"abc\"\nbegin\ns{0} = \"XY\"\nrescue e\nprint e\nend\nprint s");
+            CollectionAssert.AreEqual(new[] { "Cannot assign to an index of text: text is immutable", "abc" }, output);
         }
 
         [Test]

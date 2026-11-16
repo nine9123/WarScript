@@ -12,12 +12,8 @@ begin
 rescue e
     print "concat: {e}"                  # expect: concat: Text too long
 end
-begin
-    x = at
-    x{0} = "bc"
-rescue e
-    print "index write: {e}"             # expect: index write: Text too long
-end
+# An index write into text (T1.4's third case) is a TypeError since T3.6:
+# text is immutable (DEC-10).
 half = "a" * 524288
 y = half + half
 assert y == at

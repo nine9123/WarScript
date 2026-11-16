@@ -715,7 +715,7 @@ namespace WarScript.Bytecode
             if (assign.Left is ArrayValueOperator av)
             {
                 // If the target is a simple variable, use IndexSetLocal/Global
-                // which handles text mutation writeback
+                // (they read the variable; text is immutable since T3.6)
                 if (av.Left is VariableExpression avVar)
                 {
                     CompileExpression(av.Right);      // index

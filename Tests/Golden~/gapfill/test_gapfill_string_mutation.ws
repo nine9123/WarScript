@@ -1,84 +1,62 @@
 # ──────────────────────────────────────────────────────
 # test_gapfill_string_mutation.ws
-# Gap: string index WRITE was completely untested.
-# All existing tests only READ string indices.
+# Text is immutable in v2 (DEC-10, plan 5.5, T3.6): an index write into
+# text raises TypeError on every path (a global, a local, a parameter, a
+# property) and leaves the text unchanged. Build a new
+# text instead.
 # ──────────────────────────────────────────────────────
 
-# ── Basic single-character replacement ──
+# ── A global (IndexSetGlobal) ──
 s = "abcde"
-s{0} = "X"
-assert s == "Xbcde"
-
-s{4} = "Y"
-assert s == "XbcdY"
-
-s{2} = "Z"
-assert s == "XbZdY"
-
-# ── Replace should NOT change length ──
-t = "hello"
-t{1} = "a"
-assert t == "hallo"
-t{0} = "H"
-assert t == "Hallo"
-t{4} = "!"
-assert t == "Hall!"
-
-# ── Replace all characters one by one ──
-r = "abc"
-r{0} = "x"
-r{1} = "y"
-r{2} = "z"
-assert r == "xyz"
-
-# ── Replace with digit characters ──
-d = "---"
-d{0} = "1"
-d{1} = "2"
-d{2} = "3"
-assert d == "123"
-
-# ── Replace same index multiple times ──
-m = "aaa"
-m{1} = "b"
-assert m == "aba"
-m{1} = "c"
-assert m == "aca"
-m{1} = "d"
-assert m == "ada"
-
-# ── Class property string mutation ──
-class Label[text]
+begin
+    s{0} = "X"
+rescue e
+    print e
 end
-lbl = new Label["hello"]
-lbl :: text{0} = "H"
-assert lbl :: text == "Hello"
+assert s == "abcde"
 
-# ── String in array, mutate via temporary variable ──
-arr = {"abc", "def"}
-temp = arr{0}
-temp{1} = "X"
-arr{0} = temp
-assert arr{0} == "aXc"
-
-# ── String mutation inside a function ──
-fun replace_first[s, c]
-    s{0} = c
-    return s
-end
-assert replace_first["world", "W"] == "World"
-
-# ── String mutation inside a loop ──
-word = "0000"
-loop i in 0..4
-    if i == 0
-        word{i} = "a"
-    elif i == 1
-        word{i} = "b"
-    elif i == 2
-        word{i} = "c"
-    else
-        word{i} = "d"
+# ── A parameter and a local (IndexSetLocal) ──
+fun replace_first [s, c]
+    t = s
+    begin
+        t{0} = c
+    rescue e
+        print "local: " + e
     end
+    begin
+        s{0} = c
+    rescue e2
+        print "parameter: " + e2
+    end
+    return t
 end
-assert word == "abcd"
+assert replace_first ["world", "W"] == "world"
+
+# ── A property (IndexSetProp) ──
+class Label [text]
+end
+lbl = new Label ["hello"]
+begin
+    lbl :: text{0} = "H"
+rescue e3
+    print "property: " + e3
+end
+assert lbl :: text == "hello"
+
+# ── Out of bounds is still TypeError: the write itself is not allowed ──
+begin
+    s{99} = "X"
+rescue e5
+    print "out of bounds: " + e5
+end
+
+# ── Building a new text instead ──
+w = "hello"
+w = "H" + w{1} + w{2} + w{3} + w{4}
+assert w == "Hello"
+
+# expect: Cannot assign to an index of text: text is immutable
+# expect: local: Cannot assign to an index of text: text is immutable
+# expect: parameter: Cannot assign to an index of text: text is immutable
+# expect: property: Cannot assign to an index of text: text is immutable
+# expect: out of bounds: Cannot assign to an index of text: text is immutable
