@@ -312,6 +312,9 @@ other index, or indexing anything but an array or text, raises a `TypeError`. Re
 an index below 0 or past the end raises an `IndexError` (`Index 3 is out of bounds (length 3)`):
 arrays never grow by index assignment — append with `<<`. Assigning a property of something that
 is not a class instance (`x :: hp = 5` with `x = null`) raises a `TypeError`, as reading it does.
+Reading or writing a property an instance does not declare (its classes' constructor parameters
+and the names their class bodies assign) raises a `NameError` (`'hp' is not a field of class
+'Unit'`); a declared field the class body has not assigned yet reads as `null`.
 
 **Nested arrays cannot be indexed in one expression.** `grid{0}{1}` silently parses as something
 else; assign to a temporary first:
@@ -1333,7 +1336,7 @@ top-level statements.
 well, give the constructor a `bytecodeResolver` — see
 [Importing precompiled bytecode](#importing-precompiled-bytecode).
 
-> A `.wsbc` file starts with a format version (currently `5`) and a hash of the opcode table, and
+> A `.wsbc` file starts with a format version (currently `9`) and a hash of the opcode table, and
 > the loader accepts only an exact match, so bytecode written by another WarScript version must be
 > regenerated from source. The loader verifies everything it reads: a truncated, corrupt or
 > mismatched file makes `LoadBytecode` throw `InvalidDataException` and leaves the instance

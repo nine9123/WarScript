@@ -1245,6 +1245,11 @@ namespace WarScript.Bytecode
                             else
                             {
                                 var propName = constants[nameIdx].TextValue;
+                                if (!CheckDeclared(cd, propName))
+                                {
+                                    if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                    return;
+                                }
                                 propVal = cd.GetProperty(propName);
                                 if (details.PropertyIndex.TryGetValue(propName, out var idx))
                                 {
@@ -1406,6 +1411,11 @@ namespace WarScript.Bytecode
                             {
                                 // Cache miss: dictionary lookup + update cache
                                 var propName = constants[nameIdx].TextValue;
+                                if (!CheckDeclared(cd, propName))
+                                {
+                                    if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                    return;
+                                }
                                 Push(cd.GetProperty(propName));
                                 if (details.PropertyIndex.TryGetValue(propName, out var idx))
                                 {
@@ -1440,7 +1450,11 @@ namespace WarScript.Bytecode
                             else
                             {
                                 var propName = constants[nameIdx].TextValue;
-                                if (_script.AuditSink != null) AuditPropertyWrite(cd, propName, fi);
+                                if (!CheckDeclared(cd, propName))
+                                {
+                                    if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                    return;
+                                }
                                 cd.SetProperty(propName, value);
                                 if (details.PropertyIndex.TryGetValue(propName, out var idx))
                                 {
@@ -1493,6 +1507,11 @@ namespace WarScript.Bytecode
                         else
                         {
                             var propName = constants[nameIdx].TextValue;
+                            if (!CheckDeclared(cd, propName))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
                             Push(cd.GetProperty(propName));
                             if (details.PropertyIndex.TryGetValue(propName, out var idx))
                             {
@@ -1523,7 +1542,11 @@ namespace WarScript.Bytecode
                         else
                         {
                             var propName = constants[nameIdx].TextValue;
-                            if (_script.AuditSink != null) AuditPropertyWrite(cd, propName, fi);
+                            if (!CheckDeclared(cd, propName))
+                            {
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
                             cd.SetProperty(propName, value);
                             if (details.PropertyIndex.TryGetValue(propName, out var idx))
                             {
@@ -2254,8 +2277,7 @@ namespace WarScript.Bytecode
             }
             _constructors.Clear();
             _allocationPath.Clear();
-            var relations = new Dictionary<string, ClassData>();
-            var classData = AllocateInstance(definition, scope, args, relations, null, null);
+            var classData = AllocateInstance(definition, scope, args, new Dictionary<string, ClassData>(), null, null, null);
             _allocationPath.Clear();
             _unboundRefs.Clear();
             if (classData == null)
@@ -2263,8 +2285,6 @@ namespace WarScript.Bytecode
                 _constructors.Clear();
                 return default;
             }
-            // Every part is the same instance for == (5.4, PROP-8).
-            foreach (var part in relations.Values) part.Root = classData;
             return WarValue.FromClass(classData);
         }
 
@@ -2280,11 +2300,14 @@ namespace WarScript.Bytecode
         /// argument is not a parameter of the derived class. A base parameter
         /// named like a field that is already bound to something else raises
         /// the rescuable TypeError of Q-16 (the compiler rejects it where it
-        /// knows the base classes). Returns null with an error raised on
-        /// failure.
+        /// knows the base classes). Every part gets <paramref name="root"/>
+        /// (null for the derived class, which is its own root) as its
+        /// <see cref="ClassData.Root"/>, including a diamond base allocated
+        /// twice, whose first part the relation map no longer holds (5.4,
+        /// PROP-8). Returns null with an error raised on failure.
         /// </summary>
         private ClassData? AllocateInstance(ClassDefinition definition, DefinitionScope scope, List<WarValue> args,
-            Dictionary<string, ClassData> relations, ValueReference?[]? sharedRefs, MemoryScope? fields)
+            Dictionary<string, ClassData> relations, ValueReference?[]? sharedRefs, MemoryScope? fields, ClassData? root)
         {
             var propCount = definition.ClassDetails.Properties.Count;
             if (!TrackAlloc(EstimateClassBytes(propCount))) return null;
@@ -2331,6 +2354,9 @@ namespace WarScript.Bytecode
 
             var classData = new ClassData(definition, fields, relations, _script);
             classData.PropertyValues = valueRefs;
+            // Every part is the same instance for == (5.4, PROP-8).
+            root ??= classData;
+            classData.Root = root;
             relations[definition.ClassDetails.Name] = classData;
 
             // Base classes: pass shared ValueReferences
@@ -2359,7 +2385,7 @@ namespace WarScript.Bytecode
                         baseShared[i] = valueRefs[derivedIdx];
                 }
 
-                if (AllocateInstance(baseDef, scope, args, relations, baseShared, fields) == null) return null;
+                if (AllocateInstance(baseDef, scope, args, relations, baseShared, fields, root) == null) return null;
             }
             _allocationPath.RemoveAt(_allocationPath.Count - 1);
 
@@ -2516,14 +2542,27 @@ namespace WarScript.Bytecode
             finally { _script.ThrowPendingHostFault(); }
         }
 
-        /// <summary>A property write on an instance that misses the inline cache: does it create an undeclared field?</summary>
-        private void AuditPropertyWrite(ClassData cd, string name, int fi)
+        /// <summary>
+        /// PROP-15 (5.5, T3.6): <paramref name="name"/> must be a field of the
+        /// instance <paramref name="cd"/> is a part of, that is, one that
+        /// holds a value already or one some class part of the instance
+        /// declares (<see cref="ClassDefinition.Fields"/>). A part whose class
+        /// has no known field list (host-registered) allows every name.
+        /// Otherwise raises NameError <c>'x' is not a field of class 'C'</c>
+        /// (the compiler's message for <c>@x</c>, A.18a) and returns false.
+        /// Only called on an inline-cache miss: a cached property is a
+        /// constructor parameter.
+        /// </summary>
+        private bool CheckDeclared(ClassData cd, string name)
         {
-            if (cd.Definition.ClassDetails.PropertyIndex.ContainsKey(name) || cd.MemoryScope.HasLocal(name)) return;
-            // Assignments in the class body (the constructor) declare fields.
-            if (_frames[fi].Function.Name.EndsWith("#ctor", StringComparison.Ordinal)) return;
-            Audit(AuditKind.DynamicPropertyCreated, fi,
-                  cd.Definition.ClassDetails.Name + " :: " + name + ": not a field of the class");
+            if (cd.MemoryScope.HasLocal(name) || Declares(cd.Definition, name)) return true;
+            foreach (var part in cd.Relations.Values)
+                if (Declares(part.Definition, name)) return true;
+            RuntimeError(ScriptErrorKind.NameError, $"'{name}' is not a field of class '{cd.Definition.ClassDetails.Name}'");
+            return false;
+
+            static bool Declares(ClassDefinition definition, string field) =>
+                definition.Fields == null || definition.Fields.Contains(field);
         }
 
         // ── Import ──

@@ -106,6 +106,19 @@ namespace WarScript.Bytecode
                     WriteString(w, prop);
             }
 
+            // Declared fields (format 9, PROP-15): a flag, then the names in
+            // ordinal order (a HashSet's order differs between processes).
+            var fields = classDef.Fields;
+            w.Write((byte)(fields != null ? 1 : 0));
+            if (fields != null)
+            {
+                var sorted = new List<string>(fields);
+                sorted.Sort(StringComparer.Ordinal);
+                w.Write((ushort)sorted.Count);
+                foreach (var field in sorted)
+                    WriteString(w, field);
+            }
+
             // Constructor bytecode (optional)
             w.Write((byte)(classDef.CompiledConstructor != null ? 1 : 0));
             if (classDef.CompiledConstructor != null)
@@ -276,7 +289,7 @@ namespace WarScript.Bytecode
         // The smallest encodings, for checking counts against the bytes left.
         private const int MinCompiledFunctionBytes = 2 + 2 + 2 + 2 + 4 + 4 + 2 + 2; // empty name, no constants, code, line entries or local names
         private const int MinFunctionDefBytes = 2 + 2 + 2 + MinCompiledFunctionBytes;
-        private const int MinClassDefBytes = 2 + 2 + 2 + 1 + 2 + 2;
+        private const int MinClassDefBytes = 2 + 2 + 2 + 1 + 1 + 2 + 2;
 
         private static FunctionDefinition ReadFunctionDef(BoundedReader r, int depth)
         {
@@ -321,6 +334,18 @@ namespace WarScript.Bytecode
                 baseTypes.Add(new ClassDetails(btName, btProps));
             }
 
+            // Declared fields (format 9)
+            HashSet<string>? fields = null;
+            var hasFields = r.U8();
+            if (hasFields > 1) throw new InvalidDataException("Invalid field list flag in class '" + name + "'");
+            if (hasFields != 0)
+            {
+                var fieldCount = r.Count(2, "field");
+                fields = new HashSet<string>();
+                for (int i = 0; i < fieldCount; i++)
+                    fields.Add(r.String());
+            }
+
             // Constructor bytecode
             CompiledFunction? compiledCtor = null;
             var hasCtor = r.U8();
@@ -338,6 +363,7 @@ namespace WarScript.Bytecode
             var classDetails = new ClassDetails(name, props);
             var classDef = new ClassDefinition(classDetails, baseTypes, null!, classScope);
             classDef.CompiledConstructor = compiledCtor;
+            classDef.Fields = fields;
             return classDef;
         }
 

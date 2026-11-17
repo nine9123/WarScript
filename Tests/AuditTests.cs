@@ -32,7 +32,6 @@ namespace Tests
         // IndexReadInvalid, IndexWriteInvalid, TextIndexAssign and
         // PropertyWriteOnNonInstance have no v1 path left since T3.6: those
         // reads and writes raise IndexError or TypeError (5.5).
-        [TestCase("class P [x]\nend\np = new P [1]\np :: z = 4", AuditKind.DynamicPropertyCreated, 4)]
         [TestCase("r = undefined_thing", AuditKind.UndefinedRead, 1)]
         // GlobalWriteFromFunction, FieldAccessViaBareName, GlobalShadowedInClass
         // and BlockVariableEscapes have no v1 path left since T3.4: a name a
@@ -41,7 +40,8 @@ namespace Tests
         // scope of their own, and `this :: z = 1` in a method is a compile
         // error unless z is a field (V2NameResolutionReportsNothing).
         // ClassStructuralEquality has no v1 path left since T3.6: instances
-        // compare by identity (5.4).
+        // compare by identity (5.4). Nor DynamicPropertyCreated: writing an
+        // undeclared property raises NameError (PROP-15).
         public void EventIsReportedAtItsLine(string source, AuditKind kind, int line)
         {
             var events = Audit(source);
@@ -118,14 +118,14 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "class P [x]\nend\nfun tag [p]\n  p :: z = 1\n  return p\nend\na1 = new P [1]\na1 :: z = 2"
+                ["lib"] = "fun tag [p]\n  begin\n    q = undefined_a\n  rescue e\n  end\n  return p\nend\nbegin\n  a1 = undefined_b\nrescue e\nend"
             };
-            var events = Audit("import \"lib\"\ny = tag [new P [2]]", path => files.TryGetValue(path, out var s) ? s : null);
+            var events = Audit("import \"lib\"\ny = tag [2]", path => files.TryGetValue(path, out var s) ? s : null);
 
-            var topLevel = events.Single(e => e.Kind == AuditKind.DynamicPropertyCreated && e.Line == 8);
+            var topLevel = events.Single(e => e.Kind == AuditKind.UndefinedRead && e.Line == 9);
             Assert.AreEqual("lib", topLevel.Script);
 
-            var inFunction = events.Single(e => e.Kind == AuditKind.DynamicPropertyCreated && e.Line == 4);
+            var inFunction = events.Single(e => e.Kind == AuditKind.UndefinedRead && e.Line == 3);
             Assert.AreEqual("lib", inFunction.Script, "a function defined in the import, called from the entry script");
             Assert.AreEqual("tag", inFunction.Function);
         }
@@ -134,28 +134,29 @@ namespace Tests
         public void ReportGroupsEventsBySite()
         {
             var report = new AuditReport();
-            TestHelper.Run("main", "class P [x]\nend\na = new P [1]\nb = new P [1]\nloop i in 0..3\n  p = new P [i]\n  p :: z = i\nend\nr = undefined_thing",
+            TestHelper.Run("main", "loop i in 0..3\n  begin\n    p = undefined_a\n  rescue e\n  end\nend\nr = undefined_thing",
                            (script, scope) => { script.AuditSink = report.Add; script.LogUnhandledErrors = false; });
 
             Assert.AreEqual(4, report.EventCount);
             var entries = report.Entries;
             Assert.AreEqual(2, entries.Count);
-            Assert.AreEqual(AuditKind.DynamicPropertyCreated, entries[0].Kind);
-            Assert.AreEqual(7, entries[0].Line);
+            Assert.AreEqual(AuditKind.UndefinedRead, entries[0].Kind);
+            Assert.AreEqual(3, entries[0].Line);
             Assert.AreEqual(3, entries[0].Count);
-            Assert.AreEqual("P :: z: not a field of the class", entries[0].FirstDetail);
+            Assert.AreEqual("undefined_a", entries[0].FirstDetail);
             Assert.AreEqual(AuditKind.UndefinedRead, entries[1].Kind);
+            Assert.AreEqual(7, entries[1].Line);
 
             var markdown = report.ToMarkdown("Test");
             StringAssert.StartsWith("# Test\n\nEvents: 4, sites (kind, script, line): 2.\n", markdown);
-            StringAssert.Contains("| `DynamicPropertyCreated` | 1 | 3 |", markdown);
+            StringAssert.Contains("| `UndefinedRead` | 2 | 4 |", markdown);
             StringAssert.Contains("| `MixedTypeEquality` | 0 | 0 |", markdown);
-            StringAssert.Contains("| main:7 | <script> | 3 | P :: z: not a field of the class |", markdown);
+            StringAssert.Contains("| main:3 | <script> | 3 | undefined_a |", markdown);
 
             var json = report.ToJson();
             StringAssert.StartsWith("{\"events\": 4, \"sites\": [\n", json);
-            StringAssert.Contains("{\"kind\": \"DynamicPropertyCreated\", \"script\": \"main\", \"line\": 7, \"count\": 3, " +
-                                  "\"functions\": [\"<script>\"], \"first\": \"P :: z: not a field of the class\"}", json);
+            StringAssert.Contains("{\"kind\": \"UndefinedRead\", \"script\": \"main\", \"line\": 3, \"count\": 3, " +
+                                  "\"functions\": [\"<script>\"], \"first\": \"undefined_a\"}", json);
         }
 
         [Test]

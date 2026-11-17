@@ -260,6 +260,7 @@ namespace WarScript.Bytecode
             var classScope = classDef.GetDefinitionScope();
             var fields = ClassFields(classDef, new List<ClassDefinition>());
             var className = classDef.ClassDetails.Name;
+            if (classDef.Statement != null) classDef.Fields = OwnFields(classDef);
             if (fields != null) CheckParameterBindings(classDef);
 
             // Compile all methods
@@ -290,8 +291,7 @@ namespace WarScript.Bytecode
         private static HashSet<string>? ClassFields(ClassDefinition classDef, List<ClassDefinition> path)
         {
             if (classDef.Statement == null) return null;
-            var fields = new HashSet<string>(classDef.ClassDetails.Properties);
-            fields.UnionWith(BodyNames.Collect(classDef.ClassDetails.Properties, classDef.Statement, null, classBody: true).Fields);
+            var fields = OwnFields(classDef);
             path.Add(classDef);
             foreach (var baseType in classDef.BaseTypes)
             {
@@ -307,6 +307,19 @@ namespace WarScript.Bytecode
                 fields.UnionWith(baseFields);
             }
             path.RemoveAt(path.Count - 1);
+            return fields;
+        }
+
+        /// <summary>
+        /// The fields <paramref name="classDef"/> declares itself: its
+        /// constructor parameters and the names its body assigns (bare, or
+        /// as <c>@x</c> / <c>this :: x</c>) and does not declare
+        /// <c>global</c>. Needs the class's source.
+        /// </summary>
+        private static HashSet<string> OwnFields(ClassDefinition classDef)
+        {
+            var fields = new HashSet<string>(classDef.ClassDetails.Properties);
+            fields.UnionWith(BodyNames.Collect(classDef.ClassDetails.Properties, classDef.Statement, null, classBody: true).Fields);
             return fields;
         }
 
