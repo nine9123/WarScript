@@ -186,19 +186,18 @@ print f []
         }
 
         [Test]
-        public void ImportedConst_IsNotProtectedInImportingScript()
+        public void ImportedConst_IsProtectedInImportingScript()
         {
-            // Const protection is parse-time, but the importing script is fully
-            // parsed before the import executes — so a const defined in an
-            // imported file can be reassigned by the importer. Pinned as a
-            // documented limitation.
-            var (_, output) = TestHelper.Run("import_const", @"
+            // Imports are compiled before the importer (T3.7, DEC-7), so a
+            // const defined in an imported file is known when the importer
+            // is parsed (v1 parsed the importer first and let it reassign).
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() => TestHelper.Run("import_const", @"
 import ""lib""
 LIMIT = 3
 print LIMIT
-", fileResolver: name => name == "lib" ? "const LIMIT = 7\n" : null);
+", fileResolver: name => name == "lib" ? "const LIMIT = 7\n" : null));
 
-            Assert.AreEqual("3", output[0]);
+            StringAssert.Contains("Cannot reassign constant 'LIMIT'", e.Message);
         }
 
         // ────────────────────────────────────────────────

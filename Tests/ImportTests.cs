@@ -85,42 +85,143 @@ namespace Tests
             Assert.AreEqual("42", output[0]);
         }
 
+        /// <summary>
+        /// Compiles <paramref name="source"/> without running it (T3.7:
+        /// imports are resolved by Compile()).
+        /// </summary>
+        private static (WarScript.WarScriptLanguage script, WarScript.CompileResult result, List<string> output) Compile(
+            string source, System.Func<string, string> fileResolver)
+        {
+            var output = new List<string>();
+            var script = new WarScript.WarScriptLanguage("import_test", source, fileResolver, (_, msg) => output.Add(msg));
+            return (script, script.Compile(), output);
+        }
+
+        private static System.Func<string, string> Files(Dictionary<string, string> files) =>
+            path => files.TryGetValue(path, out var src) ? src : null;
+
+        private static void AssertCompileError(WarScript.CompileResult result, string message, string scriptName, int line)
+        {
+            Assert.IsFalse(result.Success);
+            Assert.AreEqual(1, result.Diagnostics.Count);
+            StringAssert.Contains(message, result.Diagnostics[0].Message);
+            Assert.AreEqual(scriptName, result.Diagnostics[0].ScriptName);
+            Assert.AreEqual(line, result.Diagnostics[0].Line);
+        }
+
         [Test]
-        public void Import_Circular_IsScriptError()
+        public void Import_Circular_IsACompileErrorNamingTheCycle()
         {
             var files = new Dictionary<string, string>
             {
-                ["a"] = "import \"b\"",
-                ["b"] = "import \"a\""
+                ["a"] = "import \"b\"\nprint \"a\"",
+                ["b"] = "# b\nimport \"c\"\nimport \"a\"",
+                ["c"] = "print \"c\""
             };
-            var (script, output) = Run("import \"a\"\nprint \"after\"", files);
-            StringAssert.Contains("Circular import", output[0]);
-            Assert.IsFalse(output.Contains("after"));
+            var (script, result, output) = Compile("import \"a\"\nprint \"after\"", Files(files));
+
+            AssertCompileError(result, "Circular import: a -> b -> a", "b", 3);
+            Assert.AreEqual(WarScript.ScriptErrorKind.CompileError, script.Run().Error.Kind);
+            CollectionAssert.DoesNotContain(output, "c");
+            CollectionAssert.DoesNotContain(output, "after");
         }
 
         [Test]
-        public void Import_MissingFile_IsScriptError()
+        public void Import_OfItself_IsACompileError()
         {
-            var (_, output) = Run("import \"nope\"\nprint \"after\"",
-                new Dictionary<string, string>());
-            StringAssert.Contains("Import 'nope' not found", output[0]);
+            var files = new Dictionary<string, string> { ["a"] = "import \"a\"" };
+            AssertCompileError(Compile("import \"a\"", Files(files)).result, "Circular import: a -> a", "a", 1);
         }
 
         [Test]
-        public void Import_WithoutResolver_IsScriptError()
+        public void Import_MissingFile_IsACompileError()
         {
-            var (_, output) = TestHelper.Run("no_resolver", "import \"lib\"\nprint \"after\"");
-            StringAssert.Contains("no file resolver", output[0]);
+            var (_, result, _) = Compile("import \"nope\"\nprint \"after\"", Files(new Dictionary<string, string>()));
+            AssertCompileError(result, "Import 'nope' not found", "import_test", 1);
         }
 
         [Test]
-        public void Import_ResolverThrows_IsScriptError()
+        public void Import_MissingFileInAnImport_IsACompileErrorInThatFile()
         {
-            var (_, output) = TestHelper.Run("resolver_throws",
-                "import \"boom\"\nprint \"after\"",
-                fileResolver: _ => throw new System.IO.IOException("disk error"));
-            StringAssert.Contains("Failed to read import 'boom'", output[0]);
-            StringAssert.Contains("disk error", output[0]);
+            var files = new Dictionary<string, string> { ["lib"] = "\n\nimport \"nope\"" };
+            AssertCompileError(Compile("import \"lib\"", Files(files)).result, "Import 'nope' not found", "lib", 3);
+        }
+
+        [Test]
+        public void Import_WithoutResolver_IsACompileError()
+        {
+            AssertCompileError(Compile("import \"lib\"\nprint \"after\"", null).result,
+                "Cannot import 'lib': no file resolver", "import_test", 1);
+        }
+
+        [Test]
+        public void Import_ResolverThrows_IsACompileError()
+        {
+            var (_, result, _) = Compile("import \"boom\"\nprint \"after\"",
+                _ => throw new System.IO.IOException("disk error"));
+            AssertCompileError(result, "Failed to read import 'boom': disk error", "import_test", 1);
+        }
+
+        [Test]
+        public void Import_SyntaxErrorInImportedFile_IsFoundByCompile()
+        {
+            var files = new Dictionary<string, string> { ["broken"] = "x = 1\nfun f [\nreturn 1\nend" };
+            var (_, result, output) = Compile("print \"main\"\n", Files(files));
+            Assert.IsTrue(result.Success, "no import, nothing resolved");
+
+            (_, result, output) = Compile("import \"broken\"\nprint \"main\"", Files(files));
+            Assert.IsFalse(result.Success);
+            Assert.AreEqual("broken", result.Diagnostics[0].ScriptName);
+            CollectionAssert.IsEmpty(output);
+        }
+
+        [Test]
+        public void Import_ResolverIsAskedOncePerPath_AtCompileTime()
+        {
+            var asked = new List<string>();
+            var files = new Dictionary<string, string>
+            {
+                ["a"] = "import \"c\"\nfun fa [] return 1 end",
+                ["b"] = "import \"c\"\nfun fb [] return 2 end",
+                ["c"] = "fun fc [] return 3 end"
+            };
+            var (script, result, _) = Compile("import \"a\"\nimport \"b\"\nprint fa [] + fb [] + fc []",
+                path => { asked.Add(path); return Files(files)(path); });
+
+            Assert.IsTrue(result.Success);
+            Assert.AreEqual(new[] { "a", "c", "b" }, asked);
+            Assert.IsTrue(script.Run().IsOk);
+            Assert.AreEqual(new[] { "a", "c", "b" }, asked, "running resolves nothing again");
+        }
+
+        [Test]
+        public void Import_TopLevelCode_RunsDependenciesFirst_OncePerInstance()
+        {
+            // 5.8: depth-first post-order over the imports in textual order.
+            var files = new Dictionary<string, string>
+            {
+                ["a"] = "import \"c\"\nprint \"a\"",
+                ["b"] = "import \"c\"\nimport \"d\"\nprint \"b\"",
+                ["c"] = "print \"c\"",
+                ["d"] = "print \"d\""
+            };
+            var (_, output) = Run("import \"a\"\nimport \"b\"\nprint \"main\"", files);
+            Assert.AreEqual(new[] { "c", "a", "d", "b", "main" }, output);
+        }
+
+        [Test]
+        public void Import_NamedArguments_ResolveAgainstTheImportedFunction()
+        {
+            // The importer is parsed after its imports (DEC-7), so a named
+            // argument call is put in the imported function's parameter
+            // order, also between two imports of the same file.
+            var files = new Dictionary<string, string>
+            {
+                ["lib"] = "fun span [from, to] return to - from end",
+                ["user"] = "fun use [] return span [to: 10, from: 4] end"
+            };
+            var (_, output) = Run("import \"lib\"\nimport \"user\"\nprint span [to: 5, from: 2]\nprint use []", files);
+            Assert.AreEqual(new[] { "3", "6" }, output);
         }
 
         [Test]

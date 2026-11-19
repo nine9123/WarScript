@@ -26,10 +26,13 @@ namespace Tests
         /// same reason a mod build registers its natives: a named-argument
         /// call is resolved against the callee's declared parameters while
         /// parsing, so the signatures have to be in scope at compile time.
+        /// Imports are resolved when compiling (T3.7), so the build has to
+        /// find them: here every imported path is an empty file. The saved
+        /// bytecode holds only this file's definitions.
         /// </summary>
         private static byte[] Compile(string source)
         {
-            var script = new WarScriptLanguage("precompiled", source, null, null);
+            var script = new WarScriptLanguage("precompiled", source, _ => "", null);
             WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
 
             var stream = new MemoryStream();
@@ -207,17 +210,20 @@ namespace Tests
         }
 
         [Test]
-        public void UnusableBytecode_WithoutSource_IsScriptError()
+        public void UnusableBytecode_WithoutSource_IsACompileError()
         {
             var bytecode = new Dictionary<string, byte[]>
             {
                 ["lib"] = new byte[] { 1, 2, 3, 4, 5 }
             };
-            var (_, output) = Run("import \"lib\"\nprint \"after\"", bytecode);
+            var output = new List<string>();
+            var script = new WarScriptLanguage("import_bytecode_test", "import \"lib\"\nprint \"after\"", null,
+                (_, msg) => output.Add(msg), path => bytecode.TryGetValue(path, out var bytes) ? bytes : null);
+            var result = script.Compile();
 
             StringAssert.Contains("could not be loaded", output[0]);
-            StringAssert.Contains("no file resolver", output[1]);
-            Assert.IsFalse(output.Contains("after"));
+            Assert.IsFalse(result.Success);
+            StringAssert.Contains("Cannot import 'lib': no file resolver", result.Diagnostics[0].Message);
         }
 
         [Test]
@@ -248,11 +254,25 @@ namespace Tests
         }
 
         [Test]
-        public void MissingFromBothResolvers_IsScriptError()
+        public void MissingFromBothResolvers_IsACompileError()
         {
-            var (_, output) = Run("import \"nope\"\nprint \"after\"",
-                new Dictionary<string, byte[]>(), new Dictionary<string, string>());
-            StringAssert.Contains("Import 'nope' not found", output[0]);
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() => Run("import \"nope\"\nprint \"after\"",
+                new Dictionary<string, byte[]>(), new Dictionary<string, string>()));
+            StringAssert.Contains("Import 'nope' not found", e.Message);
+        }
+
+        [Test]
+        public void ImportOfLoadedBytecode_IsResolvedWhenItRuns()
+        {
+            // A loaded file does not list its imports until format v3
+            // (T3.11): its missing import is a runtime NameError.
+            var bytecode = new Dictionary<string, byte[]>
+            {
+                ["outer"] = Compile("import \"inner\"\nfun outer_fn [] return 1 end")
+            };
+            var (_, output) = Run("import \"outer\"\nprint \"after\"", bytecode, new Dictionary<string, string>());
+            StringAssert.Contains("Import 'inner' not found", output[0]);
+            Assert.IsFalse(output.Contains("after"));
         }
     }
 }

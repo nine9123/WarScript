@@ -828,7 +828,18 @@ var script = new WarScriptLanguage("main", source,
     logger: (s, msg) => Debug.Log(msg));
 ```
 
-Imports are cached per script instance, and import cycles are detected.
+Imports are resolved when the script is compiled (`Compile()`, or the first `Run`/`Call`): every
+imported file is compiled before the file that imports it, so an import cycle (reported with its
+path, `Circular import: a -> b -> a`), a path the resolvers cannot answer, a resolver that throws
+and an error in an imported file are compile errors, and nothing runs. Each file's top-level code
+runs once per script instance, when `Run` reaches its `import`: dependencies first, in the order
+the imports are written. A `const` or `enum` of an imported file cannot be reassigned by the
+importer, and a named-argument call to an imported function is put in its parameter order.
+
+Saving bytecode (`SaveBytecode`) also resolves the imports, so the build step needs a
+`fileResolver` too; the file holds only the script's own definitions. The imports of bytecode
+(loaded with `LoadBytecode` or through a `bytecodeResolver`) are resolved when they run, and a
+missing one is a runtime `NameError`, until the bytecode lists its imports.
 
 #### Importing precompiled bytecode
 

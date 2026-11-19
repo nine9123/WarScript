@@ -386,7 +386,8 @@ namespace WarScript.Expression
                 if (isNamed && namedArgs is { Count: > 0 })
                 {
                     var definition = _script.DefinitionContext.GetScope()
-                        .GetFunction(token.Value, namedArgs.Count);
+                        .GetFunction(token.Value, namedArgs.Count)
+                        ?? _script.FindImportedFunction(token.Value, namedArgs.Count);
 
                     if (definition != null)
                     {

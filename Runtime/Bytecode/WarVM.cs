@@ -2567,9 +2567,11 @@ namespace WarScript.Bytecode
 
         // ── Import ──
         /// <summary>
-        /// Runs an import (until static imports, T3.7) and copies its
-        /// definitions into <paramref name="callerScope"/>, the definitions
-        /// of the frame executing the import.
+        /// Runs an import and copies its definitions into
+        /// <paramref name="callerScope"/>, the definitions of the frame
+        /// executing the import. The import is the one <c>Compile</c>
+        /// resolved (T3.7) when there is one; an import of loaded bytecode
+        /// is resolved and compiled here.
         /// </summary>
         private void ExecuteImport(string path, DefinitionScope callerScope)
         {
@@ -2580,10 +2582,19 @@ namespace WarScript.Bytecode
                 return;
             }
 
-            // Precompiled first: a host that ships bytecode for this path has
-            // already done the lex/parse/compile work this would otherwise
-            // repeat at every load. Null means there is none to use.
-            var precompiled = _script.LoadImportedBytecode(path, callerScope, out var importDefScope);
+            // Resolved and compiled by Compile() (T3.7); otherwise (an import
+            // of loaded bytecode) precompiled first: a host that ships
+            // bytecode for this path has already done the lex/parse/compile
+            // work this would otherwise repeat at every load. Null means
+            // there is none to use.
+            CompiledFunction? precompiled;
+            DefinitionScope? importDefScope;
+            if (_script.ResolvedImports.TryGetValue(path, out var resolved))
+            {
+                precompiled = resolved.TopLevel;
+                importDefScope = resolved.Definitions;
+            }
+            else precompiled = _script.LoadImportedBytecode(path, callerScope, out importDefScope);
 
             string? source = null;
             if (precompiled == null)
