@@ -520,7 +520,11 @@ namespace WarScript
             {
                 var tokens = LexicalParser.Parse(_sourceCode);
                 _parsingImports = new List<DefinitionScope>();
+                // One namespace for the module set (5.8, PROP-12): every
+                // file's top-level definitions go into the same record.
+                _definitionScope.Declared = new Context.Definition.DeclaredDefinitions();
                 ResolveImports(tokens, ScriptName, _sourceCode, _definitionScope, new List<string>());
+                ParsingFile = ScriptName;
                 var module = StatementParser.ParseModule(this, tokens, ScriptName);
                 _cachedCompiled = Compiler.CompileScript(this, module.TopLevel, _definitionScope);
 
@@ -551,6 +555,8 @@ namespace WarScript
             finally
             {
                 _parsingImports = null;
+                ParsingFile = null;
+                _definitionScope.Declared = null;
                 DefinitionContext.EndScope();
             }
             return _compileResult;
@@ -608,6 +614,18 @@ namespace WarScript
             var precompiled = LoadImportedBytecode(path, importerScope, out var loadedScope);
             if (precompiled != null)
             {
+                // Its definitions join the namespace (PROP-12); a clash is
+                // reported here, as the file has no source to point into.
+                var declared = importerScope.Declared;
+                if (declared != null)
+                {
+                    foreach (var c in loadedScope!.ClassDefinitions)
+                        if (declared.AddClass(c.ClassDetails.Name, path, 0) is { } clash)
+                            throw Error($"Cannot import '{path}': {clash}");
+                    foreach (var f in loadedScope.Functions)
+                        if (declared.AddFunction(f.Details.Name, f.Details.MinArity, f.Details.Arguments.Count, path, 0) is { } clash)
+                            throw Error($"Cannot import '{path}': {clash}");
+                }
                 ResolvedImports[path] = new ImportedModule(precompiled, loadedScope!);
                 _parsingImports?.Add(loadedScope!);
                 return;
@@ -619,13 +637,14 @@ namespace WarScript
             catch (System.Exception e) { throw Error($"Failed to read import '{path}': {e.Message}"); }
             if (source == null) throw Error($"Import '{path}' not found");
 
-            var scope = new DefinitionScope(this, importerScope);
+            var scope = new DefinitionScope(this, importerScope) { Declared = importerScope.Declared };
             chain.Add(path);
             try
             {
                 var tokens = LexicalParser.Parse(source);
                 ResolveImports(tokens, path, source, scope, chain);
                 DefinitionContext.PushScope(scope);
+                ParsingFile = path;
                 try
                 {
                     var module = StatementParser.ParseModule(this, tokens, path);
@@ -675,6 +694,13 @@ namespace WarScript
         /// reader. Parse-time state only.
         /// </summary>
         internal ParseBody ParsingBody;
+
+        /// <summary>
+        /// The file <see cref="Compile"/> is parsing (the script's name or an
+        /// import's path), named by a duplicate-definition error about a
+        /// definition in another file (PROP-12). Null otherwise.
+        /// </summary>
+        internal string? ParsingFile;
 
         /// <summary>
         /// True only during <see cref="ParseForMigration"/>: the parser

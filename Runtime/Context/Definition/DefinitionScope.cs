@@ -39,6 +39,14 @@ namespace WarScript.Context.Definition
         private readonly DefinitionScope? _parent;
 
         private readonly WarScriptLanguage _script;
+
+        /// <summary>
+        /// What the parser has defined in this scope, for the duplicate
+        /// check (PROP-12): created on the first definition, or shared by
+        /// every top-level scope of a module set while <c>Compile</c> parses
+        /// it (one namespace, 5.8). Null after <see cref="Clear"/>.
+        /// </summary>
+        internal DeclaredDefinitions? Declared;
         
         public DefinitionScope(WarScriptLanguage script, DefinitionScope? parent)
         {
@@ -146,7 +154,57 @@ namespace WarScript.Context.Definition
             _classes.Clear();
             Functions.Clear();
             _functionIndex.Clear();
+            Declared = null;
             _script.DefinitionsChanged();
+        }
+    }
+
+    /// <summary>
+    /// The functions and classes the parser has defined in a namespace
+    /// (a definition scope, or the top level of a module set), with where,
+    /// so that a second definition of the same function name and arity, or
+    /// of the same class name, is a compile error naming the first (PROP-12).
+    /// </summary>
+    internal sealed class DeclaredDefinitions
+    {
+        private readonly Dictionary<string, List<(int MinArity, int MaxArity, string? File, int Line)>> _functions = new();
+        private readonly Dictionary<string, (string? File, int Line)> _classes = new();
+
+        /// <summary>
+        /// Records a function of <paramref name="name"/> reachable with
+        /// <paramref name="minArity"/> to <paramref name="maxArity"/>
+        /// arguments, or returns the message for the first definition it
+        /// overlaps (and records nothing). <paramref name="file"/> is the file
+        /// being parsed, left out of the message when the first is there too.
+        /// </summary>
+        public string? AddFunction(string name, int minArity, int maxArity, string? file, int line)
+        {
+            if (!_functions.TryGetValue(name, out var defined))
+                _functions[name] = defined = new List<(int, int, string?, int)>();
+            foreach (var d in defined)
+            {
+                if (d.MinArity > maxArity || minArity > d.MaxArity) continue;
+                var arity = System.Math.Max(d.MinArity, minArity);
+                return System.FormattableString.Invariant(
+                    $"Function '{name}' with {arity} argument{(arity == 1 ? "" : "s")} is already defined{Where(d.File, d.Line, file)}");
+            }
+            defined.Add((minArity, maxArity, file, line));
+            return null;
+        }
+
+        /// <summary>Records a class, or returns the message for the first definition of its name.</summary>
+        public string? AddClass(string name, string? file, int line)
+        {
+            if (_classes.TryGetValue(name, out var d))
+                return $"Class '{name}' is already defined{Where(d.File, d.Line, file)}";
+            _classes[name] = (file, line);
+            return null;
+        }
+
+        private static string Where(string? definedIn, int line, string? parsing)
+        {
+            var at = line > 0 ? " at line " + line.ToString(System.Globalization.CultureInfo.InvariantCulture) : "";
+            return definedIn == parsing ? at : $" in '{definedIn}'{at}";
         }
     }
 }

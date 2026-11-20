@@ -127,6 +127,57 @@ namespace Tests
         }
 
         [Test]
+        public void Import_FunctionDefinedAgainInTheImporter_IsACompileErrorNamingTheImport()
+        {
+            var files = new Dictionary<string, string> { ["lib"] = "\nfun helper [x] return x end" };
+            var (_, result, _) = Compile("import \"lib\"\nfun helper [y] return y end", Files(files));
+            AssertCompileError(result, "Function 'helper' with 1 argument is already defined in 'lib' at line 2", "import_test", 2);
+        }
+
+        [Test]
+        public void Import_ClassDefinedInTwoImports_IsACompileErrorInTheSecond()
+        {
+            var files = new Dictionary<string, string>
+            {
+                ["a"] = "class Unit end",
+                ["b"] = "fun other [] return 1 end\nclass Unit [hp] end"
+            };
+            var (_, result, _) = Compile("import \"a\"\nimport \"b\"", Files(files));
+            AssertCompileError(result, "Class 'Unit' is already defined in 'a' at line 1", "b", 2);
+        }
+
+        [Test]
+        public void Import_SameFileThroughTwoImports_IsNotADuplicate()
+        {
+            var files = new Dictionary<string, string>
+            {
+                ["a"] = "import \"common\"",
+                ["b"] = "import \"common\"",
+                ["common"] = "class Unit end\nfun shared [] return 7 end"
+            };
+            var (_, output) = Run("import \"a\"\nimport \"b\"\nu = new Unit\nprint shared []", files);
+            Assert.AreEqual(new[] { "7" }, output);
+        }
+
+        [Test]
+        public void Import_FunctionsOfTheSameNameWithOtherArities_AreNotDuplicates()
+        {
+            var files = new Dictionary<string, string> { ["lib"] = "fun f [a] return a end" };
+            var (_, output) = Run("import \"lib\"\nfun f [] return 0 end\nprint f [] + f [4]", files);
+            Assert.AreEqual(new[] { "4" }, output);
+        }
+
+        [Test]
+        public void Import_RecompileAfterReload_DoesNotSeeTheOldDefinitions()
+        {
+            var files = new Dictionary<string, string> { ["lib"] = "fun f [] return 1 end" };
+            var (script, result, _) = Compile("import \"lib\"\nfun g [] return f [] end", Files(files));
+            Assert.IsTrue(result.Success);
+            script.Reload("import \"lib\"\nfun g [] return f [] + 1 end");
+            Assert.IsTrue(script.Compile().Success);
+        }
+
+        [Test]
         public void Import_OfItself_IsACompileError()
         {
             var files = new Dictionary<string, string> { ["a"] = "import \"a\"" };

@@ -274,5 +274,29 @@ namespace Tests
             StringAssert.Contains("Import 'inner' not found", output[0]);
             Assert.IsFalse(output.Contains("after"));
         }
+
+        [Test]
+        public void TwoBytecodeImports_DefiningTheSameFunction_IsACompileErrorAtTheSecondImport()
+        {
+            var bytecode = new Dictionary<string, byte[]>
+            {
+                ["a"] = Compile("fun helper [x] return 1 end"),
+                ["b"] = Compile("fun helper [y] return 2 end")
+            };
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(
+                () => Run("import \"a\"\nimport \"b\"", bytecode));
+            StringAssert.Contains("Cannot import 'b': Function 'helper' with 1 argument is already defined in 'a'", e.Message);
+            Assert.AreEqual(2, e.Line);
+        }
+
+        [Test]
+        public void FunctionOfABytecodeImport_DefinedAgain_IsACompileError()
+        {
+            var bytecode = new Dictionary<string, byte[]> { ["lib"] = Compile("class Unit end") };
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(
+                () => Run("import \"lib\"\nclass Unit [hp] end", bytecode));
+            StringAssert.Contains("Class 'Unit' is already defined in 'lib'", e.Message);
+            Assert.AreEqual(2, e.Line);
+        }
     }
 }

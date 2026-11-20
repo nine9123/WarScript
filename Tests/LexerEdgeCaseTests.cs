@@ -183,20 +183,57 @@ namespace Tests
         }
 
         // ────────────────────────────────────────────────
-        //  Definition shadowing (last definition wins)
+        //  Duplicate definitions (PROP-12: a compile error, T3.7)
         // ────────────────────────────────────────────────
 
         [Test]
-        public void DuplicateFunction_SameArity_LastDefinitionWins()
+        public void DuplicateFunction_SameArity_IsASyntaxErrorAtTheSecond()
         {
-            Assert.AreEqual("2", Run("fun f [] return 1 end\nfun f [] return 2 end\nprint f []")[0]);
+            var ex = Assert.Throws<SyntaxException>(
+                () => Run("fun f [] return 1 end\nfun f [] return 2 end\nprint f []"));
+            StringAssert.Contains("Function 'f' with 0 arguments is already defined at line 1", ex.Message);
+            Assert.AreEqual(2, ex.Line);
+            Assert.AreEqual(5, ex.Column);
         }
 
         [Test]
-        public void DuplicateClass_LastDefinitionWins()
+        public void DuplicateClass_IsASyntaxErrorAtTheSecond()
         {
-            var output = Run("class C [x] end\nclass C [y] end\nc = new C [1]\nprint c :: y");
-            Assert.AreEqual("1", output[0]);
+            var ex = Assert.Throws<SyntaxException>(
+                () => Run("class C [x] end\nclass C [y] end\nc = new C [1]\nprint c :: y"));
+            StringAssert.Contains("Class 'C' is already defined at line 1", ex.Message);
+            Assert.AreEqual(2, ex.Line);
+        }
+
+        [Test]
+        public void DuplicateEnumAndClass_IsASyntaxError()
+        {
+            var ex = Assert.Throws<SyntaxException>(() => Run("class E end\nenum E\n    A\nend"));
+            StringAssert.Contains("Class 'E' is already defined at line 1", ex.Message);
+        }
+
+        [TestCase("fun f [a, b = 1] return 1 end\nfun f [a] return 2 end", "Function 'f' with 1 argument is already defined")]
+        [TestCase("fun f [a] return 1 end\nfun f [a, b = 1] return 2 end", "Function 'f' with 1 argument is already defined")]
+        [TestCase("class C\n    fun m [] return 1 end\n    fun m [] return 2 end\nend", "Function 'm' with 0 arguments is already defined")]
+        public void DuplicateDefinition_OverlappingArityOrMethod_IsASyntaxError(string source, string message)
+        {
+            var ex = Assert.Throws<SyntaxException>(() => Run(source));
+            StringAssert.Contains(message, ex.Message);
+        }
+
+        [Test]
+        public void SameName_DifferentArities_ClassesAndMethods_AreNotDuplicates()
+        {
+            var output = Run(
+                "fun f [] return 0 end\n" +
+                "fun f [a] return a end\n" +
+                "fun f [a, b, c = 3] return a + b + c end\n" +
+                "class A\n    fun m [] return \"A\" end\nend\n" +
+                "class B\n    fun m [] return \"B\" end\nend\n" +
+                "class f end\n" +
+                "print f []\nprint f [5]\nprint f [1, 2]\na = new A\nb = new B\nprint a :: m []\nprint b :: m []");
+            CollectionAssert.AreEqual(new[] { "0", "5", "6", "A", "B" }, output);
         }
     }
 }
+

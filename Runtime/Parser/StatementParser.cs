@@ -287,7 +287,9 @@ namespace WarScript
         private void ParseClassDefinition(Token.Token rowToken)
         {
             // read class details
+            Tokens.TryPeek(out var nameToken);
             var classDetails = ReadClassDetails();
+            CheckDuplicate(d => d.AddClass(classDetails.Name, _script.ParsingFile, nameToken.RowNumber), nameToken);
 
             // read base types
             var baseTypes = new List<ClassDetails>();
@@ -312,6 +314,19 @@ namespace WarScript
             // parse class's statements
             Parse(this, classStatement, classScope, ParseBody.ClassBody);
             Tokens.Next(TokenType.Keyword, "end");
+        }
+
+        /// <summary>
+        /// Records a function or class definition in the namespace of the
+        /// scope it goes into (PROP-12), or throws the duplicate-definition
+        /// error at <paramref name="at"/>, its name. Not for v1 scripts.
+        /// </summary>
+        private void CheckDuplicate(System.Func<DeclaredDefinitions, string> add, Token.Token at)
+        {
+            if (_script.ParsingV1) return;
+            var scope = _script.DefinitionContext.GetScope();
+            var message = add(scope.Declared ??= new DeclaredDefinitions());
+            if (message != null) throw new SyntaxException(message, at.RowNumber, at.Column);
         }
 
         private ClassDetails ReadClassDetails()
@@ -386,6 +401,7 @@ namespace WarScript
             };
             var functionScope = _script.DefinitionContext.NewScope();
             var functionDetails = new FunctionDetails(name.Value, arguments, minArity);
+            CheckDuplicate(d => d.AddFunction(name.Value, functionDetails.MinArity, arguments.Count, _script.ParsingFile, name.RowNumber), name);
             var functionDefinition = new FunctionDefinition(functionDetails, functionStatement, functionScope);
             _script.DefinitionContext.GetScope().AddFunction(functionDefinition);
 
@@ -707,6 +723,7 @@ namespace WarScript
 
             // Class with no constructor args — properties are set in the body
             var classDetails = new ClassDetails(enumName.Value, new List<string>());
+            CheckDuplicate(d => d.AddClass(enumName.Value, _script.ParsingFile, enumName.RowNumber), enumName);
             var classScope = _script.DefinitionContext.NewScope();
             var classStatement = new ClassStatement(_script, line, enumName.Value);
             var classDefinition = new ClassDefinition(classDetails, new List<ClassDetails>(), classStatement, classScope);

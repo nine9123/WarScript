@@ -405,7 +405,10 @@ print fib [10]       # → 55
 ```
 
 Functions are resolved by **(name, argument count)** — two functions with the same name and
-different arities are distinct.
+different arities are distinct. Defining a function again with an arity the first one already
+takes (counting the arities its default parameters allow), or a class name again, is a compile
+error — in the same file, in a class (methods), or anywhere among a script and the files it
+imports, which share one namespace.
 
 #### Locals and globals
 
@@ -834,7 +837,10 @@ path, `Circular import: a -> b -> a`), a path the resolvers cannot answer, a res
 and an error in an imported file are compile errors, and nothing runs. Each file's top-level code
 runs once per script instance, when `Run` reaches its `import`: dependencies first, in the order
 the imports are written. A `const` or `enum` of an imported file cannot be reassigned by the
-importer, and a named-argument call to an imported function is put in its parameter order.
+importer, and a named-argument call to an imported function is put in its parameter order. A
+script and its imports share one namespace: a function (name and arity) or class that two of them
+define is a compile error at the second definition, naming the file of the first; importing the
+same file through two imports is not.
 
 Saving bytecode (`SaveBytecode`) also resolves the imports, so the build step needs a
 `fileResolver` too; the file holds only the script's own definitions. The imports of bytecode
