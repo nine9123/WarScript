@@ -178,6 +178,56 @@ namespace Tests
         }
 
         [Test]
+        public void Import_Definitions_AreTheScriptsOnceItCompiles()
+        {
+            // 5.8: one namespace for the module set, before any top-level
+            // code runs; the import's top level still runs at Run.
+            var files = new Dictionary<string, string>
+            {
+                ["lib"] = "import \"inner\"\nprint \"lib loaded\"\nfun helper [x] return inner [x] * 10 end",
+                ["inner"] = "class Box [v] end\nfun inner [x] return x + 1 end"
+            };
+            var (script, result, output) = Compile("import \"lib\"\nprint \"main\"", Files(files));
+            Assert.IsTrue(result.Success);
+
+            var helper = script.GetFunction("helper", 1);
+            Assert.IsNotNull(helper);
+            Assert.IsNotNull(script.GetFunction("inner", 1), "an import's import is in the namespace too");
+            var called = script.Call(helper, WarScript.Expression.Value.WarValue.FromNumeric(FixMath.F64.FromInt(2)));
+            Assert.IsTrue(called.IsOk, called.Error?.ToString());
+            Assert.IsTrue(called.Value.Numeric == 30);
+            CollectionAssert.IsEmpty(output, "no top-level code ran");
+
+            Assert.IsTrue(script.Run().IsOk);
+            Assert.AreEqual(new[] { "lib loaded", "main" }, output);
+        }
+
+        [Test]
+        public void Import_SaveBytecode_HoldsOnlyTheScriptsOwnDefinitions()
+        {
+            var files = new Dictionary<string, string> { ["lib"] = "class Unit end\nfun helper [] return 7 end" };
+            const string source = "import \"lib\"\nfun own [] return helper [] end\nprint own []";
+            var (script, result, _) = Compile(source, Files(files));
+            Assert.IsTrue(result.Success);
+
+            var beforeRun = new System.IO.MemoryStream();
+            script.SaveBytecode(beforeRun);
+            Assert.IsTrue(script.Run().IsOk);
+            var afterRun = new System.IO.MemoryStream();
+            script.SaveBytecode(afterRun);
+            CollectionAssert.AreEqual(beforeRun.ToArray(), afterRun.ToArray(), "running does not add the import's definitions to the file");
+
+            // The import's definitions come from the import when it runs.
+            var output = new List<string>();
+            var loaded = new WarScript.WarScriptLanguage("import_test", "", Files(files), (_, msg) => output.Add(msg));
+            loaded.LoadBytecode(new System.IO.MemoryStream(afterRun.ToArray()));
+            Assert.IsNull(loaded.GetFunction("helper", 0));
+            Assert.IsTrue(loaded.Run().IsOk);
+            Assert.AreEqual(new[] { "7" }, output);
+            Assert.IsNotNull(loaded.GetFunction("helper", 0));
+        }
+
+        [Test]
         public void Import_OfItself_IsACompileError()
         {
             var files = new Dictionary<string, string> { ["a"] = "import \"a\"" };

@@ -2567,18 +2567,21 @@ namespace WarScript.Bytecode
 
         // ── Import ──
         /// <summary>
-        /// Runs an import and copies its definitions into
-        /// <paramref name="callerScope"/>, the definitions of the frame
-        /// executing the import. The import is the one <c>Compile</c>
-        /// resolved (T3.7) when there is one; an import of loaded bytecode
-        /// is resolved and compiled here.
+        /// Runs an import's top-level code (once per instance). The import is
+        /// the one <c>Compile</c> resolved (T3.7) when there is one, whose
+        /// definitions are already the script's (one namespace, 5.8); an
+        /// import of loaded bytecode is resolved and compiled here, and its
+        /// definitions are copied into <paramref name="callerScope"/>, the
+        /// definitions of the frame executing the import, and into the
+        /// script's.
         /// </summary>
         private void ExecuteImport(string path, DefinitionScope callerScope)
         {
             if (_script.ImportStack.Contains(path)) { RuntimeError(ScriptErrorKind.NameError, $"Circular import: '{path}'"); return; }
+            var inNamespace = _script.ResolvedImports.TryGetValue(path, out var resolved);
             if (_script.ImportCache.TryGetValue(path, out var cached))
             {
-                cached.CopyLocalDefinitionsTo(callerScope);
+                if (!inNamespace) JoinNamespace(cached, callerScope);
                 return;
             }
 
@@ -2589,7 +2592,7 @@ namespace WarScript.Bytecode
             // there is none to use.
             CompiledFunction? precompiled;
             DefinitionScope? importDefScope;
-            if (_script.ResolvedImports.TryGetValue(path, out var resolved))
+            if (inNamespace)
             {
                 precompiled = resolved.TopLevel;
                 importDefScope = resolved.Definitions;
@@ -2635,8 +2638,19 @@ namespace WarScript.Bytecode
                 _script.DefinitionContext.EndScope();
                 _script.ImportStack.Remove(path);
             }
-            if (!_script.ExceptionContext.IsRaised())
-                importDefScope.CopyLocalDefinitionsTo(callerScope);
+            if (!inNamespace && !_script.ExceptionContext.IsRaised())
+                JoinNamespace(importDefScope, callerScope);
+        }
+
+        /// <summary>
+        /// The definitions of an import resolved at run time join the
+        /// importer's and the script's.
+        /// </summary>
+        private void JoinNamespace(DefinitionScope imported, DefinitionScope callerScope)
+        {
+            imported.CopyImportedDefinitionsTo(callerScope);
+            if (callerScope != _script.Definitions)
+                imported.CopyImportedDefinitionsTo(_script.Definitions);
         }
     }
 }

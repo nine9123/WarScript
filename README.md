@@ -840,7 +840,9 @@ the imports are written. A `const` or `enum` of an imported file cannot be reass
 importer, and a named-argument call to an imported function is put in its parameter order. A
 script and its imports share one namespace: a function (name and arity) or class that two of them
 define is a compile error at the second definition, naming the file of the first; importing the
-same file through two imports is not.
+same file through two imports is not. The imported functions and classes belong to the script as
+soon as it compiles, so the host can `GetFunction` and `Call` them before `Run`; only the imported
+files' top-level code waits for `Run`.
 
 Saving bytecode (`SaveBytecode`) also resolves the imports, so the build step needs a
 `fileResolver` too; the file holds only the script's own definitions. The imports of bytecode

@@ -145,6 +145,37 @@ namespace WarScript.Context.Definition
         }
 
         /// <summary>
+        /// The definitions copied in from imported files (T3.7, 5.8: the
+        /// module set has one namespace): reachable here like this scope's
+        /// own, but not part of the file it holds, so
+        /// <see cref="Bytecode.BytecodeSerializer"/> leaves them out and
+        /// <see cref="CopyImportedDefinitionsTo"/> does not copy them on.
+        /// Null until the first import.
+        /// </summary>
+        private HashSet<object>? _imported;
+
+        /// <summary>Whether <paramref name="definition"/> was copied in from an imported file.</summary>
+        internal bool IsImported(object definition) => _imported != null && _imported.Contains(definition);
+
+        /// <summary>
+        /// Copies this scope's own functions and classes (not those it
+        /// imported itself) into <paramref name="target"/>, marked there as
+        /// imported; one already imported there is not added again. How an
+        /// import's definitions join the module set's namespace (T3.7).
+        /// </summary>
+        internal void CopyImportedDefinitionsTo(DefinitionScope target)
+        {
+            target._imported ??= new HashSet<object>(StateHash.ReferenceComparer.Instance);
+            foreach (var classDefinition in _classes.Values)
+                if (!IsImported(classDefinition) && target._imported.Add(classDefinition))
+                    target.AddClass(classDefinition);
+
+            foreach (var functionDefinition in Functions)
+                if (!IsImported(functionDefinition) && target._imported.Add(functionDefinition))
+                    target.AddFunction(functionDefinition);
+        }
+
+        /// <summary>
         /// Remove all locally defined functions and classes.
         /// Used by hot reload to clear old definitions before re-parsing.
         /// Native functions (in the parent scope) are unaffected.
@@ -154,6 +185,7 @@ namespace WarScript.Context.Definition
             _classes.Clear();
             Functions.Clear();
             _functionIndex.Clear();
+            _imported = null;
             Declared = null;
             _script.DefinitionsChanged();
         }

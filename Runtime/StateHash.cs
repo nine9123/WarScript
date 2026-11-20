@@ -191,7 +191,7 @@ namespace WarScript
         }
 
         /// <summary>Reference identity (ReferenceEqualityComparer is not in netstandard2.1).</summary>
-        private sealed class ReferenceComparer : IEqualityComparer<object>
+        internal sealed class ReferenceComparer : IEqualityComparer<object>
         {
             public static readonly ReferenceComparer Instance = new ReferenceComparer();
             public new bool Equals(object? x, object? y) => ReferenceEquals(x, y);

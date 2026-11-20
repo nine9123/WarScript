@@ -114,6 +114,13 @@ namespace WarScript
         internal readonly HashSet<string> ConstantNames = new();
 
         private readonly DefinitionScope _definitionScope;
+
+        /// <summary>
+        /// The script's definitions: its own functions and classes and, as
+        /// imported ones, those of every file it imports (one namespace for
+        /// the module set, T3.7, 5.8).
+        /// </summary>
+        internal DefinitionScope Definitions => _definitionScope;
         private readonly MemoryScope _memoryScope;
 
         /// <summary>
@@ -505,8 +512,10 @@ namespace WarScript
         /// 5.8, DEC-7): each imported file, through <see cref="BytecodeResolver"/>
         /// and then <see cref="FileResolver"/>, is compiled before the file
         /// importing it, so an import cycle, a file that cannot be found or
-        /// read and an error in an imported file are compile errors. Imported
-        /// top-level code still runs when <see cref="Run"/> reaches the import.
+        /// read and an error in an imported file are compile errors. The
+        /// imported files' functions and classes are the script's once it
+        /// compiles (one namespace); their top-level code runs when
+        /// <see cref="Run"/> reaches the import.
         /// </summary>
         public CompileResult Compile()
         {
@@ -527,6 +536,14 @@ namespace WarScript
                 ParsingFile = ScriptName;
                 var module = StatementParser.ParseModule(this, tokens, ScriptName);
                 _cachedCompiled = Compiler.CompileScript(this, module.TopLevel, _definitionScope);
+
+                // One namespace for the module set (5.8): every import's
+                // definitions are the script's from now on, before any
+                // top-level code runs, so the host can call them as soon as
+                // the script compiles. The Import instruction only runs the
+                // import's top-level code.
+                foreach (var imported in _parsingImports)
+                    imported.CopyImportedDefinitionsTo(_definitionScope);
 
                 // Discard the AST — bytecode is the source of truth.
                 // This frees all Statement/Expression nodes for GC while

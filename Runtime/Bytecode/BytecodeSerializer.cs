@@ -56,11 +56,12 @@ namespace WarScript.Bytecode
 
         private static void WriteDefinitionScope(BinaryWriter w, DefinitionScope scope)
         {
-            // Functions (skip natives — they're re-registered at load time)
+            // Functions (skip natives — they're re-registered at load time —
+            // and an import's, which belong to the imported file, T3.7)
             var userFunctions = new List<FunctionDefinition>();
             foreach (var f in scope.Functions)
             {
-                if (f is NativeFunctionDefinition) continue;
+                if (f is NativeFunctionDefinition || scope.IsImported(f)) continue;
                 userFunctions.Add(f);
             }
 
@@ -71,7 +72,8 @@ namespace WarScript.Bytecode
             // Classes
             var classes = new List<ClassDefinition>();
             foreach (var c in scope.ClassDefinitions)
-                classes.Add(c);
+                if (!scope.IsImported(c))
+                    classes.Add(c);
 
             w.Write((ushort)classes.Count);
             foreach (var c in classes)

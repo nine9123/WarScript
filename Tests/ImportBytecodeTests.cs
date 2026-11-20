@@ -121,6 +121,22 @@ namespace Tests
         }
 
         [Test]
+        public void ImportedBytecode_NestedImport_IsInTheScriptsNamespace()
+        {
+            // 'inner' is resolved when 'outer' runs (its imports are not known
+            // at compile time until format v3); its definitions still reach the
+            // script, not only 'outer'.
+            var bytecode = new Dictionary<string, byte[]>
+            {
+                ["outer"] = Compile("import \"inner\"\nfun outer_fn [] return 1 end"),
+                ["inner"] = Compile("fun inner_fn [] return 41 end")
+            };
+            var (script, output) = Run("import \"outer\"\nprint inner_fn [] + outer_fn []", bytecode);
+            Assert.AreEqual("42", output[0]);
+            Assert.IsNotNull(script.GetFunction("inner_fn", 0));
+        }
+
+        [Test]
         public void ImportedBytecode_NestedImportFallsBackToSource()
         {
             var bytecode = new Dictionary<string, byte[]>
