@@ -127,7 +127,11 @@ namespace Tests
             var result = script.Compile();
 
             Assert.IsFalse(result.Success);
-            var d = result.Diagnostics.Single();
+            // The compiler recovers at the statement (T3.8): the call's arity
+            // is still checked once the module set is compiled.
+            Assert.AreEqual(2, result.Diagnostics.Count);
+            Assert.AreEqual("Function 'f' takes 1 argument, not 256", result.Diagnostics[1].Message);
+            var d = result.Diagnostics[0];
             Assert.AreEqual("more than 255 arguments in a call", d.Message);
             Assert.AreEqual("compile", d.ScriptName);
             Assert.AreEqual(4, d.Line);

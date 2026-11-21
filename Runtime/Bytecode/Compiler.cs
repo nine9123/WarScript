@@ -170,6 +170,9 @@ namespace WarScript.Bytecode
         /// </summary>
         private HashSet<string>? _enclosingLocals;
 
+        /// <summary>True once this body recovered from a compile error (<see cref="Recover"/>).</summary>
+        private bool _recovered;
+
         // ────────────────────────────────────────────────────────
         //  Public entry point
         // ────────────────────────────────────────────────────────
@@ -225,7 +228,8 @@ namespace WarScript.Bytecode
             foreach (var funcDef in scope.Functions)
             {
                 if (funcDef is NativeFunctionDefinition) continue;
-                CompileFunctionDef(funcDef);
+                try { CompileFunctionDef(funcDef); }
+                catch (SyntaxException e) when (_script.RecoverFromCompileError(e)) { }
             }
             // Compile all classes (methods + constructor bodies)
             foreach (var classDef in scope.ClassDefinitions)
@@ -270,13 +274,20 @@ namespace WarScript.Bytecode
             var fields = ClassFields(classDef, new List<ClassDefinition>());
             var className = classDef.ClassDetails.Name;
             if (classDef.Statement != null) classDef.Fields = OwnFields(classDef);
-            if (fields != null) CheckParameterBindings(classDef);
+            // A compile error in the bindings, a method or the class body is
+            // recorded and the rest of the class compiled (T3.8).
+            if (fields != null)
+            {
+                try { CheckParameterBindings(classDef); }
+                catch (SyntaxException e) when (_script.RecoverFromCompileError(e)) { }
+            }
 
             // Compile all methods
             foreach (var funcDef in classScope.Functions)
             {
                 if (funcDef is NativeFunctionDefinition) continue;
-                CompileFunctionDef(funcDef, className, fields);
+                try { CompileFunctionDef(funcDef, className, fields); }
+                catch (SyntaxException e) when (_script.RecoverFromCompileError(e)) { }
             }
 
             // Compile nested classes
@@ -284,7 +295,8 @@ namespace WarScript.Bytecode
                 CompileClassDef(nestedClass);
 
             // Compile constructor body (non-definition statements only)
-            CompileConstructorBody(classDef, fields);
+            try { CompileConstructorBody(classDef, fields); }
+            catch (SyntaxException e) when (_script.RecoverFromCompileError(e)) { }
         }
 
         /// <summary>
@@ -443,8 +455,11 @@ namespace WarScript.Bytecode
         /// stack is accepted and raises "Value stack overflow" when called; any
         /// other rejection is a compiler bug, reported as a host fault.
         /// </summary>
-        private static void VerifyOutput(CompiledFunction function)
+        private void VerifyOutput(CompiledFunction function)
         {
+            // A compile that recovered from an error (T3.8) fails: what it
+            // emitted is neither verified nor kept.
+            if (_script.HasCompileErrors) return;
             // The limits nothing caught while emitting (T1.8): straight-line
             // code past 65,535 bytes, or more local slots than the file
             // records.
@@ -509,7 +524,7 @@ namespace WarScript.Bytecode
             compiler._current.LocalCount = compiler._maxLocals;
             compiler._current.LocalNames = compiler._localNames.ToArray();
             compiler._current.Chunk.FinalizePropertyCaches();
-            VerifyOutput(compiler._current);
+            compiler.VerifyOutput(compiler._current);
             return compiler._current;
         }
 
@@ -557,6 +572,7 @@ namespace WarScript.Bytecode
         /// </summary>
         private void WarnUnreadLocals()
         {
+            if (_recovered) return;
             foreach (var local in _locals)
             {
                 if (local.Kind != LocalKind.BodyLocal || _readLocals.Contains(local.Name)) continue;
@@ -702,23 +718,84 @@ namespace WarScript.Bytecode
                 _line = Line(stmt);
                 SetColumn(stmt.Column);
             }
+            var state = SaveState();
             try { CompileStatementBody(stmt); }
             catch (CompileError e) when (e.Line == 0 && _line > 0)
             {
                 // A limit found while emitting (T1.8) carries no line: report
                 // the innermost statement that has one.
-                throw new CompileError(e.Reason, e.ScriptName, _line, _column);
+                var located = new CompileError(e.Reason, e.ScriptName, _line, _column);
+                if (!_script.RecoverFromCompileError(located)) throw located;
+                Recover(stmt, state);
             }
             catch (SyntaxException e) when (!(e is CompileError))
             {
                 // Likewise for the compiler's other errors (T3.1).
                 e.Locate(_line, _column).LocateIn(_source, null);
-                throw;
+                if (!_script.RecoverFromCompileError(e)) throw;
+                Recover(stmt, state);
+            }
+            catch (CompileError e) when (_script.RecoverFromCompileError(e))
+            {
+                Recover(stmt, state);
             }
             finally
             {
                 _line = outerLine;
                 SetColumn(outerColumn);
+            }
+        }
+
+        /// <summary>What <see cref="Recover"/> puts back: the compiler's block state where a statement starts.</summary>
+        private readonly struct StatementState
+        {
+            public readonly int Locals, ScopeDepth, Loops, Tries, TryDepth, InlinedEnsure;
+
+            public StatementState(int locals, int scopeDepth, int loops, int tries, int tryDepth, int inlinedEnsure)
+            {
+                Locals = locals;
+                ScopeDepth = scopeDepth;
+                Loops = loops;
+                Tries = tries;
+                TryDepth = tryDepth;
+                InlinedEnsure = inlinedEnsure;
+            }
+        }
+
+        private StatementState SaveState() =>
+            new StatementState(_locals.Count, _scopeDepth, _loops.Count, _tries.Count, _tryDepth, _inlinedEnsure);
+
+        /// <summary>
+        /// Continues after a compile error in <paramref name="stmt"/>, which
+        /// <see cref="WarScriptLanguage.RecoverFromCompileError"/> recorded
+        /// (T3.8: several errors per compile): the blocks, loops and begin
+        /// blocks the statement had opened are closed again, as at its start
+        /// (the code emitted so far is never run or verified, the compile
+        /// fails), and every name it assigns counts as assigned, so that a
+        /// later read is not reported as read before its assignment or as an
+        /// undefined global because of this error. The body reports no
+        /// unread locals (<see cref="WarnUnreadLocals"/>): a read may have
+        /// been in the code not compiled.
+        /// </summary>
+        private void Recover(Statement.Statement stmt, StatementState state)
+        {
+            _locals.RemoveRange(state.Locals, _locals.Count - state.Locals);
+            _scopeDepth = state.ScopeDepth;
+            _loops.RemoveRange(state.Loops, _loops.Count - state.Loops);
+            _tries.RemoveRange(state.Tries, _tries.Count - state.Tries);
+            _tryDepth = state.TryDepth;
+            _inlinedEnsure = state.InlinedEnsure;
+            _recovered = true;
+            foreach (var name in BodyNames.Assigned(stmt))
+            {
+                _usedNames.Add(name);
+                var slot = ResolveLocal(name);
+                if (slot != -1)
+                {
+                    if (_locals[slot].Kind == LocalKind.BodyLocal) _assignedSoFar.Add(name);
+                }
+                else if (!_classBody || _declaredGlobals.Contains(name))
+                    _script.DeclareGlobalWrite(name);
             }
         }
 
@@ -2162,6 +2239,17 @@ namespace WarScript.Bytecode
                         throw new CompileError(d.What + " '" + d.Name + "' shadows " + reason + " of the same body", source, d.Line, d.Column);
                 }
                 return names;
+            }
+
+            /// <summary>
+            /// The names <paramref name="statement"/> assigns bare (not its
+            /// loop or rescue variables), for <see cref="Recover"/>.
+            /// </summary>
+            public static List<string> Assigned(Statement.Statement statement)
+            {
+                var names = new BodyNames(System.Array.Empty<string>());
+                names.Walk(statement);
+                return names.Locals;
             }
 
             private void WalkBlock(CompositeStatement block)

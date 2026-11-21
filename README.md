@@ -1054,7 +1054,8 @@ if (!compiled.Success)
         Debug.LogError(d);               // "example:4:1: error: more than 255 arguments in a call"
 ```
 
-A syntax error stops the compile at the first one. The checks that need the whole script and its
+A syntax error stops the compile at the first one. Every other error is reported: the compiler
+goes on with the next statement after an error, and the checks that need the whole script and its
 imports (an unknown function, class, `::` name or variable, a write to a constant) report every
 error they find; the `CompileError` result of `Run()`/`Call()` carries the first.
 

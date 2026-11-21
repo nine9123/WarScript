@@ -228,10 +228,12 @@ namespace WarScript
         // Null otherwise.
         private List<(string Name, string? File, string? Source, int Line, int Column)>? _constantWrites;
 
-        // While Compile() runs: the errors the module-set checks found
-        // (CheckInstantiations to CheckConstantWrites, T3.8), each once, in
-        // the order found; null otherwise. Every one is reported.
-        private List<Exception.SyntaxException>? _moduleSetErrors;
+        // While Compile() runs: the errors found so far (T3.8), each once, in
+        // the order found: those the compiler recovered from at a statement
+        // or definition boundary, then those of the module-set checks
+        // (CheckInstantiations to CheckConstantWrites); null otherwise. Every
+        // one is reported.
+        private List<Exception.SyntaxException>? _compileErrors;
         private Dictionary<string, HashSet<string>>? _enumMembers;
         private WarVM? _cachedVM;
 
@@ -652,7 +654,7 @@ namespace WarScript
             _globalWritesUnknown = false;
             _calls = new List<(string, int, bool, string?, string?, int, int)>();
             _constantWrites = new List<(string, string?, string?, int, int)>();
-            _moduleSetErrors = new List<Exception.SyntaxException>();
+            _compileErrors = new List<Exception.SyntaxException>();
             DefinitionContext.PushScope(_definitionScope);
             try
             {
@@ -673,20 +675,13 @@ namespace WarScript
                 CheckCalls();
                 CheckConstantWrites();
 
-                // Every error the module-set checks found (T3.8), the first
-                // being the one the entry points report, then the warnings.
-                if (_moduleSetErrors.Count > 0)
+                // Every error the compiler recovered from and the module-set
+                // checks found (T3.8), the first being the one the entry
+                // points report, then the warnings.
+                if (_compileErrors.Count > 0)
                 {
                     RollBackCompile(constantsBefore);
-                    var diagnostics = new List<CompileDiagnostic>(_moduleSetErrors.Count + warnings.Count);
-                    foreach (var error in _moduleSetErrors)
-                    {
-                        error.LocateIn(ScriptName, _sourceCode);
-                        diagnostics.Add(Diagnose(error));
-                    }
-                    diagnostics.AddRange(warnings);
-                    _compileError = _moduleSetErrors[0];
-                    _compileResult = new CompileResult(false, diagnostics.ToArray());
+                    _compileResult = FailedCompile(_compileErrors, warnings);
                     return _compileResult;
                 }
 
@@ -730,14 +725,12 @@ namespace WarScript
                 // Whatever the parser had added stays out of reach: a
                 // definition without bytecode cannot be called.
                 RollBackCompile(constantsBefore);
-                e.LocateIn(ScriptName, _sourceCode);
-                _compileError = e;
-                // The error first (the entry points report it), then the
-                // warnings found before it.
-                var diagnostics = new CompileDiagnostic[warnings.Count + 1];
-                diagnostics[0] = Diagnose(e);
-                warnings.CopyTo(diagnostics, 1);
-                _compileResult = new CompileResult(false, diagnostics);
+                // The errors the compiler recovered from before it, if any,
+                // then this one (the first is the one the entry points
+                // report), then the warnings found before it.
+                var errors = _compileErrors ?? new List<Exception.SyntaxException>();
+                if (!errors.Contains(e)) errors.Add(e);
+                _compileResult = FailedCompile(errors, warnings);
             }
             catch
             {
@@ -758,7 +751,7 @@ namespace WarScript
                 _globalWritesUnknown = false;
                 _calls = null;
                 _constantWrites = null;
-                _moduleSetErrors = null;
+                _compileErrors = null;
                 _parsingImports = null;
                 ParsingFile = null;
                 ParsingSource = null;
@@ -1048,7 +1041,7 @@ namespace WarScript
                 else if (arguments >= 0 && !set.Contains(arguments))
                     message = ConstructorArityMessage(name, ArityList(set), arguments);
                 else continue;
-                ReportModuleSetError(new Exception.CompileError(message, file, line, column).LocateIn(file, source));
+                ReportCompileError(new Exception.CompileError(message, file, line, column).LocateIn(file, source));
             }
         }
 
@@ -1156,7 +1149,7 @@ namespace WarScript
                 else if (namesKnown && !names.Contains(name))
                     message = $"'{name}' is not a field or method of any class";
                 if (message != null)
-                    ReportModuleSetError(new Exception.CompileError(message, file, line, column).LocateIn(file, source));
+                    ReportCompileError(new Exception.CompileError(message, file, line, column).LocateIn(file, source));
             }
         }
 
@@ -1214,7 +1207,7 @@ namespace WarScript
                     }
                     if (fields.Contains(name)) continue;
                 }
-                ReportModuleSetError(new Exception.CompileError(Bytecode.WarVM.UndefinedVariableMessage(name), file, line, column)
+                ReportCompileError(new Exception.CompileError(Bytecode.WarVM.UndefinedVariableMessage(name), file, line, column)
                     .LocateIn(file, source));
             }
         }
@@ -1288,7 +1281,7 @@ namespace WarScript
                 var message = set == null
                     ? $"Function '{name}' is not defined"
                     : $"Function '{name}' takes {ArityList(set)}, not {arguments.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
-                ReportModuleSetError(new Exception.CompileError(message, file, line, column).LocateIn(file, source));
+                ReportCompileError(new Exception.CompileError(message, file, line, column).LocateIn(file, source));
             }
         }
 
@@ -1319,7 +1312,7 @@ namespace WarScript
             if (_constantWrites == null) return;
             foreach (var (name, file, source, line, column) in _constantWrites)
                 if (ConstantNames.Contains(name))
-                    ReportModuleSetError(new Exception.CompileError($"Cannot reassign constant '{name}'", file, line, column)
+                    ReportCompileError(new Exception.CompileError($"Cannot reassign constant '{name}'", file, line, column)
                         .LocateIn(file, source));
         }
 
@@ -1329,14 +1322,51 @@ namespace WarScript
         /// emits twice, an ensure body inlined where a <c>break</c>/<c>next</c>
         /// leaves it, records its uses twice).
         /// </summary>
-        private void ReportModuleSetError(Exception.SyntaxException error)
+        private void ReportCompileError(Exception.SyntaxException error)
         {
             var reason = error is Exception.CompileError c ? c.Reason : error.Message;
-            foreach (var e in _moduleSetErrors!)
+            foreach (var e in _compileErrors!)
                 if ((e is Exception.CompileError ce ? ce.Reason : e.Message) == reason && e.ScriptName == error.ScriptName
                     && e.Line == error.Line && e.Column == error.Column)
                     return;
-            _moduleSetErrors.Add(error);
+            _compileErrors.Add(error);
+        }
+
+        /// <summary>
+        /// Records an error the compiler found in the file being compiled
+        /// (<see cref="ParsingFile"/>) and recovers from at the end of the
+        /// statement or definition it is in (T3.8): true while
+        /// <see cref="Compile"/> runs, which then fails with every error
+        /// recorded; false otherwise (a source import of
+        /// <see cref="LoadBytecode"/>), when the caller rethrows it.
+        /// </summary>
+        internal bool RecoverFromCompileError(Exception.SyntaxException error)
+        {
+            if (_compileErrors == null) return false;
+            error.LocateIn(ParsingFile, ParsingSource);
+            ReportCompileError(error);
+            return true;
+        }
+
+        /// <summary>True while <see cref="Compile"/> runs once an error has been recorded: the compile fails, so the bytecode is not verified.</summary>
+        internal bool HasCompileErrors => _compileErrors != null && _compileErrors.Count > 0;
+
+        /// <summary>
+        /// The result of a compile that failed with <paramref name="errors"/>
+        /// (the first is the one the entry points report, set as
+        /// <c>_compileError</c>), followed by <paramref name="warnings"/>.
+        /// </summary>
+        private CompileResult FailedCompile(List<Exception.SyntaxException> errors, List<CompileDiagnostic> warnings)
+        {
+            var diagnostics = new List<CompileDiagnostic>(errors.Count + warnings.Count);
+            foreach (var error in errors)
+            {
+                error.LocateIn(ScriptName, _sourceCode);
+                diagnostics.Add(Diagnose(error));
+            }
+            diagnostics.AddRange(warnings);
+            _compileError = errors[0];
+            return new CompileResult(false, diagnostics.ToArray());
         }
 
         /// <summary><c>1 argument</c>, <c>0 or 2 arguments</c>, <c>0, 1 or 2 arguments</c>.</summary>
