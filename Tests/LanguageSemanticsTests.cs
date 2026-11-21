@@ -33,6 +33,12 @@ namespace Tests
         private static string Rescued(string expression) =>
             Run("begin\nx = " + expression + "\nprint \"no error\"\nrescue e\nprint e\nend")[0];
 
+        // The runtime TypeError of an operand held by a variable: with a
+        // literal operand the same expression is a compile error (T3.8,
+        // PROP-28; Tests/Golden~/language/static_operand_*.ws).
+        private static string Rescued(string setup, string expression) =>
+            Run(setup + "\nbegin\nx = " + expression + "\nprint \"no error\"\nrescue e\nprint e\nend")[0];
+
         // ────────────────────────────────────────────────
         //  Negative-literal disambiguation (regression)
         // ────────────────────────────────────────────────
@@ -263,13 +269,13 @@ namespace Tests
         public void ArrayPlusScalar_IsTypeError()
         {
             // PROP-6 (T3.6): use '<<' to append.
-            Assert.AreEqual("Cannot apply '+' to array and number", Rescued("{1, 2} + 3"));
+            Assert.AreEqual("Cannot apply '+' to array and number", Rescued("a = {1, 2}", "a + 3"));
         }
 
         [Test]
         public void ScalarPlusArray_IsTypeError()
         {
-            Assert.AreEqual("Cannot apply '+' to number and array", Rescued("3 + {1, 2}"));
+            Assert.AreEqual("Cannot apply '+' to number and array", Rescued("a = {1, 2}", "3 + a"));
         }
 
         [Test]
@@ -326,7 +332,7 @@ namespace Tests
         public void StringMinus_IsTypeError()
         {
             // PROP-7 (T3.6): text subtraction is removed.
-            Assert.AreEqual("Cannot apply '-' to text and text", Rescued("\"ababa\" - \"a\""));
+            Assert.AreEqual("Cannot apply '-' to text and text", Rescued("a = \"ababa\"", "a - \"a\""));
         }
 
         [Test]
@@ -369,9 +375,9 @@ namespace Tests
         public void CompareStringToNumber_IsTypeError()
         {
             // DEC-8 (T3.6): ordering needs two numbers or two texts.
-            Assert.AreEqual("Cannot apply '<' to text and number", Rescued("\"5\" < 10"));
-            Assert.AreEqual("Cannot apply '>=' to number and text", Rescued("10 >= \"5\""));
-            Assert.AreEqual("Cannot apply '<=' to logical and logical", Rescued("true <= false"));
+            Assert.AreEqual("Cannot apply '<' to text and number", Rescued("a = \"5\"", "a < 10"));
+            Assert.AreEqual("Cannot apply '>=' to number and text", Rescued("a = \"5\"", "10 >= a"));
+            Assert.AreEqual("Cannot apply '<=' to logical and logical", Rescued("a = true", "a <= false"));
         }
 
         [Test]
@@ -391,26 +397,26 @@ namespace Tests
         [Test]
         public void NegateString_IsTypeError()
         {
-            Assert.AreEqual("Cannot apply '-' to text", Rescued("-\"abc\""));
+            Assert.AreEqual("Cannot apply '-' to text", Rescued("a = \"abc\"", "-a"));
         }
 
         [Test]
         public void NegateTrue_IsTypeError()
         {
-            Assert.AreEqual("Cannot apply '-' to logical", Rescued("-true"));
+            Assert.AreEqual("Cannot apply '-' to logical", Rescued("a = true", "-a"));
         }
 
         [Test]
         public void MultiplyStrings_IsRuntimeError_Catchable()
         {
-            var output = Run("begin\nprint \"a\" * \"b\"\nrescue e\nprint \"err: \" + e\nend");
+            var output = Run("a = \"a\"\nbegin\nprint a * \"b\"\nrescue e\nprint \"err: \" + e\nend");
             Assert.AreEqual("err: Cannot apply '*' to text and text", output[0]);
         }
 
         [Test]
         public void DivideStrings_IsRuntimeError_Catchable()
         {
-            var output = Run("begin\nprint \"a\" / \"b\"\nrescue e\nprint \"err: \" + e\nend");
+            var output = Run("a = \"a\"\nbegin\nprint a / \"b\"\nrescue e\nprint \"err: \" + e\nend");
             Assert.AreEqual("err: Cannot apply '/' to text and text", output[0]);
         }
 
@@ -527,7 +533,7 @@ namespace Tests
         [Test]
         public void PropertyAccessOnNumber_IsCatchable()
         {
-            var output = Run("class P [x]\nend\nbegin\nprint 5 :: x\nrescue e\nprint e\nend");
+            var output = Run("class P [x]\nend\nn = 5\nbegin\nprint n :: x\nrescue e\nprint e\nend");
             Assert.AreEqual("Cannot access property 'x' on non-class value", output[0]);
         }
 

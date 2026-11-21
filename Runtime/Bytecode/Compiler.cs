@@ -777,6 +777,16 @@ namespace WarScript.Bytecode
             {
                 CompileExpression(assign.Right);
                 _usedNames.Add(v.Name);
+                // Any bare assignment of a constant's name is a reassignment
+                // (T3.8), whatever it compiles to: the parser rejects a body
+                // local or a class-body field named like a constant it has
+                // already read, so one above the declaration is reported too.
+                if (!assign.DeclaresConstant)
+                {
+                    var onThisLine = v.Line > 0 && v.Line == _line;
+                    _script.CheckConstantWrite(v.Name, _source,
+                        onThisLine ? v.Line : _line, onThisLine ? v.Column : _column);
+                }
                 var slot = ResolveLocal(v.Name);
                 if (slot != -1)
                 {
@@ -804,12 +814,6 @@ namespace WarScript.Bytecode
                 // writes the scope chain (the globals, then the host
                 // globals), creating the name in the globals.
                 _script.DeclareGlobalWrite(v.Name);
-                if (!assign.DeclaresConstant)
-                {
-                    var onThisLine = v.Line > 0 && v.Line == _line;
-                    _script.CheckConstantWrite(v.Name, _source,
-                        onThisLine ? v.Line : _line, onThisLine ? v.Column : _column);
-                }
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(v.Name));
                 Chunk.EmitOp(OpCode.SetGlobal, line);
                 Chunk.EmitU16(nameIdx, line);
@@ -867,6 +871,7 @@ namespace WarScript.Bytecode
                     }
 
                     CompileExpression(cp.Left);      // instance
+                    CheckInstanceOperand(cp.Left, "Cannot set property '" + propName.Name + "' on non-class value");
                     CheckProperty(cp.Left, propName.Name, propName.Line, propName.Column);
                     CompileExpression(assign.Right);  // value
                     var nameIdx2 = Chunk.AddConstant(WarValue.FromText(propName.Name));
@@ -880,6 +885,7 @@ namespace WarScript.Bytecode
                 {
                     if (cp.Left is ThisExpression) CheckField(arrName.Name, arrName.Line, arrName.Column);
                     CompileExpression(cp.Left);         // instance
+                    CheckInstanceOperand(cp.Left, "Cannot access property '" + arrName.Name + "' on non-class value");
                     if (!(cp.Left is ThisExpression)) CheckProperty(cp.Left, arrName.Name, arrName.Line, arrName.Column);
                     CompileExpression(propArr.Right);    // index
                     CompileExpression(assign.Right);     // value
@@ -1598,38 +1604,48 @@ namespace WarScript.Bytecode
                 case AdditionOperator a:
                     CompileExpression(a.Left);
                     CompileExpression(a.Right);
+                    CheckOperands("+", a.Left, a.Right);
                     Chunk.EmitOp(OpCode.Add, _line);
                     break;
 
                 case SubtractionOperator s:
                     CompileExpression(s.Left);
                     CompileExpression(s.Right);
+                    CheckOperands("-", s.Left, s.Right);
                     Chunk.EmitOp(OpCode.Sub, _line);
                     break;
 
                 case MultiplicationOperator m:
                     CompileExpression(m.Left);
                     CompileExpression(m.Right);
+                    CheckOperands("*", m.Left, m.Right);
                     Chunk.EmitOp(OpCode.Mul, _line);
                     break;
 
                 case DivisionOperator d:
                     CompileExpression(d.Left);
                     CompileExpression(d.Right);
+                    CheckOperands("/", d.Left, d.Right);
                     Chunk.EmitOp(OpCode.Div, _line);
                     break;
 
                 case ModuloOperator mo:
                     CompileExpression(mo.Left);
                     CompileExpression(mo.Right);
+                    CheckOperands("%", mo.Left, mo.Right);
                     Chunk.EmitOp(OpCode.Mod, _line);
                     break;
 
                 // ── Unary ──
                 case NegateOperator n:
+                {
                     CompileExpression(n.Value);
+                    var operand = TypeOf(n.Value);
+                    if (operand != StaticType.Unknown && operand != StaticType.Number)
+                        throw new CompileError("Cannot apply '-' to " + StaticTypeName(operand), _source, _line, _column);
                     Chunk.EmitOp(OpCode.Negate, _line);
                     break;
+                }
 
                 case NotOperator no:
                     CompileExpression(no.Value);
@@ -1652,24 +1668,28 @@ namespace WarScript.Bytecode
                 case LessThanOperator lt:
                     CompileExpression(lt.Left);
                     CompileExpression(lt.Right);
+                    CheckOperands("<", lt.Left, lt.Right);
                     Chunk.EmitOp(OpCode.Less, _line);
                     break;
 
                 case LessThanOrEqualToOperator le:
                     CompileExpression(le.Left);
                     CompileExpression(le.Right);
+                    CheckOperands("<=", le.Left, le.Right);
                     Chunk.EmitOp(OpCode.LessEqual, _line);
                     break;
 
                 case GreaterThanOperator gt:
                     CompileExpression(gt.Left);
                     CompileExpression(gt.Right);
+                    CheckOperands(">", gt.Left, gt.Right);
                     Chunk.EmitOp(OpCode.Greater, _line);
                     break;
 
                 case GreaterThanOrEqualToOperator ge:
                     CompileExpression(ge.Left);
                     CompileExpression(ge.Right);
+                    CheckOperands(">=", ge.Left, ge.Right);
                     Chunk.EmitOp(OpCode.GreaterEqual, _line);
                     break;
 
@@ -1720,6 +1740,7 @@ namespace WarScript.Bytecode
                 case ArrayAppendOperator ap:
                     CompileExpression(ap.Left);
                     CompileExpression(ap.Right);
+                    CheckOperands("<<", ap.Left, ap.Right);
                     Chunk.EmitOp(OpCode.ArrayAppend, _line);
                     break;
 
@@ -1762,6 +1783,7 @@ namespace WarScript.Bytecode
                     CompileExpression(nci.Left); // parent instance
                     if (nci.Right is ClassExpression nestedCe)
                     {
+                        CheckInstanceOperand(nci.Left, "Cannot instantiate nested class on non-class value");
                         CheckInstantiation(nestedCe, nested: true);
                         foreach (var arg in nestedCe.PropertiesExpressions)
                             CompileExpression(arg);
@@ -1777,6 +1799,149 @@ namespace WarScript.Bytecode
                     CompileExpression(new ConstantExpression(vr.Value));
                     break;
             }
+        }
+
+        // ── Statically typed operands (T3.8, PROP-28) ──
+
+        /// <summary>
+        /// What the compiler knows about an expression's value (PROP-28):
+        /// a literal, an interpolated text, an array literal, <c>null</c>,
+        /// <c>true</c>/<c>false</c>, or the result of an operator whose type
+        /// follows from plan 5.3. No inference through variables or calls.
+        /// Indexing is not checked: the grammar only indexes a name
+        /// (<c>x{i}</c>, <c>obj :: x{i}</c>), whose type is never known.
+        /// </summary>
+        private enum StaticType { Unknown, Null, Number, Logical, Text, Array }
+
+        /// <summary>The type name an error message uses (<see cref="WarVM.TypeName"/>).</summary>
+        private static string StaticTypeName(StaticType type) => type switch
+        {
+            StaticType.Null => "null",
+            StaticType.Number => "number",
+            StaticType.Logical => "logical",
+            StaticType.Text => "text",
+            _ => "array",
+        };
+
+        /// <summary>
+        /// The type <paramref name="expr"/> evaluates to whenever it
+        /// evaluates without an error (PROP-28), else
+        /// <see cref="StaticType.Unknown"/>.
+        /// </summary>
+        private static StaticType TypeOf(IExpression expr)
+        {
+            switch (expr)
+            {
+                case ConstantExpression c:
+                {
+                    var v = c.Value;
+                    if (v.IsNull) return StaticType.Null;
+                    if (v.IsNumeric) return StaticType.Number;
+                    if (v.IsLogical) return StaticType.Logical;
+                    if (v.IsText) return StaticType.Text;
+                    if (v.IsArray) return StaticType.Array;
+                    return StaticType.Unknown;
+                }
+                case ArrayExpression _:
+                    return StaticType.Array;
+                case AdditionOperator a:
+                {
+                    var left = TypeOf(a.Left);
+                    var right = TypeOf(a.Right);
+                    if (left == StaticType.Text || right == StaticType.Text) return StaticType.Text;
+                    if (left == right && (left == StaticType.Number || left == StaticType.Array)) return left;
+                    return StaticType.Unknown;
+                }
+                case MultiplicationOperator m:
+                {
+                    var left = TypeOf(m.Left);
+                    var right = TypeOf(m.Right);
+                    if (left == StaticType.Text || right == StaticType.Text) return StaticType.Text;
+                    if (left == StaticType.Number && right == StaticType.Number) return StaticType.Number;
+                    return StaticType.Unknown;
+                }
+                case SubtractionOperator _:
+                case DivisionOperator _:
+                case ModuloOperator _:
+                case NegateOperator _:
+                    return StaticType.Number;
+                case NotOperator _:
+                case EqualsOperator _:
+                case NotEqualsOperator _:
+                case LessThanOperator _:
+                case LessThanOrEqualToOperator _:
+                case GreaterThanOperator _:
+                case GreaterThanOrEqualToOperator _:
+                case ClassInstanceOfOperator _:
+                    return StaticType.Logical;
+                // 'and'/'or' leave one of their operands.
+                case LogicalAndOperator la:
+                {
+                    var left = TypeOf(la.Left);
+                    return left == TypeOf(la.Right) ? left : StaticType.Unknown;
+                }
+                case LogicalOrOperator lo:
+                {
+                    var left = TypeOf(lo.Left);
+                    return left == TypeOf(lo.Right) ? left : StaticType.Unknown;
+                }
+                // '<<' leaves the array.
+                case ArrayAppendOperator ap:
+                    return TypeOf(ap.Left) == StaticType.Array ? StaticType.Array : StaticType.Unknown;
+                // An assignment's value is the value assigned ('x = 5 << 3'
+                // is '(x = 5) << 3').
+                case AssignmentOperator a:
+                    return TypeOf(a.Right);
+                default:
+                    return StaticType.Unknown;
+            }
+        }
+
+        /// <summary>
+        /// The compile error of a binary operator whose operands' types are
+        /// both known and rejected by plan 5.3 (PROP-28), with the VM's
+        /// message (<c>WarVM.OperandError</c>), at the operator.
+        /// </summary>
+        private void CheckOperands(string op, IExpression leftExpr, IExpression rightExpr)
+        {
+            var left = TypeOf(leftExpr);
+            var right = TypeOf(rightExpr);
+            if (left == StaticType.Unknown || right == StaticType.Unknown) return;
+            bool ok;
+            switch (op)
+            {
+                case "+":
+                    ok = left == StaticType.Text || right == StaticType.Text
+                        || left == right && (left == StaticType.Number || left == StaticType.Array);
+                    break;
+                case "*":
+                    ok = left == StaticType.Number && (right == StaticType.Number || right == StaticType.Text)
+                        || left == StaticType.Text && right == StaticType.Number;
+                    break;
+                case "<": case "<=": case ">": case ">=":
+                    ok = left == right && (left == StaticType.Number || left == StaticType.Text);
+                    break;
+                case "<<":
+                    ok = left == StaticType.Array;
+                    break;
+                default: // - / %
+                    ok = left == StaticType.Number && right == StaticType.Number;
+                    break;
+            }
+            if (!ok)
+                throw new CompileError("Cannot apply '" + op + "' to " + StaticTypeName(left)
+                    + " and " + StaticTypeName(right), _source, _line, _column);
+        }
+
+        /// <summary>
+        /// The compile error of a <c>::</c> whose left operand has a known
+        /// type (PROP-28): none of them is a class instance.
+        /// <paramref name="message"/> is the VM's.
+        /// </summary>
+        private void CheckInstanceOperand(IExpression left, string message)
+        {
+            if (TypeOf(left) != StaticType.Unknown)
+                throw new CompileError(message, _source, _line, _column);
         }
 
         // ── Function call ──
@@ -1904,6 +2069,7 @@ namespace WarScript.Bytecode
 
             if (cp.Right is VariableExpression varExpr)
             {
+                CheckInstanceOperand(cp.Left, "Cannot access property '" + varExpr.Name + "' on non-class value");
                 CheckProperty(cp.Left, varExpr.Name, varExpr.Line, varExpr.Column);
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(varExpr.Name));
                 Chunk.EmitOp(OpCode.GetProperty, _line);
@@ -1913,6 +2079,7 @@ namespace WarScript.Bytecode
             else if (cp.Right is FunctionExpression funcExpr)
             {
                 // Method call: obj::method[args]
+                CheckInstanceOperand(cp.Left, "Cannot call method '" + funcExpr.Name + "' on non-class value");
                 CheckProperty(cp.Left, funcExpr.Name, funcExpr.Line, funcExpr.Column);
                 foreach (var arg in funcExpr.ArgumentExpression)
                     CompileExpression(arg);
@@ -1924,6 +2091,7 @@ namespace WarScript.Bytecode
             else if (cp.Right is ArrayValueOperator arrayOp && arrayOp.Left is VariableExpression arrayVar)
             {
                 // obj::arr{i}  →  GetProperty then IndexGet
+                CheckInstanceOperand(cp.Left, "Cannot access property '" + arrayVar.Name + "' on non-class value");
                 CheckProperty(cp.Left, arrayVar.Name, arrayVar.Line, arrayVar.Column);
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(arrayVar.Name));
                 Chunk.EmitOp(OpCode.GetProperty, _line);

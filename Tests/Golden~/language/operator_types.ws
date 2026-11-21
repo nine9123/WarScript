@@ -5,6 +5,13 @@
 # needs an array. Anything else is TypeError "Cannot apply '<op>' to ...".
 # '==' between different types is false and raises nothing (5.4).
 
+# The operands of the failing cases come from a call: with literal operands
+# the same operations are compile errors (T3.8, PROP-28; see
+# static_operand_*.ws).
+fun same [v]
+    return v
+end
+
 fun attempt [f]
     begin
         print f []
@@ -21,10 +28,10 @@ print "b=" + true                             # expect: b=true
 print "n=" + null                             # expect: n=null
 print "a" + {1, 2}                            # expect: a[1, 2]
 print {1} + {2, 3}                            # expect: [1, 2, 3]
-attempt [fun [] return {1, 2} + 3 end]        # expect: Cannot apply '+' to array and number
-attempt [fun [] return 3 + {1, 2} end]        # expect: Cannot apply '+' to number and array
-attempt [fun [] return true + 1 end]          # expect: Cannot apply '+' to logical and number
-attempt [fun [] return null + null end]       # expect: Cannot apply '+' to null and null
+attempt [fun [] return same [{1, 2}] + 3 end] # expect: Cannot apply '+' to array and number
+attempt [fun [] return same [3] + {1, 2} end] # expect: Cannot apply '+' to number and array
+attempt [fun [] return same [true] + 1 end]   # expect: Cannot apply '+' to logical and number
+attempt [fun [] return same [null] + null end] # expect: Cannot apply '+' to null and null
 
 # ── Interpolation is always text ──
 a = 1
@@ -35,30 +42,30 @@ print "{a > 0}"                               # expect: true
 
 # ── - * / % ──
 print 5 - 3                                   # expect: 2
-attempt [fun [] return "abc" - "b" end]       # expect: Cannot apply '-' to text and text
-attempt [fun [] return 5 - "5" end]           # expect: Cannot apply '-' to number and text
+attempt [fun [] return same ["abc"] - "b" end] # expect: Cannot apply '-' to text and text
+attempt [fun [] return same [5] - "5" end]    # expect: Cannot apply '-' to number and text
 print "ab" * 2                                # expect: abab
 print 2 * "ab"                                # expect: abab
-attempt [fun [] return "a" * "b" end]         # expect: Cannot apply '*' to text and text
-attempt [fun [] return {1} * 2 end]           # expect: Cannot apply '*' to array and number
-attempt [fun [] return "6" / 2 end]           # expect: Cannot apply '/' to text and number
-attempt [fun [] return 6 % false end]         # expect: Cannot apply '%' to number and logical
+attempt [fun [] return same ["a"] * "b" end]  # expect: Cannot apply '*' to text and text
+attempt [fun [] return same [{1}] * 2 end]    # expect: Cannot apply '*' to array and number
+attempt [fun [] return same ["6"] / 2 end]    # expect: Cannot apply '/' to text and number
+attempt [fun [] return same [6] % false end]  # expect: Cannot apply '%' to number and logical
 
 # ── Unary minus ──
 print -(2)                                    # expect: -2
-attempt [fun [] return -"abc" end]            # expect: Cannot apply '-' to text
-attempt [fun [] return -true end]             # expect: Cannot apply '-' to logical
-attempt [fun [] return -null end]             # expect: Cannot apply '-' to null
+attempt [fun [] return -(same ["abc"]) end]   # expect: Cannot apply '-' to text
+attempt [fun [] return -(same [true]) end]    # expect: Cannot apply '-' to logical
+attempt [fun [] return -(same [null]) end]    # expect: Cannot apply '-' to null
 
 # ── Ordering ──
 print 1 < 2                                   # expect: true
 print "B" < "a"                               # expect: true
 print "b" >= "a"                              # expect: true
-attempt [fun [] return "10" < 9 end]          # expect: Cannot apply '<' to text and number
-attempt [fun [] return 10 <= "9" end]         # expect: Cannot apply '<=' to number and text
-attempt [fun [] return true > false end]      # expect: Cannot apply '>' to logical and logical
-attempt [fun [] return {1} >= {2} end]        # expect: Cannot apply '>=' to array and array
-attempt [fun [] return null < 1 end]          # expect: Cannot apply '<' to null and number
+attempt [fun [] return same ["10"] < 9 end]   # expect: Cannot apply '<' to text and number
+attempt [fun [] return same [10] <= "9" end]  # expect: Cannot apply '<=' to number and text
+attempt [fun [] return same [true] > false end] # expect: Cannot apply '>' to logical and logical
+attempt [fun [] return same [{1}] >= {2} end] # expect: Cannot apply '>=' to array and array
+attempt [fun [] return same [null] < 1 end]   # expect: Cannot apply '<' to null and number
 
 # The fused compare-and-jump of a range loop (LessJump) checks its operands too.
 fun count_to [n]
@@ -83,8 +90,8 @@ print null == null                            # expect: true
 # ── << ──
 arr = {1}
 print arr << 2                                # expect: [1, 2]
-attempt [fun [] return 5 << 3 end]            # expect: Cannot apply '<<' to number and number
-attempt [fun [] return "ab" << "c" end]       # expect: Cannot apply '<<' to text and text
+attempt [fun [] return same [5] << 3 end]     # expect: Cannot apply '<<' to number and number
+attempt [fun [] return same ["ab"] << "c" end] # expect: Cannot apply '<<' to text and text
 
 # ── Text_remove replaces text subtraction (PROP-7) ──
 print Text_remove ["banana", "na"]            # expect: ba

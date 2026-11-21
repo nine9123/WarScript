@@ -212,8 +212,9 @@ namespace WarScript
         // otherwise.
         private List<(string Name, int Arguments, bool ClassBody, string? File, string? Source, int Line, int Column)>? _calls;
 
-        // While Compile() runs: every global write (SetGlobal) the compiler
-        // emitted that is not the declaration of a const or enum (T3.8);
+        // While Compile() runs: every bare assignment (a global, a local or a
+        // class-body field) the compiler compiled that is not the declaration
+        // of a const or enum (T3.8);
         // checked by CheckConstantWrites once the module set is compiled.
         // Null otherwise.
         private List<(string Name, string? File, string? Source, int Line, int Column)>? _constantWrites;
@@ -1259,9 +1260,9 @@ namespace WarScript
         }
 
         /// <summary>
-        /// Records a write of the global <paramref name="name"/> (a
-        /// <c>SetGlobal</c> that is not the declaration of a <c>const</c> or
-        /// <c>enum</c>) at <paramref name="line"/>, <paramref name="column"/>
+        /// Records a bare assignment of <paramref name="name"/> (to a global,
+        /// a local or a class-body field; not the declaration of a
+        /// <c>const</c> or <c>enum</c>) at <paramref name="line"/>, <paramref name="column"/>
         /// of <paramref name="file"/> (T3.8), checked by
         /// <see cref="CheckConstantWrites"/> once the module set is compiled.
         /// Ignored outside <see cref="Compile"/>.
@@ -1271,13 +1272,14 @@ namespace WarScript
 
         /// <summary>
         /// The compile error <c>Cannot reassign constant 'X'</c> for the first
-        /// recorded global write (T3.8) of a name that is a constant once the
+        /// recorded bare assignment (T3.8) of a name that is a constant once the
         /// module set is parsed: a <c>const</c> or <c>enum</c> of any of its
         /// files, or a host constant. The parser rejects a reassignment it
         /// reads after the declaration; this check covers the writes it reads
         /// first: in an import of the file declaring the constant, or earlier
-        /// in the same file (a function above it, a top-level assignment
-        /// before it). A bytecode import's writes are not known.
+        /// in the same file (a function or class above it, assigning it as a
+        /// global, a local or a field; a top-level assignment before it). A
+        /// bytecode import's writes are not known.
         /// </summary>
         private void CheckConstantWrites()
         {

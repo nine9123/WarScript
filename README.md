@@ -218,7 +218,11 @@ x /= 4    # 6
 Operators do not coerce. `+` concatenates when either operand is text, adds two numbers and joins
 two arrays; `-`, `/`, `%` and unary `-` take numbers; `*` takes numbers or a text and a count;
 `<`, `<=`, `>`, `>=` take two numbers or two texts (compared ordinally); `<<` needs an array.
-Anything else raises a `TypeError` such as `Cannot apply '-' to text and number`. `==` and `!=`
+Anything else raises a `TypeError` such as `Cannot apply '-' to text and number`. When both
+operand types are visible in the source (literals, interpolated text, array literals, `null`,
+`true`/`false`, or another operator's result: `"Sir {name}" - "Sir "`, `-"x"`, `1 < 2 < 3`,
+`5 :: hp`), the same message is a compile error instead; a value from a variable or a call is not
+inferred and raises at runtime. `==` and `!=`
 never raise: values of different types are simply not equal, so `1 == "1"` is `false`,
 `null == null` is `true` and `null == 0` is `false`. Arrays compare element by element; class
 instances compare by identity, so two instances with the same fields are not equal, while an

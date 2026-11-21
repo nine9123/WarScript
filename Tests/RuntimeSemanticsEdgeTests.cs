@@ -212,9 +212,12 @@ print LIMIT
         public void ChainedComparison_EvaluatesLeftToRight_NotMathematically()
         {
             // (1 < 2) → true, then true < 3 is a TypeError (DEC-8, T3.6).
-            // There is no Python-style chaining.
-            Assert.AreEqual("Cannot apply '<' to logical and number",
-                Run("begin\nprint 1 < 2 < 3\nrescue e\nprint e\nend")[0]);
+            // There is no Python-style chaining. A comparison's result is
+            // known to be logical, so any chain is a compile error (T3.8,
+            // PROP-28), whatever its operands.
+            var e = Assert.Throws<WarScript.Exception.CompileError>(() =>
+                Run("one = 1\nbegin\nprint one < 2 < 3\nrescue e\nprint e\nend"));
+            Assert.AreEqual("Cannot apply '<' to logical and number", e.Reason);
         }
 
         [Test]
