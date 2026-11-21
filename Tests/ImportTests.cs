@@ -439,10 +439,11 @@ namespace Tests
         }
 
         [Test]
-        public void Import_TopLevelRunsOnTheImportingVM_TheDebuggerSeesBothFrames()
+        public void Import_TopLevelRunsBeforeTheScript_TheDebuggerSeesItsFrameOnly()
         {
-            // The debugger's call stack is the stack of the VM it stops in;
-            // with an import VM of its own, the importer's frame was missing.
+            // An import's top level is not called by the importer's
+            // 'import' (there is no Import instruction since format 11): it
+            // runs before the script body, as the only frame on the VM.
             var files = new Dictionary<string, string> { ["lib"] = "x = 1\nprint x" };
             var output = new List<string>();
             var script = Instance("import \"lib\"\n\nprint 2", files, output);
@@ -458,9 +459,8 @@ namespace Tests
 
             Assert.IsTrue(result.IsOk, result.Error?.ToString());
             Assert.AreEqual(new[] { "1", "2" }, output);
-            // Line 2 is the import's (the importer's is blank): the import's
-            // frame above the importer's, stopped at its 'import'.
-            Assert.AreEqual(new[] { "main: <script>:1 > <script>:2" }, stacks);
+            // Line 2 is the import's (the importer's is blank).
+            Assert.AreEqual(new[] { "main: <script>:2" }, stacks);
         }
 
         [Test]
@@ -475,9 +475,8 @@ namespace Tests
                 output.Clear();
                 var result = script.Run();
                 Assert.AreEqual(WarScript.ScriptErrorKind.DivisionByZero, result.Error?.Kind, result.Error?.ToString());
-                Assert.AreEqual(2, result.Error.CallStack.Count);
+                Assert.AreEqual(1, result.Error.CallStack.Count);
                 Assert.AreEqual("lib", result.Error.CallStack[0].ScriptName);
-                Assert.AreEqual("main", result.Error.CallStack[1].ScriptName);
                 Assert.AreEqual(new[] { "loading" }, output);
                 script.ClearFault();
             }
@@ -507,25 +506,45 @@ namespace Tests
         }
 
         [Test]
-        public void Import_YieldInTopLevel_EndsTheImportOnly()
+        public void Import_YieldInTopLevel_IsATypeError()
         {
-            // Before the import frame, the import's top level ran on a VM of
-            // its own, where a yield ended that VM's run; the importer went
-            // on. A yield in a function the import's top level calls ends the
-            // import too, without running the function's ensure block (Q-15
-            // is whether either should be an error).
+            // An import initializes its module to the end before the
+            // importer continues (5.8), so a yield in its top-level code is
+            // an error at the yield, which unwinds to the importer.
+            var files = new Dictionary<string, string> { ["lib"] = "print \"lib start\"\nyield\nprint \"lib end\"" };
+            var output = new List<string>();
+            var script = Instance("import \"lib\"\nprint \"main\"", files, output);
+
+            var result = script.Run();
+
+            Assert.AreEqual(WarScript.ScriptStatus.Error, result.Status);
+            Assert.AreEqual(WarScript.ScriptErrorKind.TypeError, result.Error.Kind);
+            Assert.AreEqual("Cannot yield while importing 'lib'", result.Error.Message);
+            Assert.AreEqual("lib", result.Error.ScriptName);
+            Assert.AreEqual(2, result.Error.Line);
+            Assert.AreEqual(new[] { "lib start" }, output);
+            Assert.IsFalse(script.IsYielded);
+            Assert.IsTrue(script.IsVMIdle);
+        }
+
+        [Test]
+        public void Import_YieldInAFunctionItCalls_IsRescuable()
+        {
+            // The same for a yield (here a yield wait) in a function the
+            // import's top level calls: the error runs the function's
+            // ensure block and a rescue in the import catches it.
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "print \"lib start\"\nyield\nprint \"lib end\"",
-                ["lib2"] = "fun f []\n begin\n  print \"f\"\n  yield wait 2\n  print \"never\"\n ensure\n  print \"ensure\"\n end\nend\nf []\nprint \"lib2 end\""
+                ["lib"] = "fun f []\n begin\n  print \"f\"\n  yield wait 2\n  print \"never\"\n ensure\n  print \"ensure\"\n end\nend\nbegin\n f []\nrescue e\n print \"rescued \" + e\nend\nprint \"lib end\""
             };
             var output = new List<string>();
-            var script = Instance("import \"lib\"\nimport \"lib2\"\nimport \"lib\"\nbegin\n print \"main\"\n raise \"x\"\nrescue e\n print \"rescued \" + e\nend", files, output);
+            var script = Instance("import \"lib\"\nprint \"main\"", files, output);
 
             var result = script.Run();
 
             Assert.IsTrue(result.IsOk, result.Error?.ToString());
-            Assert.AreEqual(new[] { "lib start", "f", "main", "rescued x" }, output);
+            Assert.AreEqual(new[] { "f", "ensure", "rescued Cannot yield while importing 'lib'", "lib end", "main" }, output);
+            Assert.IsFalse(script.IsYielded);
             Assert.IsTrue(script.IsVMIdle);
         }
 
@@ -611,6 +630,29 @@ namespace Tests
                 Assert.IsTrue(old.IsOk, c.Key);
                 Assert.AreEqual("old", old.Value.TextValue, c.Key);
             }
+        }
+
+        [Test]
+        public void LoadBytecode_ImportFailure_KeepsTheImportOrder_ThenAGoodLoadRunsTheNewImports()
+        {
+            // A failed load restores the resolved imports with their order,
+            // so Run still initializes the old script's modules; a good load
+            // replaces them.
+            var files = new Dictionary<string, string> { ["a"] = "print \"a\"", ["b"] = "print \"b\"" };
+            var output = new List<string>();
+            var script = Instance("import \"a\"\nprint \"main\"", files, output);
+            var good = Saved("import \"b\"\nprint \"loaded\"", files);
+            var bad = Saved("import \"c\"", new Dictionary<string, string> { ["c"] = "" });
+
+            Assert.IsTrue(script.Compile().Success);
+            Assert.Throws<System.IO.InvalidDataException>(() => script.LoadBytecode(new System.IO.MemoryStream(bad)));
+            Assert.IsTrue(script.Run().IsOk);
+            Assert.AreEqual(new[] { "a", "main" }, output);
+
+            output.Clear();
+            script.LoadBytecode(new System.IO.MemoryStream(good));
+            Assert.IsTrue(script.Run().IsOk);
+            Assert.AreEqual(new[] { "b", "loaded" }, output);
         }
     }
 }

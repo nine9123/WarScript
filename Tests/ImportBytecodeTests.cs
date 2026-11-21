@@ -137,6 +137,26 @@ namespace Tests
         }
 
         [Test]
+        public void ImportedBytecode_TopLevelCode_RunsDependenciesFirst_OncePerInstance()
+        {
+            // No Import instruction (format 11): the module headers give the
+            // order, a depth-first post-order in textual order (5.8), and Run
+            // runs each import's top level before the script's, once.
+            var bytecode = new Dictionary<string, byte[]>
+            {
+                ["outer"] = Compile("import \"inner\"\nimport \"shared\"\nprint \"outer\""),
+                ["inner"] = Compile("import \"shared\"\nprint \"inner\""),
+                ["shared"] = Compile("print \"shared\"")
+            };
+            var (script, output) = Run("import \"outer\"\nimport \"shared\"\nprint \"main\"", bytecode);
+            Assert.AreEqual(new[] { "shared", "inner", "outer", "main" }, output);
+
+            output.Clear();
+            Assert.IsTrue(script.Run().IsOk);
+            Assert.AreEqual(new[] { "main" }, output);
+        }
+
+        [Test]
         public void ImportedBytecode_NestedImportFallsBackToSource()
         {
             var bytecode = new Dictionary<string, byte[]>

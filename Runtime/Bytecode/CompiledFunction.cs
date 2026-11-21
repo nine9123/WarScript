@@ -67,7 +67,7 @@ namespace WarScript.Bytecode
         Method,
         /// <summary>A constructor body (T1.1): names resolve in the instance's fields, then the globals; its <see cref="CallFrame.Instance"/> is the instance part whose body it runs, its <see cref="CallFrame.Definitions"/> that class's definition scope. Its return value is discarded.</summary>
         Constructor,
-        /// <summary>An import's top-level code (T3.7), run by the <c>Import</c> instruction on the importing VM: names resolve in the globals; it has no instance, its <see cref="CallFrame.Definitions"/> are the import's. Its return value is discarded.</summary>
+        /// <summary>An import's top-level code (T3.7), run by <c>WarVM.Run</c> before the script body, as the bottom frame: names resolve in the globals; it has no instance, its <see cref="CallFrame.Definitions"/> are the import's. Its return value is discarded.</summary>
         Import
     }
 

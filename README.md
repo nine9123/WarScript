@@ -836,8 +836,10 @@ Imports are resolved when the script is compiled (`Compile()`, or the first `Run
 imported file is compiled before the file that imports it, so an import cycle (reported with its
 path, `Circular import: a -> b -> a`), a path the resolvers cannot answer, a resolver that throws
 and an error in an imported file are compile errors, and nothing runs. Each file's top-level code
-runs once per script instance, when `Run` reaches its `import`: dependencies first, in the order
-the imports are written. A `const` or `enum` of an imported file cannot be reassigned by the
+runs once per script instance, before the script's own top-level code: dependencies first, in the
+order the imports are written. An error in an import's top-level code stops `Run` there (the
+import runs again on the next `Run`), and a `yield` in it, or in a function it calls, is a
+`TypeError` (`Cannot yield while importing 'path'`): an import cannot suspend. A `const` or `enum` of an imported file cannot be reassigned by the
 importer, and a named-argument call to an imported function is put in its parameter order. A
 script and its imports share one namespace: a function (name and arity) or class that two of them
 define is a compile error at the second definition, naming the file of the first; importing the
@@ -1361,7 +1363,7 @@ top-level statements.
 well, give the constructor a `bytecodeResolver` — see
 [Importing precompiled bytecode](#importing-precompiled-bytecode).
 
-> A `.wsbc` file starts with a format version (currently `10`) and a hash of the opcode table, and
+> A `.wsbc` file starts with a format version (currently `11`) and a hash of the opcode table, and
 > the loader accepts only an exact match, so bytecode written by another WarScript version must be
 > regenerated from source. The loader verifies everything it reads: a truncated, corrupt or
 > mismatched file makes `LoadBytecode` throw `InvalidDataException` and leaves the instance

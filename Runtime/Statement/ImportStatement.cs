@@ -14,16 +14,18 @@ namespace WarScript.Statement
     /// print v::magnitude[]
     /// </code>
     ///
-    /// The imported file is lexed, parsed, and its top-level code is executed
-    /// in an isolated scope. All function and class definitions produced by
-    /// that file are then copied into the caller's current definition scope.
+    /// Imports are static (T3.7, 5.8): <see cref="WarScriptLanguage.Compile"/>
+    /// (or <see cref="WarScriptLanguage.LoadBytecode"/>, from the module
+    /// header) resolves and compiles the imported file before the importer,
+    /// and its functions and classes join the script's one namespace. The
+    /// statement compiles to nothing: <see cref="WarScriptLanguage.Run"/> runs
+    /// the imports' top-level code before the script's, dependencies first.
     ///
     /// <list type="bullet">
-    /// <item>Circular imports are detected and raise an exception.</item>
-    /// <item>Each file path is only imported once per script; subsequent
-    ///       imports of the same path reuse the cached definitions.</item>
+    /// <item>An import cycle is a compile error.</item>
+    /// <item>Each file's top-level code runs once per instance.</item>
     /// <item>When the host supplies a <see cref="WarScriptLanguage.BytecodeResolver"/>
-    ///       that has precompiled bytecode for the path, that is loaded and run
+    ///       that has precompiled bytecode for the path, that is loaded
     ///       instead — the lexer, parser and compiler never see the file.</item>
     /// </list>
     ///

@@ -43,9 +43,10 @@ namespace Tests
         [Test]
         public void RemovedOpcodes_AreNotDefined()
         {
-            // 58 was YieldUntil, 61 to 65 the fused compare-and-jumps the
-            // compiler never emitted (SEM-10). Their values are never reused.
-            foreach (var value in new byte[] { 58, 61, 62, 63, 64, 65 })
+            // 58 was YieldUntil, 59 Import (T3.7: the VM runs the imports
+            // before the script body), 61 to 65 the fused compare-and-jumps
+            // the compiler never emitted (SEM-10). Their values are never reused.
+            foreach (var value in new byte[] { 58, 59, 61, 62, 63, 64, 65 })
             {
                 Assert.IsFalse(Enum.IsDefined(typeof(OpCode), value), value.ToString());
                 Assert.IsNull(OpInfo.Get(value));
@@ -88,7 +89,7 @@ namespace Tests
         [Test]
         public void Load_RejectsAnotherVersion()
         {
-            foreach (byte version in new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 11 })
+            foreach (byte version in new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12 })
             {
                 var bytes = SavedBytecode();
                 bytes[4] = version;
@@ -275,6 +276,8 @@ namespace Tests
             // The removed PushScope and PopScope (T3.5).
             RejectedBody(new byte[] { 7, Null_, Ret }, "unknown opcode 7");
             RejectedBody(new byte[] { 8, Null_, Ret }, "unknown opcode 8");
+            // The removed Import (T3.7).
+            RejectedBody(new byte[] { 59, 0, 0, Null_, Ret }, "unknown opcode 59");
         }
 
         [Test]

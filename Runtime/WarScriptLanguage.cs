@@ -73,19 +73,28 @@ namespace WarScript
         /// <summary>FNV-1a state over every line printed so far (see <see cref="ComputeStateHash"/>).</summary>
         private ulong _printedHash = StateHash.Offset;
 
-        internal readonly Dictionary<string, DefinitionScope> ImportCache = new();
-        internal readonly HashSet<string> ImportStack = new();
+        /// <summary>
+        /// The paths of the imports whose top-level code has run in this
+        /// instance (each runs once per instance, 5.8). Cleared by
+        /// <see cref="Reload"/> and <see cref="LoadBytecode"/>.
+        /// </summary>
+        internal readonly HashSet<string> ImportCache = new(System.StringComparer.Ordinal);
 
         /// <summary>
         /// The imports <see cref="Compile"/> or <see cref="LoadBytecode"/>
         /// resolved and compiled (T3.7, 5.8, DEC-7), by path, a bytecode
-        /// file's from its module header (format 10): what the <c>Import</c>
-        /// instruction runs instead of resolving the path itself. A path
-        /// missing here (only an <c>Import</c> of a path its file does not
-        /// list) is still resolved when the import runs. Cleared with the
+        /// file's from its module header (format 10). Cleared with the
         /// definitions.
         /// </summary>
         internal readonly Dictionary<string, ImportedModule> ResolvedImports = new();
+
+        /// <summary>
+        /// <see cref="ResolvedImports"/> in the order they were resolved, a
+        /// depth-first post-order over the imports in textual order: the
+        /// order their top-level code runs in, before the script's (5.8,
+        /// T3.7). Kept with <see cref="ResolvedImports"/>.
+        /// </summary>
+        internal readonly List<ImportedModule> ImportOrder = new();
 
         /// <summary>
         /// While <see cref="Compile"/> parses a file: the definitions of every
@@ -102,17 +111,32 @@ namespace WarScript
         /// </summary>
         private IReadOnlyList<string> _imports = System.Array.Empty<string>();
 
-        /// <summary>An import resolved by <see cref="Compile"/>: its top-level code and its definitions.</summary>
+        /// <summary>An import resolved by <see cref="Compile"/> or <see cref="LoadBytecode"/>: its path, top-level code and definitions.</summary>
         internal sealed class ImportedModule
         {
+            public readonly string Path;
             public readonly CompiledFunction TopLevel;
             public readonly DefinitionScope Definitions;
 
-            public ImportedModule(CompiledFunction topLevel, DefinitionScope definitions)
+            public ImportedModule(string path, CompiledFunction topLevel, DefinitionScope definitions)
             {
+                Path = path;
                 TopLevel = topLevel;
                 Definitions = definitions;
             }
+        }
+
+        /// <summary>Records a resolved import, after its own imports (<see cref="ImportOrder"/>).</summary>
+        private void AddResolvedImport(ImportedModule module)
+        {
+            ResolvedImports[module.Path] = module;
+            ImportOrder.Add(module);
+        }
+
+        private void ClearResolvedImports()
+        {
+            ResolvedImports.Clear();
+            ImportOrder.Clear();
         }
 
         /// <summary>
@@ -522,8 +546,8 @@ namespace WarScript
         /// importing it, so an import cycle, a file that cannot be found or
         /// read and an error in an imported file are compile errors. The
         /// imported files' functions and classes are the script's once it
-        /// compiles (one namespace); their top-level code runs when
-        /// <see cref="Run"/> reaches the import.
+        /// compiles (one namespace); <see cref="Run"/> runs their top-level
+        /// code, each file's once per instance, before the script's.
         /// </summary>
         public CompileResult Compile()
         {
@@ -549,8 +573,8 @@ namespace WarScript
                 // One namespace for the module set (5.8): every import's
                 // definitions are the script's from now on, before any
                 // top-level code runs, so the host can call them as soon as
-                // the script compiles. The Import instruction only runs the
-                // import's top-level code.
+                // the script compiles. Run only runs the imports' top-level
+                // code.
                 foreach (var imported in _parsingImports)
                     imported.CopyImportedDefinitionsTo(_definitionScope);
 
@@ -669,7 +693,7 @@ namespace WarScript
                         if (declared.AddFunction(f.Details.Name, f.Details.MinArity, f.Details.Arguments.Count, path, 0) is { } clash)
                             throw Error($"Cannot import '{path}': {clash}");
                 }
-                ResolvedImports[path] = new ImportedModule(precompiled, loadedScope!);
+                AddResolvedImport(new ImportedModule(path, precompiled, loadedScope!));
                 _parsingImports?.Add(loadedScope!);
                 return;
             }
@@ -691,7 +715,7 @@ namespace WarScript
                 try
                 {
                     var module = StatementParser.ParseModule(this, tokens, path);
-                    ResolvedImports[path] = new ImportedModule(Compiler.CompileScript(this, module.TopLevel, scope), scope);
+                    AddResolvedImport(new ImportedModule(path, Compiler.CompileScript(this, module.TopLevel, scope), scope));
                 }
                 finally
                 {
@@ -855,7 +879,7 @@ namespace WarScript
         private void RollBackCompile(HashSet<string> constantsBefore)
         {
             _definitionScope.Clear();
-            ResolvedImports.Clear();
+            ClearResolvedImports();
             _cachedCompiled = null;
             ConstantNames.Clear();
             ConstantNames.UnionWith(constantsBefore);
@@ -890,15 +914,6 @@ namespace WarScript
             if (compiled.Success) return null;
             return FinishEntry(ScriptResult.Failed(ScriptError.FromCompile(_compileError!, compiled.Diagnostics[0], InstanceLabel)));
         }
-
-        /// <summary>
-        /// The CompileError result for a <see cref="Exception.SyntaxException"/>
-        /// from compiling an imported file while the outermost entry ran (the
-        /// VM has restored the context stacks). Only an import of loaded
-        /// bytecode is compiled at run time since T3.7.
-        /// </summary>
-        internal ScriptResult ImportCompileFailure(Exception.SyntaxException e) =>
-            ScriptResult.Failed(ScriptError.FromCompile(e, Diagnose(e), InstanceLabel));
 
         /// <summary>
         /// The result of an entry that ran: <paramref name="value"/>, or the
@@ -1018,7 +1033,7 @@ namespace WarScript
             _cachedCompiled = null;
             _cachedVM = null;
             ImportCache.Clear();
-            ResolvedImports.Clear();
+            ClearResolvedImports();
             ConstantNames.Clear();
 
             // 4. Clear any lingering exception state
@@ -1083,8 +1098,8 @@ namespace WarScript
         /// twice throw <see cref="InvalidDataException"/> (the compile error
         /// is its inner <see cref="Exception.SyntaxException"/>) and leave the
         /// instance unchanged. The imports' functions and classes are the
-        /// script's once it loads; their top-level code runs when
-        /// <see cref="Run"/> reaches the import.
+        /// script's once it loads; <see cref="Run"/> runs their top-level
+        /// code before the script's.
         ///
         /// Typical runtime usage:
         /// <code>
@@ -1107,9 +1122,9 @@ namespace WarScript
             // Resolve its imports (T3.7) under the loaded scope; a failure
             // puts back what resolving changed.
             var constantsBefore = new HashSet<string>(ConstantNames);
-            var resolvedBefore = new Dictionary<string, ImportedModule>(ResolvedImports);
+            var resolvedBefore = new List<ImportedModule>(ImportOrder);
             ConstantNames.Clear();
-            ResolvedImports.Clear();
+            ClearResolvedImports();
             List<DefinitionScope> importScopes;
             try
             {
@@ -1119,8 +1134,8 @@ namespace WarScript
             {
                 ConstantNames.Clear();
                 ConstantNames.UnionWith(constantsBefore);
-                ResolvedImports.Clear();
-                foreach (var entry in resolvedBefore) ResolvedImports[entry.Key] = entry.Value;
+                ClearResolvedImports();
+                foreach (var module in resolvedBefore) AddResolvedImport(module);
                 if (e is Exception.SyntaxException syntax)
                     throw new InvalidDataException(syntax.Message, syntax);
                 throw;
@@ -1162,16 +1177,8 @@ namespace WarScript
         /// null when there is nothing to use. Null is the ordinary answer: a
         /// host with no resolver, one that has no bytecode for this path, and
         /// one whose bytecode will not load all say "compile the source", and
-        /// only the last of those is worth a log line.
-        /// </summary>
-        internal CompiledFunction? LoadImportedBytecode(
-            string path, DefinitionScope parentScope, out DefinitionScope? scope)
-            => LoadImportedBytecode(path, parentScope, out scope, out _);
-
-        /// <summary>
-        /// <see cref="LoadImportedBytecode(string, DefinitionScope, out DefinitionScope?)"/>,
-        /// also returning the loaded file's import list (empty when nothing
-        /// was loaded).
+        /// only the last of those is worth a log line. Also returns the
+        /// loaded file's import list (empty when nothing was loaded).
         /// </summary>
         internal CompiledFunction? LoadImportedBytecode(
             string path, DefinitionScope parentScope, out DefinitionScope? scope, out IReadOnlyList<string> imports)
@@ -1247,8 +1254,7 @@ namespace WarScript
                     vm.Run(_cachedCompiled!);
                     result = EntryResult(WarValue.Null);
                 }
-                catch (Exception.SyntaxException e) when (EntryDepth == 1) { result = ImportCompileFailure(e); }
-                catch (System.Exception e) when (!(e is Exception.SyntaxException)) { result = HostFaultAtEntry(e); }
+                catch (System.Exception e) { result = HostFaultAtEntry(e); }
             }
             finally
             {
@@ -1325,8 +1331,7 @@ namespace WarScript
             {
                 var vm = AcquireVM();
                 try { result = EntryResult(vm.RunFunction(function.Compiled!, arguments)); }
-                catch (Exception.SyntaxException e) when (EntryDepth == 1) { result = ImportCompileFailure(e); }
-                catch (System.Exception e) when (!(e is Exception.SyntaxException)) { result = HostFaultAtEntry(e); }
+                catch (System.Exception e) { result = HostFaultAtEntry(e); }
             }
             finally
             {

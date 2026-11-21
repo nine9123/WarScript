@@ -667,7 +667,9 @@ namespace WarScript.Bytecode
                 case NextStatement s:         CompileNext(s);               break;
                 case RaiseExceptionStatement s:  CompileRaise(s);           break;
                 case HandleExceptionStatement s: CompileTryRescueEnsure(s); break;
-                case ImportStatement s:       CompileImport(s);             break;
+                // An import compiles to nothing: the VM runs the imports'
+                // top-level code before the script's (5.8, T3.7).
+                case ImportStatement _:                                     break;
                 case YieldStatement s:        CompileYield(s);              break;
                 case GlobalStatement s:       CompileGlobal(s);             break;
                 // FunctionStatement and ClassStatement are handled via definition compilation
@@ -1361,14 +1363,6 @@ namespace WarScript.Bytecode
             }
             if (_enclosingLocals != null && _enclosingLocals.Contains(name) && !_declaredGlobals.Contains(name))
                 throw new CompileError("closures are not supported: '" + name + "' is a local variable of the code around the lambda", _source, line, column);
-        }
-
-        // ── Import ──
-        private void CompileImport(ImportStatement stmt)
-        {
-            var pathIdx = Chunk.AddConstant(WarValue.FromText(stmt.Path));
-            Chunk.EmitOp(OpCode.Import, Line(stmt));
-            Chunk.EmitU16(pathIdx, Line(stmt));
         }
 
         // ── Yield ──

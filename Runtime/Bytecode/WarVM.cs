@@ -129,24 +129,20 @@ namespace WarScript.Bytecode
         private int _entryDefinitionDepth;
 
         /// <summary>
-        /// An import whose top-level code runs in a <see cref="FrameKind.Import"/>
-        /// frame of this VM (T3.7): what finishing it (the frame returns) or
-        /// abandoning it (the frame is unwound, or the VM reset) must do.
-        /// Import frames nest, so the innermost one owns the last record.
+        /// The import whose top-level code runs in this VM's bottom frame (a
+        /// <see cref="FrameKind.Import"/> frame, T3.7), or null: what
+        /// finishing it (the frame returns) or abandoning it (the frame is
+        /// unwound, or the VM reset) is about.
         /// </summary>
-        private struct RunningImport
-        {
-            public string Path;
-            /// <summary>The import's definitions (cached once it has run).</summary>
-            public DefinitionScope Scope;
-            /// <summary>The definitions of the frame that executed the import.</summary>
-            public DefinitionScope CallerScope;
-            /// <summary>Resolved by <c>Compile</c>: its definitions are already the script's.</summary>
-            public bool InNamespace;
-        }
+        private WarScriptLanguage.ImportedModule? _runningImport;
 
-        /// <summary>The imports running in this VM, outermost first; null until the first.</summary>
-        private List<RunningImport>? _runningImports;
+        /// <summary>
+        /// While <see cref="Run"/> initializes the modules (5.8): the script
+        /// body to run once the imports have, and the next entry of
+        /// <see cref="WarScriptLanguage.ImportOrder"/> to look at.
+        /// </summary>
+        private CompiledFunction? _pendingMain;
+        private int _nextImport;
 
         public WarVM(WarScriptLanguage script)
         {
@@ -169,7 +165,9 @@ namespace WarScript.Bytecode
             _sp = 0;
             System.Array.Clear(_frames, 0, _frameCount); // drop function and instance references
             _frameCount = 0;
-            AbandonRunningImports();
+            _runningImport = null;
+            _pendingMain = null;
+            _nextImport = 0;
             _handlerCount = 0;
             _topLevelResult = default;
             ClearPending(0);
@@ -181,13 +179,57 @@ namespace WarScript.Bytecode
             _lastDebugLine = -1;
         }
 
+        /// <summary>
+        /// Runs the script body <paramref name="main"/>, after the top-level
+        /// code of every import that has not run in this instance yet (5.8,
+        /// T3.7): in <see cref="WarScriptLanguage.ImportOrder"/> (dependencies
+        /// first), each as an <see cref="FrameKind.Import"/> frame at the
+        /// bottom of this VM, the next one pushed when it returns
+        /// (<see cref="EnterNextModule"/>). An error that escapes an import
+        /// ends the run there, and the import runs again on the next.
+        /// </summary>
         public void Run(CompiledFunction main)
         {
             Reset();
             RecordEntryDepths();
-            if (!StackFits(0, main)) return;
-            EnterArguments(0, main);
+            _pendingMain = main;
+            if (!EnterNextModule()) return;
+            Execute();
+        }
 
+        /// <summary>
+        /// With no frame on the VM: pushes the next import of
+        /// <see cref="WarScriptLanguage.ImportOrder"/> that has not run yet,
+        /// else the script body <see cref="Run"/> was given. False when there
+        /// is nothing left to run, or its frame does not fit (an error is
+        /// raised).
+        /// </summary>
+        private bool EnterNextModule()
+        {
+            var order = _script.ImportOrder;
+            while (_nextImport < order.Count)
+            {
+                var module = order[_nextImport++];
+                if (_script.ImportCache.Contains(module.Path)) continue;
+                if (!StackFits(0, module.TopLevel)) return false;
+                EnterArguments(0, module.TopLevel);
+                _frames[0] = new CallFrame
+                {
+                    Function = module.TopLevel,
+                    IP = 0,
+                    StackBase = 0,
+                    Kind = FrameKind.Import,
+                    Definitions = module.Definitions
+                };
+                _frameCount = 1;
+                _runningImport = module;
+                return true;
+            }
+
+            var main = _pendingMain;
+            _pendingMain = null;
+            if (main == null || !StackFits(0, main)) return false;
+            EnterArguments(0, main);
             _frames[0] = new CallFrame
             {
                 Function = main,
@@ -196,8 +238,7 @@ namespace WarScript.Bytecode
                 Definitions = _script.DefinitionContext.GetScope()
             };
             _frameCount = 1;
-
-            Execute();
+            return true;
         }
 
         /// <summary>
@@ -297,8 +338,7 @@ namespace WarScript.Bytecode
         /// the host. The context stacks go back to their depths at the start
         /// of this entry, the VM is reset, and the exception propagates — out
         /// of every enclosing VM — to the host entry point, which reports it
-        /// and stops. A <see cref="SyntaxException"/> from an imported file
-        /// is cleaned up the same way and reaches the host unchanged.</item>
+        /// and stops.</item>
         /// </list>
         /// </summary>
         private void Execute()
@@ -326,9 +366,6 @@ namespace WarScript.Bytecode
                 }
                 catch
                 {
-                    // Also a SyntaxException from compiling an import: it
-                    // propagates to the host as in v1 (imports become
-                    // compile-time in Phase 3), after the same cleanup.
                     _running = false; // so the cleanup may reset the VM
                     AbortAfterHostFault();
                     throw;
@@ -1686,8 +1723,12 @@ namespace WarScript.Bytecode
                     // ══════════════════════════════════════════════
 
                     case OpCode.Yield:
+                        if (YieldInImport())
+                        {
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
                         _script.SetYielded(YieldType.NextTick, F64.Zero);
-                        if (YieldEndsImport(ref fi, ref code, ref constants)) break;
                         _yielded = true;
                         _yieldType = YieldType.NextTick;
                         _yieldWaitDuration = F64.Zero;
@@ -1696,37 +1737,16 @@ namespace WarScript.Bytecode
                     {
                         var dur = Pop();
                         var d = dur.IsNumeric ? dur.Numeric : F64.Zero;
-                        if (YieldEndsImport(ref fi, ref code, ref constants))
+                        if (YieldInImport())
                         {
-                            _script.SetYielded(YieldType.Wait, d);
-                            break;
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
                         }
                         _yielded = true;
                         _yieldType = YieldType.Wait;
                         _yieldWaitDuration = d;
                         _script.SetYielded(YieldType.Wait, d);
                         return;
-                    }
-
-                    // ══════════════════════════════════════════════
-                    //  Import
-                    // ══════════════════════════════════════════════
-
-                    case OpCode.Import:
-                    {
-                        var pathIdx = ReadU16(code, ref _frames[fi].IP);
-                        if (ExecuteImport(constants[pathIdx].TextValue, fi))
-                        {
-                            fi = _frameCount - 1;
-                            code = _frames[fi].Function.Chunk.Code;
-                            constants = _frames[fi].Function.Chunk.Constants;
-                        }
-                        else if (_script.ExceptionContext.IsRaised())
-                        {
-                            if (DoHandleException(ref fi, ref code, ref constants)) break;
-                            return;
-                        }
-                        break;
                     }
 
                     // An opcode byte that is not an instruction (T1.7): a host
@@ -1796,7 +1816,14 @@ namespace WarScript.Bytecode
             _frameCount--;
             DropPendingOfFrame(fi);
             ReleaseFrame(fi);
-            if (kind == FrameKind.Import) FinishImport();
+
+            // An import's top level has run: the next module starts (T3.7;
+            // an import frame is always the bottom one).
+            if (kind == FrameKind.Import)
+            {
+                FinishImport();
+                if (_frameCount == 0) EnterNextModule();
+            }
 
             // A constructor's value is discarded: the instance it initialized
             // is already on the stack, below the frame (T1.1); so is an
@@ -2150,7 +2177,7 @@ namespace WarScript.Bytecode
             _frameCount--;
             DropPendingOfFrame(fi);
             ReleaseFrame(fi);
-            if (kind == FrameKind.Import) AbandonImport();
+            if (kind == FrameKind.Import) _runningImport = null;
         }
 
         /// <summary>
@@ -2603,180 +2630,30 @@ namespace WarScript.Bytecode
 
         // ── Import ──
         /// <summary>
-        /// Starts an import's top-level code (once per instance) as a
-        /// <see cref="FrameKind.Import"/> frame on this VM, above frame
-        /// <paramref name="fi"/>, which executes the import (T3.7: no VM of
-        /// its own). True when that frame was pushed; false when there is
-        /// nothing to run (already imported) or an error was raised. The
-        /// import is the one <c>Compile</c> resolved when there is one, whose
-        /// definitions are already the script's (one namespace, 5.8); an
-        /// import of loaded bytecode is resolved and compiled here, and its
-        /// definitions are copied into the definitions of frame
-        /// <paramref name="fi"/> and into the script's once its code has run
-        /// (<see cref="FinishImport"/>).
-        /// </summary>
-        private bool ExecuteImport(string path, int fi)
-        {
-            var callerScope = _frames[fi].Definitions;
-            if (_script.ImportStack.Contains(path)) { RuntimeError(ScriptErrorKind.NameError, $"Circular import: '{path}'"); return false; }
-            var inNamespace = _script.ResolvedImports.TryGetValue(path, out var resolved);
-            if (_script.ImportCache.TryGetValue(path, out var cached))
-            {
-                if (!inNamespace) JoinNamespace(cached, callerScope);
-                return false;
-            }
-
-            // Resolved and compiled by Compile() or LoadBytecode() (T3.7);
-            // otherwise (a path its file's module header does not list)
-            // precompiled first: a host that ships
-            // bytecode for this path has already done the lex/parse/compile
-            // work this would otherwise repeat at every load. Null means
-            // there is none to use.
-            CompiledFunction? compiled;
-            DefinitionScope? importDefScope;
-            if (inNamespace)
-            {
-                compiled = resolved.TopLevel;
-                importDefScope = resolved.Definitions;
-            }
-            else compiled = _script.LoadImportedBytecode(path, callerScope, out importDefScope);
-
-            if (compiled == null)
-            {
-                if (_script.FileResolver == null) { RuntimeError(ScriptErrorKind.NameError, $"Cannot import '{path}': no file resolver"); return false; }
-                string? source;
-                try { source = _script.FileResolver(path); }
-                catch (System.Exception e) { RuntimeError(ScriptErrorKind.NameError, $"Failed to read import '{path}': {e.Message}"); return false; }
-                if (source == null) { RuntimeError(ScriptErrorKind.NameError, $"Import '{path}' not found"); return false; }
-
-                importDefScope = new DefinitionScope(_script, callerScope);
-                _script.ImportStack.Add(path);
-                _script.DefinitionContext.PushScope(importDefScope);
-                try
-                {
-                    var tokens = LexicalParser.Parse(source);
-                    var module = StatementParser.ParseModule(_script, tokens, path);
-                    compiled = Compiler.CompileScript(_script, module.TopLevel, importDefScope);
-                }
-                catch (SyntaxException e)
-                {
-                    // Its position is in the imported file (T3.1).
-                    e.LocateIn(path, source);
-                    throw;
-                }
-                finally
-                {
-                    _script.DefinitionContext.EndScope();
-                    _script.ImportStack.Remove(path);
-                }
-            }
-
-            if (!StackFits(_sp, compiled)) return false;
-            if (_frameCount >= FramesMax)
-            {
-                RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
-                return false;
-            }
-
-            _runningImports ??= new List<RunningImport>();
-            _runningImports.Add(new RunningImport
-            {
-                Path = path,
-                Scope = importDefScope!,
-                CallerScope = callerScope,
-                InNamespace = inNamespace
-            });
-            _script.ImportStack.Add(path);
-
-            var stackBase = EnterArguments(0, compiled);
-            _frames[_frameCount] = new CallFrame
-            {
-                Function = compiled,
-                IP = 0,
-                StackBase = stackBase,
-                Kind = FrameKind.Import,
-                Definitions = importDefScope!
-            };
-            _frameCount++;
-            return true;
-        }
-
-        /// <summary>
         /// A <c>yield</c> reached while an import's top-level code runs in
-        /// this VM ends that import's run instead of suspending the entry,
-        /// as it did when the import ran on a VM of its own (before T3.7's
-        /// fifth slice, where the yield ended that VM's run): the frames
-        /// above the innermost import frame and the import frame itself are
-        /// left without running their ensure blocks, the import counts as
-        /// run (cached, and a run-time import joins the namespace) and the
-        /// importer continues after its <c>import</c>. The script still
-        /// reports <see cref="WarScriptLanguage.IsYielded"/>, as before.
-        /// False (nothing done) when no import frame is on this VM.
-        /// Whether such a yield should be an error instead is Q-15.
+        /// this VM (in that code or in a function it calls) is an error
+        /// (T3.7, owner's answer for imports; Q-15 stays open for a yield in
+        /// a function called from the script body): an import initializes
+        /// its module once, to the end, before the modules that depend on it
+        /// (5.8), so it cannot suspend. Raises the rescuable TypeError
+        /// <c>Cannot yield while importing 'path'</c> and returns true;
+        /// false when no import runs on this VM.
         /// </summary>
-        private bool YieldEndsImport(ref int fi, ref List<byte> code, ref List<WarValue> constants)
+        private bool YieldInImport()
         {
-            if (_runningImports == null || _runningImports.Count == 0) return false;
-            var import = fi;
-            while (import >= 0 && _frames[import].Kind != FrameKind.Import) import--;
-            if (import < 0) return false;
-
-            while (_handlerCount > 0 && _handlers[_handlerCount - 1].FrameIndex >= import)
-                _handlers[--_handlerCount] = default;
-            while (_frameCount - 1 > import) PopFrame(_frameCount - 1);
-            DoReturn(WarValue.Null, import, ref code, ref constants, out fi);
-            code = _frames[fi].Function.Chunk.Code;
-            constants = _frames[fi].Function.Chunk.Constants;
+            if (_runningImport == null) return false;
+            RuntimeError(ScriptErrorKind.TypeError, "Cannot yield while importing '" + _runningImport.Path + "'");
             return true;
         }
 
         /// <summary>
-        /// The innermost import's frame returned: the import has run, so it
-        /// is cached (it runs once per instance), and an import resolved at
-        /// run time joins the namespace.
+        /// The import's frame returned: its top-level code has run, which
+        /// happens once per instance.
         /// </summary>
         private void FinishImport()
         {
-            var import = PopRunningImport();
-            _script.ImportCache[import.Path] = import.Scope;
-            if (!import.InNamespace) JoinNamespace(import.Scope, import.CallerScope);
-        }
-
-        /// <summary>
-        /// The innermost import's frame was unwound by an error: the import
-        /// has not run, and a later <c>import</c> of it starts again.
-        /// </summary>
-        private void AbandonImport() => PopRunningImport();
-
-        private RunningImport PopRunningImport()
-        {
-            var last = _runningImports!.Count - 1;
-            var import = _runningImports[last];
-            _runningImports.RemoveAt(last);
-            _script.ImportStack.Remove(import.Path);
-            return import;
-        }
-
-        /// <summary>
-        /// Every import running in this VM is abandoned (the VM is reset: a
-        /// host fault, or a new entry after one that yielded inside an
-        /// import's top-level code).
-        /// </summary>
-        private void AbandonRunningImports()
-        {
-            if (_runningImports == null) return;
-            while (_runningImports.Count > 0) AbandonImport();
-        }
-
-        /// <summary>
-        /// The definitions of an import resolved at run time join the
-        /// importer's and the script's.
-        /// </summary>
-        private void JoinNamespace(DefinitionScope imported, DefinitionScope callerScope)
-        {
-            imported.CopyImportedDefinitionsTo(callerScope);
-            if (callerScope != _script.Definitions)
-                imported.CopyImportedDefinitionsTo(_script.Definitions);
+            _script.ImportCache.Add(_runningImport!.Path);
+            _runningImport = null;
         }
     }
 }

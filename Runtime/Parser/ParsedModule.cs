@@ -9,8 +9,9 @@ namespace WarScript
     /// <summary>
     /// One parsed file (T3.3): its imports, which come before every other
     /// statement (5.8), its top-level statements and its definitions. The
-    /// import statements are also the first top-level statements, since
-    /// imports still run when reached until static imports (T3.7).
+    /// import statements are also the first top-level statements, for the
+    /// migration tool; they compile to nothing (the VM runs the imports'
+    /// top-level code before the file's, T3.7).
     /// </summary>
     internal sealed class ParsedModule
     {

@@ -6,7 +6,6 @@ using WarScript.Expression;
 using WarScript.Expression.Operator;
 using WarScript.Expression.Value;
 using FixMath;
-using WarScript.Expression;
 using WarScript.Statement;
 using WarScript.Token;
 

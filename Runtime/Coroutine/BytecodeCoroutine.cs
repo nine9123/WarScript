@@ -103,13 +103,7 @@ namespace WarScript
                     _vm.ResumeCoroutine();
                 }
             }
-            catch (Exception.SyntaxException e) when (_script.EntryDepth == 1)
-            {
-                // An imported file does not compile: the coroutine ends.
-                _faulted = true;
-                result = _script.ImportCompileFailure(e);
-            }
-            catch (System.Exception e) when (!(e is Exception.SyntaxException))
+            catch (System.Exception e)
             {
                 // Host fault: the VM has reset itself, so the coroutine is
                 // finished (a looping one too) and the fault is reported.

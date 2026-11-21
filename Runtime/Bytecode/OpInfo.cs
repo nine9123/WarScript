@@ -176,8 +176,6 @@ namespace WarScript.Bytecode
             Op_(OpCode.Yield, 0, 0),
             Op_(OpCode.YieldWait, 1, 0),
 
-            Op_(OpCode.Import, 0, 0, Name16),
-
             Op_(OpCode.LessJump, 2, 0, Fwd),
 
             Op_(OpCode.ThisGetProperty, 0, 1, Name16, Cache),
@@ -252,22 +250,24 @@ namespace WarScript.Bytecode
         /// reserved locals for the VM to push, T3.5; version 9 adds a class's
         /// declared fields to its record, for the NameError of an undeclared
         /// property, PROP-15, T3.6; version 10 adds the module header with
-        /// the script's import list after the format hash, T3.7).
+        /// the script's import list after the format hash, T3.7; version 11
+        /// removed the Import instruction: the VM runs the imports' top-level
+        /// code before the script's, from the module headers, T3.7).
         /// </summary>
-        public const byte Version = 10;
+        public const byte Version = 11;
 
         /// <summary>
         /// Names the file layout for the hash. Change it (and the version)
         /// with any change to what <see cref="BytecodeSerializer"/> writes.
         /// </summary>
         public const string Layout =
-            "WSBC magic|version u8|hash u32; module header: u16 import count, then each imported path (u16 length, UTF-8) once, in import order; v1 function, constant and definition records, a function record with a u16 reserved-locals count after its local count; a class record with its declared fields (u8 flag, then u16 count and names in ordinal order) after its base types; line table u32 count of (u16 offset, i32 line) where the line changes; a rescue body of a block with an ensure block runs under an ensure-only handler and ends with PopHandler; a function, method or lambda body keeps every variable in a stack slot (its reserved locals pushed as nulls by the VM after the parameters, extra arguments dropped) and its SetGlobal writes a declared global; a class body writes its fields with ThisSetProperty and its SetGlobal writes a declared global; no block scopes";
+            "WSBC magic|version u8|hash u32; module header: u16 import count, then each imported path (u16 length, UTF-8) once, in import order, whose top-level code the VM runs before the script body (dependencies first, each once per instance; no Import instruction); v1 function, constant and definition records, a function record with a u16 reserved-locals count after its local count; a class record with its declared fields (u8 flag, then u16 count and names in ordinal order) after its base types; line table u32 count of (u16 offset, i32 line) where the line changes; a rescue body of a block with an ensure block runs under an ensure-only handler and ends with PopHandler; a function, method or lambda body keeps every variable in a stack slot (its reserved locals pushed as nulls by the VM after the parameters, extra arguments dropped) and its SetGlobal writes a declared global; a class body writes its fields with ThisSetProperty and its SetGlobal writes a declared global; no block scopes";
 
         /// <summary>
         /// <see cref="ComputeHash"/> for the current table, version and
         /// layout. <c>BytecodeFormatTests</c> recomputes it.
         /// </summary>
-        public const uint Hash = 0xE8126DBE;
+        public const uint Hash = 0x1F777CCD;
 
         /// <summary>
         /// FNV-1a (32-bit) over, for each <see cref="OpInfo"/> entry: its

@@ -101,8 +101,9 @@ s = new Spawner []
             Assert.AreEqual(ScriptErrorKind.DivisionByZero, result.Error.Kind);
             Assert.AreEqual("lib", result.Error.ScriptName);
             Assert.AreEqual(2, result.Error.Line);
+            // The import's top level runs before the script's, not from it.
+            Assert.AreEqual(1, result.Error.CallStack.Count);
             Assert.AreEqual("<script>@lib:2", result.Error.CallStack[0].Function + "@" + result.Error.CallStack[0].ScriptName + ":" + result.Error.CallStack[0].Line);
-            Assert.AreEqual("main", result.Error.CallStack[result.Error.CallStack.Count - 1].ScriptName);
         }
 
         [Test]

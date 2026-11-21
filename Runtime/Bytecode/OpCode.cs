@@ -3,8 +3,8 @@ namespace WarScript.Bytecode
     /// <summary>
     /// The VM's instructions. Every member has an explicit value (v2 plan
     /// T1.7, DEC-18): never renumber one and never reuse a removed value
-    /// (7 and 8 were PushScope and PopScope, 58 YieldUntil, 61 to 65 the
-    /// unused fused compare-and-jumps).
+    /// (7 and 8 were PushScope and PopScope, 58 YieldUntil, 59 Import,
+    /// 61 to 65 the unused fused compare-and-jumps).
     /// Operands, stack effects and the format hash come from
     /// <see cref="OpInfo"/>; a change here needs a new
     /// <see cref="BytecodeFormat.Version"/>.
@@ -94,9 +94,6 @@ namespace WarScript.Bytecode
         // ── Coroutines ──
         Yield = 56,     // yield NextTick
         YieldWait = 57, // pop duration, yield Wait
-
-        // ── Import ──
-        Import = 59,    // [op][path_hi][path_lo]
 
         // ── Superinstructions ──
         // Fused opcode pairs to reduce dispatch overhead.
