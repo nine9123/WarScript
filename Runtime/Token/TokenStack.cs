@@ -92,6 +92,12 @@ namespace WarScript.Token
             _position--;
         }
 
+        /// <summary>Moves back to a <see cref="Position"/> read earlier (the parser's error recovery, T3.8).</summary>
+        internal void Seek(int position)
+        {
+            _position = position;
+        }
+
         public bool HasNext()
         {
             SkipEmptyTokens();

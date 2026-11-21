@@ -1054,10 +1054,12 @@ if (!compiled.Success)
         Debug.LogError(d);               // "example:4:1: error: more than 255 arguments in a call"
 ```
 
-A syntax error stops the compile at the first one. Every other error is reported: the compiler
-goes on with the next statement after an error, and the checks that need the whole script and its
-imports (an unknown function, class, `::` name or variable, a write to a constant) report every
-error they find; the `CompileError` result of `Run()`/`Call()` carries the first.
+Every error is reported, not just the first. After a syntax error the parser skips that statement
+and goes on with the next one; a file with syntax errors lists them all and is then not compiled,
+so the code skipped causes no errors of its own. Otherwise the compiler goes on with the next
+statement after an error, and the checks that need the whole script and its imports (an unknown
+function, class, `::` name or variable, a write to a constant) report every error they find; the
+`CompileError` result of `Run()`/`Call()` carries the first.
 
 A successful compile can also carry warnings (`Severity` `Warning`), such as
 `local 'x' is assigned but never read` for a function local nothing reads — usually a typo on the

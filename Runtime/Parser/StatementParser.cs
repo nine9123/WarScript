@@ -58,7 +58,7 @@ namespace WarScript
             {
                 var parser = new StatementParser(script, parent.Tokens, compositeStatement);
                 while (parser.HasNextStatement())
-                    parser.ParseExpression();
+                    parser.ParseStatement();
             }
             finally
             {
@@ -90,16 +90,29 @@ namespace WarScript
             script.ParsingBody = ParseBody.TopLevel;
             try
             {
+                var errorsBefore = script.CompileErrorCount;
                 var parser = new StatementParser(script, new TokensStack(tokens), compositeStatement, imports);
-                while (parser.HasNextStatement())
-                    parser.ParseExpression();
+                while (true)
+                {
+                    while (parser.HasNextStatement())
+                        parser.ParseStatement();
 
-                // At the top level, anything left over is a construct we cannot
-                // start a statement with (stray `end`, dangling `else`, a literal…).
-                // Silently stopping here would discard the rest of the script.
-                if (parser.Tokens.TryPeek(out var leftover))
-                    throw new SyntaxException(
+                    // At the top level, anything left over is a construct we cannot
+                    // start a statement with (stray `end`, dangling `else`, a literal…).
+                    // Silently stopping here would discard the rest of the script.
+                    if (!parser.Tokens.TryPeek(out var leftover)) break;
+                    var error = new SyntaxException(
                         System.FormattableString.Invariant($"Unexpected `{leftover.Value}` at line {leftover.RowNumber} — not a valid start of a statement"), leftover.RowNumber, leftover.Column);
+                    if (!script.RecoverFromParseError(error)) throw error;
+                    parser.SkipStatement();
+                }
+
+                // The syntax errors recovered from (T3.8) end the compile
+                // here, before this file is compiled: the code skipped would
+                // only cause more errors. The first is thrown; every one has
+                // been recorded.
+                var firstError = script.CompileErrorSince(errorsBefore);
+                if (firstError != null) throw firstError;
             }
             finally
             {
@@ -127,7 +140,7 @@ namespace WarScript
             {
                 var parser = new StatementParser(script, tokens, body);
                 while (parser.HasNextStatement())
-                    parser.ParseExpression();
+                    parser.ParseStatement();
             }
             finally
             {
@@ -154,6 +167,122 @@ namespace WarScript
                     return token.Value != "elif" && token.Value != "else"
                         && token.Value != "rescue" && token.Value != "ensure"
                         && token.Value != "end";
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Parses the next statement. While <see cref="WarScriptLanguage.Compile"/>
+        /// runs, a syntax error in it is recorded and the statement skipped
+        /// (<see cref="SkipStatement"/>), so the parser goes on with the next
+        /// one and a compile lists every syntax error of a file (T3.8);
+        /// otherwise the error is thrown. An error in a statement of a nested
+        /// block is recovered from in that block.
+        /// </summary>
+        private void ParseStatement()
+        {
+            var start = Tokens.Position;
+            try
+            {
+                ParseExpression();
+            }
+            catch (SyntaxException e)
+            {
+                if (!_script.RecoverFromParseError(e)) throw;
+                Tokens.Seek(start);
+                SkipStatement();
+            }
+        }
+
+        /// <summary>
+        /// Skips the statement that starts at the next token, for the error
+        /// recovery (T3.8): at least that token, then everything up to the
+        /// first token at its block level that starts a later line and can
+        /// start a statement, or closes the block the statement is in
+        /// (<c>end</c>, <c>elif</c>, <c>else</c>, <c>rescue</c>,
+        /// <c>ensure</c>). A block the statement opens (<c>if</c>,
+        /// <c>loop</c>, <c>begin</c>, <c>fun</c>, <c>class</c>,
+        /// <c>enum</c>) is skipped to its <c>end</c>, a <c>[</c> or <c>{</c>
+        /// (an argument list or array literal, which may span lines; a line
+        /// break ends anything else, parentheses included) to the one
+        /// closing it, unless a line inside it starts after anything but
+        /// <c>,</c>, <c>[</c> or <c>{</c>, or with a keyword other than
+        /// <c>fun</c>, outside every block: the bracket was left unclosed.
+        /// A block never closed is skipped to the end of the file.
+        /// </summary>
+        private void SkipStatement()
+        {
+            int blocks = 0, brackets = 0, row = 0;
+            var first = true;
+            var continues = false; // the last token skipped was ',', '[' or '{'
+            while (Tokens.TryPeek(out var token))
+            {
+                var isKeyword = token.Type == TokenType.Keyword;
+                if (!first && blocks == 0)
+                {
+                    var newLine = token.RowNumber > row;
+                    if (newLine && (!continues || isKeyword && token.Value != "fun")) brackets = 0;
+                    if (brackets == 0)
+                    {
+                        if (isKeyword && IsBlockCloser(token.Value)) return;
+                        if (newLine && CanStartStatement(token)) return;
+                    }
+                }
+                Tokens.Next();
+                first = false;
+                row = token.RowNumber;
+                continues = token.Type == TokenType.GroupDivider
+                    && (token.Value == "," || token.Value == "[" || token.Value == "{");
+                if (isKeyword)
+                {
+                    switch (token.Value)
+                    {
+                        case "if":
+                        case "loop":
+                        case "begin":
+                        case "fun":
+                        case "class":
+                        case "enum":
+                            blocks++;
+                            break;
+                        case "end":
+                            if (blocks > 0) blocks--;
+                            break;
+                    }
+                }
+                else if (token.Type == TokenType.GroupDivider)
+                {
+                    switch (token.Value)
+                    {
+                        case "[":
+                        case "{":
+                            brackets++;
+                            break;
+                        case "]":
+                        case "}":
+                            if (brackets > 0) brackets--;
+                            break;
+                    }
+                }
+            }
+        }
+
+        private static bool IsBlockCloser(string keyword) =>
+            keyword == "end" || keyword == "elif" || keyword == "else" || keyword == "rescue" || keyword == "ensure";
+
+        /// <summary>A token a statement starts with, for <see cref="SkipStatement"/>.</summary>
+        private static bool CanStartStatement(Token.Token token)
+        {
+            switch (token.Type)
+            {
+                case TokenType.Variable:
+                case TokenType.This:
+                    return true;
+                case TokenType.Keyword:
+                    return !IsBlockCloser(token.Value) && token.Value != "in" && token.Value != "by";
+                case TokenType.Operator:
+                    return token.Value == "(" || token.Value == "-" || token.Value == "!" || token.Value == "new";
                 default:
                     return false;
             }

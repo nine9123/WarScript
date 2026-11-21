@@ -1348,6 +1348,21 @@ namespace WarScript
             return true;
         }
 
+        /// <summary>
+        /// Records a syntax error the parser recovers from by skipping the
+        /// statement it is in (T3.8), as <see cref="RecoverFromCompileError"/>
+        /// does; never for the v1 frontend of the migration tool.
+        /// </summary>
+        internal bool RecoverFromParseError(Exception.SyntaxException error) =>
+            !ParsingV1 && RecoverFromCompileError(error);
+
+        /// <summary>The number of errors recorded so far while <see cref="Compile"/> runs (0 otherwise).</summary>
+        internal int CompileErrorCount => _compileErrors?.Count ?? 0;
+
+        /// <summary>The first error recorded after the first <paramref name="count"/>, or null.</summary>
+        internal Exception.SyntaxException? CompileErrorSince(int count) =>
+            _compileErrors != null && _compileErrors.Count > count ? _compileErrors[count] : null;
+
         /// <summary>True while <see cref="Compile"/> runs once an error has been recorded: the compile fails, so the bytecode is not verified.</summary>
         internal bool HasCompileErrors => _compileErrors != null && _compileErrors.Count > 0;
 
