@@ -318,6 +318,25 @@ namespace Tests
         // ── Edge cases ──
 
         [Test]
+        public void ReloadKeepsTheHostsConstants_ButForgetsTheScripts()
+        {
+            // A host constant, registered the way [WsConst] generates it.
+            var output = new List<string>();
+            var script = new WarScriptLanguage("test", "const LIMIT = 1\nprint MAX\n", null, (s, msg) => output.Add(msg));
+            script.GlobalMemoryScope.Set("MAX", WarValue.FromNumeric(5));
+            script.ConstantNames.Add("MAX");
+            Assert.IsTrue(script.Run().IsOk);
+
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() => script.Reload("MAX = 3\n"));
+            StringAssert.Contains("Cannot reassign constant 'MAX'", e.Message);
+
+            script.Reload("LIMIT = 2\nprint LIMIT\n");
+            script.ClearFault();
+            Assert.IsTrue(script.Run().IsOk);
+            Assert.AreEqual(new[] { "5", "2" }, output);
+        }
+
+        [Test]
         public void ReloadWithSyntaxErrorPreservesOldState()
         {
             var (script, output) = TestHelper.Run("test", @"

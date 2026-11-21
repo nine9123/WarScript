@@ -145,6 +145,15 @@ namespace WarScript
         /// </summary>
         internal readonly HashSet<string> ConstantNames = new();
 
+        /// <summary>
+        /// Forgets the constants the script's files declared, keeping the
+        /// host's (<c>[WsConst]</c>, <c>[WsEnum]</c>, a native manifest's
+        /// <c>const</c>/<c>enum</c>: a constant name that is a host global),
+        /// which the host registered once, before the first compile.
+        /// </summary>
+        private void ClearScriptConstantNames() =>
+            ConstantNames.RemoveWhere(name => !GlobalMemoryScope.HasLocal(name));
+
         private readonly DefinitionScope _definitionScope;
 
         /// <summary>
@@ -1521,7 +1530,7 @@ namespace WarScript
             _cachedVM = null;
             ImportCache.Clear();
             ClearResolvedImports();
-            ConstantNames.Clear();
+            ClearScriptConstantNames();
 
             // 4. Clear any lingering exception state
             if (ExceptionContext.IsRaised())
@@ -1610,7 +1619,7 @@ namespace WarScript
             // puts back what resolving changed.
             var constantsBefore = new HashSet<string>(ConstantNames);
             var resolvedBefore = new List<ImportedModule>(ImportOrder);
-            ConstantNames.Clear();
+            ClearScriptConstantNames();
             ClearResolvedImports();
             List<DefinitionScope> importScopes;
             try

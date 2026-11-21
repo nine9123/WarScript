@@ -295,7 +295,7 @@ Run **WarScript → Generate Bindings**. The generator produces `Register()` tha
 
 - **DefinitionScope**: Function and class definitions. Indexed by `(name, argCount)` — supports multi-arity for default params.
 - **MemoryScope**: Variable values at runtime. Dict-based with parent chain lookup.
-- **ConstantNames**: Global `HashSet<string>` on `WarScriptLanguage`. Parser rejects reassignment it reads after the declaration; the compiler's `CheckConstantWrites` the rest (T3.8). Populated by `const`/`enum`/`[WsConst]`/`[WsEnum]`. Cleared on `Reload()`/`LoadBytecode()`.
+- **ConstantNames**: Global `HashSet<string>` on `WarScriptLanguage`. Parser rejects reassignment it reads after the declaration; the compiler's `CheckConstantWrites` the rest (T3.8). Populated by `const`/`enum`/`[WsConst]`/`[WsEnum]` (and a native manifest's `const`/`enum`). `Reload()`/`LoadBytecode()` forget the script's constants but keep the host's (a constant name that is a `GlobalMemoryScope` local, `ClearScriptConstantNames`).
 
 ## Existing Desugar Patterns
 

@@ -150,6 +150,30 @@ namespace Tests
         }
 
         [Test]
+        public void LoadBytecodeAndReload_KeepTheManifestsConstantsAndEnums()
+        {
+            var (script, _) = Script("x = 1\n", NativeManifest.Parse(Sample));
+            var bytecode = new MemoryStream();
+            script.SaveBytecode(bytecode);
+            bytecode.Position = 0;
+            script.LoadBytecode(bytecode);
+            Assert.IsTrue(script.ConstantNames.Contains("MAX_UNITS"));
+            Assert.IsTrue(script.ConstantNames.Contains("Team"));
+
+            Assert.AreEqual("Cannot reassign constant 'MAX_UNITS'",
+                FirstDiagnostic(ReloadAndCompile(script, "MAX_UNITS = 3\n")));
+            Assert.AreEqual("Cannot reassign constant 'Team'",
+                FirstDiagnostic(ReloadAndCompile(script, "Team = 3\n")));
+        }
+
+        private static CompileResult ReloadAndCompile(WarScriptLanguage script, string source)
+        {
+            try { script.Reload(source); }
+            catch (WarScript.Exception.SyntaxException) { }
+            return script.Compile();
+        }
+
+        [Test]
         public void FromScript_CapturesNativesGlobalsConstantsEnumsAndClasses()
         {
             var host = new WarScriptLanguage("host", "", null, (s, m) => { });
