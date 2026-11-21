@@ -253,45 +253,45 @@ print c :: caller2 []
         // ────────────────────────────────────────────────
 
         [Test]
-        public void DescendingRangeWithNegativeStep_RunsZeroTimes()
+        public void DescendingRangeWithNegativeStep_IsAnError()
         {
             // Ranges only iterate upward; a negative step does not enable
-            // descending iteration — the loop body never runs. (A literal
-            // step that is not positive is a compile error, T3.8.)
+            // descending iteration. A step that is not positive is a compile
+            // error when it is a literal and an ArgumentError when the loop
+            // starts otherwise (T3.8), even if the range is empty.
             var output = Run(@"
 step = -2
-loop i in 10..0 by step
-    print i
+begin
+    loop i in 10..0 by step
+        print i
+    end
+rescue e
+    print e
 end
 print ""end""
 ");
-            Assert.AreEqual(1, output.Count);
-            Assert.AreEqual("end", output[0]);
+            Assert.AreEqual(2, output.Count);
+            StringAssert.StartsWith("The step of a range loop must be greater than 0, not -2:", output[0]);
+            Assert.AreEqual("end", output[1]);
         }
 
         [Test]
-        public void ZeroStep_InfiniteLoop_IsStoppedByInstructionBudget()
+        public void ZeroStep_IsARescuableErrorBeforeTheFirstIteration()
         {
-            var output = new List<string>();
-            var script = new WarScriptLanguage("zero_step", @"
+            // v1 looped until the instruction budget stopped it (T3.8).
+            var output = Run(@"
 step = 0
 begin
     loop i in 0..10 by step
-        x = 1
+        print i
     end
     print ""finished""
 rescue err
     print ""caught: "" + err
 end
-", null, (s, m) => output.Add(m));
-            script.InstructionBudget = 100000;
-            script.Run();
-
-            // The exhausted budget cannot be rescued (BUDGET-2): neither
-            // "finished" nor "caught" is printed.
-            Assert.AreEqual("Instruction budget exceeded", script.ExceptionContext.LastUnhandled?.Value.ToString());
-            CollectionAssert.DoesNotContain(output, "finished");
-            Assert.IsFalse(output.Exists(o => o.StartsWith("caught")));
+");
+            Assert.AreEqual(1, output.Count);
+            StringAssert.StartsWith("caught: The step of a range loop must be greater than 0, not 0:", output[0]);
         }
 
         // ────────────────────────────────────────────────

@@ -212,15 +212,39 @@ namespace Tests
         [Test]
         public void ARangeLoopsPositiveOrDynamicStep_Compiles()
         {
+            // The dynamic step is checked when the loop starts: an
+            // ArgumentError at the step, before the first `i < limit`.
             var (script, output) = Script(
                 "loop i in 0..1 by 0.5\n    print i\nend\n" +
                 "step = 0\n" +
-                "loop i in 1..0 by step\n    print i\nend\n" +
-                "loop i in 1..0 by -step\n    print i\nend\n");
+                "loop i in 1..0 by -step\n    print i\nend\n" +
+                "loop i in 1..0 by step\n    print i\nend\n");
 
             Assert.IsTrue(script.Compile().Success);
-            Assert.IsTrue(script.Run().IsOk);
+            var result = script.Run();
+            Assert.AreEqual(ScriptErrorKind.ArgumentError, result.Error.Kind);
+            StringAssert.StartsWith("The step of a range loop must be greater than 0, not 0:", result.Error.Message);
+            Assert.AreEqual(5, result.Error.Line);
+            Assert.AreEqual(19, result.Error.Column, "at the step");
             Assert.AreEqual(new[] { "0", "0.5" }, output);
+        }
+
+        [TestCase("step = 1\n", "step", true)]
+        [TestCase("step = 0.5\n", "step", true)]
+        [TestCase("step = -1\n", "-step", true)]
+        [TestCase("step = 1\n", "-step", false)]
+        [TestCase("step = 0\n", "step", false)]
+        [TestCase("fun s [] return 0 end\n", "s []", false)]
+        [TestCase("fun s [] return 2 end\n", "s []", true)]
+        public void ARangeLoopsDynamicStep_IsCheckedWhenTheLoopStarts(string before, string step, bool runs)
+        {
+            var (script, output) = Script(before + "loop i in 0..2 by " + step + "\n    print i\nend\nprint \"end\"\n");
+
+            var result = script.Run();
+
+            Assert.AreEqual(runs, result.IsOk, result.Error?.Message);
+            if (runs) Assert.AreEqual("end", output[output.Count - 1]);
+            else Assert.AreEqual(ScriptErrorKind.ArgumentError, result.Error.Kind);
         }
 
         [TestCase("const STEP = 0\n", "STEP", "0")]
@@ -263,19 +287,22 @@ namespace Tests
         }
 
         [Test]
-        public void ARangeLoopsStepFromAConstExpressionOrAGlobal_IsNotChecked()
+        public void ARangeLoopsStepFromAConstExpressionOrAGlobal_IsNotCheckedAtCompileTime()
         {
+            // Each is checked when its loop starts (an ArgumentError).
             var (script, output) = Script(
                 "const ONE = 1\n" +
                 "const NONE = ONE - 1\n" +
                 "STEP = 0\n" +
-                "loop i in 1..0 by NONE\n    print i\nend\n" +
-                "loop i in 1..0 by STEP\n    print i\nend\n" +
-                "loop i in 0..2 by ONE\n    print i\nend\n");
+                "loop i in 0..2 by ONE\n    print i\nend\n" +
+                "begin\n    loop i in 1..0 by STEP\n        print i\n    end\nrescue e\n    print \"STEP\"\nend\n" +
+                "loop i in 1..0 by NONE\n    print i\nend\n");
 
             Assert.IsTrue(script.Compile().Success);
-            Assert.IsTrue(script.Run().IsOk);
-            Assert.AreEqual(new[] { "0", "1" }, output);
+            var result = script.Run();
+            Assert.AreEqual(ScriptErrorKind.ArgumentError, result.Error.Kind);
+            Assert.AreEqual(14, result.Error.Line);
+            Assert.AreEqual(new[] { "0", "1", "STEP" }, output);
         }
 
         [Test]

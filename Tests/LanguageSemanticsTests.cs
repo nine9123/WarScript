@@ -162,9 +162,19 @@ namespace Tests
         {
             // The for-range condition is strictly `i < limit`, so a descending
             // range never enters the body — pinned behavior, not an accident.
-            // (A literal step that is not positive is a compile error, T3.8.)
-            var output = Run("n = 0\nstep = -1\nloop i in 10..0 by step\nn += 1\nend\nprint n");
+            // (A step that is not positive is an error, T3.8.)
+            var output = Run("n = 0\nstep = 1\nloop i in 10..0 by step\nn += 1\nend\nprint n");
             Assert.AreEqual("0", output[0]);
+        }
+
+        [Test]
+        public void ForLoop_StepNotAboveZeroFromAVariable_IsAnArgumentError()
+        {
+            // A literal one is a compile error; one known only at runtime is
+            // checked when the loop starts (T3.8), before the first `i < limit`.
+            var output = Run("step = -1\nbegin\nloop i in 10..0 by step\nprint i\nend\nrescue e\nprint e\nend");
+            Assert.AreEqual(1, output.Count);
+            Assert.AreEqual("The step of a range loop must be greater than 0, not -1: the loop runs while its variable is less than the upper bound", output[0]);
         }
 
         [Test]

@@ -371,7 +371,8 @@ loop i in 0..3
 end
 
 # For with a step (ranges only count up: the loop runs while i < 10, so a
-# literal step of 0 or less is a compile error)
+# step of 0 or less is an error — at compile time when it is a literal or a
+# number const, else an ArgumentError when the loop starts)
 loop i in 0..10 by 5
     print i          # → 0, 5
 end

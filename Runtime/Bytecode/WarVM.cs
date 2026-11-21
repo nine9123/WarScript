@@ -1715,6 +1715,23 @@ namespace WarScript.Bytecode
                         break;
                     }
 
+                    case OpCode.CheckStep:
+                    {
+                        // A range loop's step (T3.8): the loop runs while its
+                        // variable is less than the upper bound, so a step
+                        // not greater than 0 never runs the body or never
+                        // ends the loop. A step of another type is left to
+                        // the `i + step` after the first iteration.
+                        var step = Peek();
+                        if (step.IsNumeric && step.Numeric <= F64.Zero)
+                        {
+                            RuntimeError(ScriptErrorKind.ArgumentError, NonPositiveStepMessage(step.Numeric));
+                            if (DoHandleException(ref fi, ref code, ref constants)) break;
+                            return;
+                        }
+                        break;
+                    }
+
                     case OpCode.Raise:
                     {
                         var val = Pop();
@@ -2304,6 +2321,17 @@ namespace WarScript.Bytecode
         /// </summary>
         internal static string EnumWriteMessage(string name, ClassData instance) =>
             "Cannot assign to '" + name + "' of enum '" + instance.Definition.ClassDetails.Name + "': enum members are constant";
+
+        /// <summary>
+        /// The message for a range step that is not greater than 0 (T3.8):
+        /// the loop runs while its variable is less than the upper bound, so
+        /// such a step never runs the body or never ends the loop. The
+        /// compiler's error for a step it knows (a literal, a <c>const</c>)
+        /// and <see cref="OpCode.CheckStep"/>'s ArgumentError.
+        /// </summary>
+        internal static string NonPositiveStepMessage(F64 step) =>
+            "The step of a range loop must be greater than 0, not " + WarValue.FormatNumber(step)
+            + ": the loop runs while its variable is less than the upper bound";
 
         /// <summary>The NameError message for reading a name that is not defined (5.6).</summary>
         internal static string UndefinedVariableMessage(string name) => "undefined variable '" + name + "'";

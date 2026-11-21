@@ -182,6 +182,8 @@ namespace WarScript.Bytecode
             Op_(OpCode.ThisSetProperty, 1, 1, Name16, Cache),
 
             Op_(OpCode.DropPending, 0, 0, Addr),
+
+            Op_(OpCode.CheckStep, 1, 1),
         };
 
         private static readonly OpInfo?[] ByOpcode = BuildIndex();
@@ -254,9 +256,10 @@ namespace WarScript.Bytecode
         /// removed the Import instruction: the VM runs the imports' top-level
         /// code before the script's, from the module headers, T3.7; version 12
         /// adds an enum flag to the class record, whose members a script
-        /// cannot assign, PROP-28, T3.8).
+        /// cannot assign, PROP-28, T3.8; version 13 adds CheckStep, which a
+        /// range loop runs on a step that is not a number literal, T3.8).
         /// </summary>
-        public const byte Version = 12;
+        public const byte Version = 13;
 
         /// <summary>
         /// Names the file layout for the hash. Change it (and the version)
@@ -269,7 +272,7 @@ namespace WarScript.Bytecode
         /// <see cref="ComputeHash"/> for the current table, version and
         /// layout. <c>BytecodeFormatTests</c> recomputes it.
         /// </summary>
-        public const uint Hash = 0x8820012F;
+        public const uint Hash = 0x8764C5C8;
 
         /// <summary>
         /// FNV-1a (32-bit) over, for each <see cref="OpInfo"/> entry: its

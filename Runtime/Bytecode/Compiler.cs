@@ -1140,8 +1140,13 @@ namespace WarScript.Bytecode
             // literal one is a compile error (T3.8), at the step.
             var outerColumn = _column;
             if (stmt.StepColumn > 0) SetColumn(stmt.StepColumn);
-            if (LiteralNumber(stmt.Step, out var stepValue) && stepValue <= F64.Zero)
+            var literalStep = LiteralNumber(stmt.Step, out var stepValue);
+            if (literalStep && stepValue <= F64.Zero)
                 throw new CompileError(NonPositiveStepError(stepValue), _source, _line, _column);
+            // Any other step is checked when the loop starts (ArgumentError
+            // with the same message, at the step); a literal one, the
+            // default step 1 included, needs no check.
+            if (!literalStep) Chunk.EmitOp(OpCode.CheckStep, line);
             // A `const` step (or a negated one) is checked once the module
             // set is compiled, with the constant's literal value.
             var negatedStep = stmt.Step is NegateOperator;
@@ -1235,14 +1240,8 @@ namespace WarScript.Bytecode
             return false;
         }
 
-        /// <summary>
-        /// The error for a range step that is not greater than 0 (T3.8):
-        /// the loop runs while its variable is less than the upper bound, so
-        /// such a step never runs the body or never ends the loop.
-        /// </summary>
-        private static string NonPositiveStepError(F64 step) =>
-            "The step of a range loop must be greater than 0, not " + WarValue.FormatNumber(step)
-            + ": the loop runs while its variable is less than the upper bound";
+        /// <summary>The error for a range step that is not greater than 0 (T3.8), the VM's message.</summary>
+        private static string NonPositiveStepError(F64 step) => WarVM.NonPositiveStepMessage(step);
 
         // ── Iterable loop (loop x in collection) ──
         private void CompileIterableLoop(IterableLoopStatement stmt)
@@ -1972,13 +1971,6 @@ namespace WarScript.Bytecode
             _ => "array",
         };
 
-        /// <summary>
-        /// The type <paramref name="expr"/> evaluates to whenever it
-        /// evaluates without an error (PROP-28), else
-        /// <see cref="StaticType.Unknown"/>. <paramref name="names"/> types
-        /// a bare name or a <c>::</c> (a constant or an enum member, once
-        /// the module set is compiled); null: unknown.
-        /// </summary>
         /// <summary>The <see cref="StaticType"/> of a value (a class instance, a native object: unknown).</summary>
         internal static StaticType TypeOfValue(in WarValue v)
         {
@@ -1990,6 +1982,13 @@ namespace WarScript.Bytecode
             return StaticType.Unknown;
         }
 
+        /// <summary>
+        /// The type <paramref name="expr"/> evaluates to whenever it
+        /// evaluates without an error (PROP-28), else
+        /// <see cref="StaticType.Unknown"/>. <paramref name="names"/> types
+        /// a bare name or a <c>::</c> (a constant or an enum member, once
+        /// the module set is compiled); null: unknown.
+        /// </summary>
         private static StaticType TypeOf(IExpression expr, System.Func<IExpression, StaticType>? names = null)
         {
             switch (expr)

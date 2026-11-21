@@ -113,5 +113,11 @@ namespace WarScript.Bytecode
         // Discard the top pending re-raise/return if it belongs to this frame's
         // ensure block ending at end_ip (Q-12, CRASH-8).
         DropPending = 68,   // [op][end_hi][end_lo]
+
+        // ── Range loops ──
+        // The step of a range loop on TOS (left there): a number not greater
+        // than 0 raises ArgumentError (T3.8; the loop runs while its variable
+        // is less than the upper bound). Anything else passes.
+        CheckStep = 69,
     }
 }
