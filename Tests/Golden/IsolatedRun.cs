@@ -14,7 +14,7 @@ namespace Tests.Golden
     /// <summary>
     /// Runs one golden run in a child process through <c>WarScript.Runner</c>
     /// (plan 9.5), and the JSON both sides use for its result:
-    /// <c>{"output": [...], "status": "...", "error": {...}, "invariants": "ok"|"&lt;violation&gt;", "hash": "&lt;16 hex digits&gt;"|null}</c>.
+    /// <c>{"output": [...], "status": "...", "error": {...}, "warnings": [{"script", "line", "message"}...], "invariants": "ok"|"&lt;violation&gt;", "hash": "&lt;16 hex digits&gt;"|null}</c>.
     /// <c>status</c> is <c>ok</c>, <c>error</c> (unhandled script error),
     /// <c>compile-error</c>, <c>rejected</c> (a <c>.wsbc</c> file the loader
     /// refused with <c>InvalidDataException</c>) or <c>host-fault</c> (a C#
@@ -207,6 +207,21 @@ namespace Tests.Golden
                 sb.Append(", \"error\": null");
             }
 
+            sb.Append(", \"warnings\": [");
+            for (var i = 0; i < run.Warnings.Count; i++)
+            {
+                var w = run.Warnings[i];
+                if (i > 0) sb.Append(", ");
+                sb.Append("{\"script\": ");
+                WriteString(sb, w.Script);
+                sb.Append(", \"line\": ");
+                sb.Append(w.Line.ToString(CultureInfo.InvariantCulture));
+                sb.Append(", \"message\": ");
+                WriteString(sb, w.Message);
+                sb.Append('}');
+            }
+            sb.Append(']');
+
             sb.Append(", \"invariants\": ");
             WriteString(sb, run.InvariantViolation ?? "ok");
             sb.Append(", \"hash\": ");
@@ -242,6 +257,13 @@ namespace Tests.Golden
                 case "host-fault": run.EscapedException = message ?? ""; break;
                 default: throw new FormatException($"unknown status '{status}'");
             }
+
+            if (root.TryGetValue("warnings", out var warnings) && warnings is List<object> list)
+                foreach (var item in list.OfType<Dictionary<string, object>>())
+                    run.Warnings.Add(new GoldenWarning(
+                        item.TryGetValue("script", out var ws) ? ws as string : null,
+                        item.TryGetValue("line", out var wl) && wl is string wline ? int.Parse(wline, CultureInfo.InvariantCulture) : 0,
+                        item.TryGetValue("message", out var wm) ? wm as string : null));
 
             var invariants = root.TryGetValue("invariants", out var inv) ? inv as string : null;
             run.InvariantViolation = invariants == null || invariants == "ok" ? null : invariants;

@@ -150,6 +150,12 @@ namespace WarScript.Bytecode
         /// <summary>Every bare name the body has read or written so far (<c>global</c> must come first, PROP-10).</summary>
         private readonly HashSet<string> _usedNames = new();
 
+        /// <summary>The body locals read somewhere in the body (PROP-26: the others are reported unused).</summary>
+        private readonly HashSet<string> _readLocals = new();
+
+        /// <summary>Where each body local is first assigned in the source: the position of its PROP-26 warning.</summary>
+        private readonly Dictionary<string, (int Line, int Column)> _firstAssignments = new();
+
         /// <summary>
         /// Positive while an ensure body is compiled a second time where a
         /// <c>break</c>/<c>next</c> leaves its block: the order checks were
@@ -246,6 +252,7 @@ namespace WarScript.Bytecode
             // via the flat CompileAllDefinitions walk)
             foreach (var stmt in funcDef.Statement.StatementsToExecute)
                 child.CompileStatement(stmt);
+            child.WarnUnreadLocals();
 
             child.EmitReturn(0);
             child._current.LocalCount = child._maxLocals;
@@ -492,6 +499,7 @@ namespace WarScript.Bytecode
 
             foreach (var stmt in lambda.Body.StatementsToExecute)
                 compiler.CompileStatement(stmt);
+            compiler.WarnUnreadLocals();
 
             compiler.EmitReturn(0);
             compiler._current.LocalCount = compiler._maxLocals;
@@ -535,6 +543,22 @@ namespace WarScript.Bytecode
             foreach (var name in names.Locals)
                 AddLocal(name, LocalKind.BodyLocal);
             _current.ReservedLocals = names.Locals.Count;
+        }
+
+        /// <summary>
+        /// At the end of a function, method or lambda body: a warning for
+        /// each body local the body assigns but never reads (PROP-26, T3.8),
+        /// at its first assignment, in slot order. Under DEC-5 a typo on the
+        /// left of an assignment makes a new local, which this catches.
+        /// </summary>
+        private void WarnUnreadLocals()
+        {
+            foreach (var local in _locals)
+            {
+                if (local.Kind != LocalKind.BodyLocal || _readLocals.Contains(local.Name)) continue;
+                var (line, column) = _firstAssignments.TryGetValue(local.Name, out var at) ? at : (_line, 0);
+                _script.Warn("local '" + local.Name + "' is assigned but never read", _source, line, column);
+            }
         }
 
         // ────────────────────────────────────────────────────────
@@ -711,8 +735,8 @@ namespace WarScript.Bytecode
                 {
                     Chunk.EmitOp(OpCode.SetLocal, line);
                     Chunk.EmitU16(slot, line);
-                    if (_locals[slot].Kind == LocalKind.BodyLocal)
-                        _assignedSoFar.Add(v.Name);
+                    if (_locals[slot].Kind == LocalKind.BodyLocal && _assignedSoFar.Add(v.Name))
+                        _firstAssignments[v.Name] = v.Line > 0 && v.Line == _line ? (v.Line, v.Column) : (_line, _column);
                     return false;
                 }
                 // In a class body a bare assignment declares (or writes) a
@@ -1357,8 +1381,12 @@ namespace WarScript.Bytecode
             if (line <= 0 || line != _line) { line = _line; column = _column; }
             if (slot != -1)
             {
-                if (_locals[slot].Kind == LocalKind.BodyLocal && _inlinedEnsure == 0 && !_assignedSoFar.Contains(name))
-                    throw new CompileError("variable '" + name + "' is read before it is assigned", _source, line, column);
+                if (_locals[slot].Kind == LocalKind.BodyLocal)
+                {
+                    if (_inlinedEnsure == 0 && !_assignedSoFar.Contains(name))
+                        throw new CompileError("variable '" + name + "' is read before it is assigned", _source, line, column);
+                    _readLocals.Add(name);
+                }
                 return;
             }
             if (_enclosingLocals != null && _enclosingLocals.Contains(name) && !_declaredGlobals.Contains(name))

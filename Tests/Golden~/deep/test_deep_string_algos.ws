@@ -65,7 +65,7 @@ fun pad_left [n, width]
     len = 0
     loop true
         begin
-            c = s{len}
+            s{len}    # raises IndexError past the end
         rescue e
             break
         end
@@ -145,7 +145,7 @@ fun str_length [s]
     # (an IndexError since T3.6)
     loop true
         begin
-            c = s{n}
+            s{n}    # raises IndexError past the end
         rescue e
             break
         end

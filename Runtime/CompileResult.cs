@@ -10,7 +10,7 @@ namespace WarScript
     {
         /// <summary>The script cannot run.</summary>
         Error,
-        /// <summary>The script compiles, but probably not as meant (compile-time warnings arrive with plan T3.8).</summary>
+        /// <summary>The script compiles, but probably not as meant (T3.8; an error under <see cref="WarScriptLanguage.WarningsAsErrors"/>).</summary>
         Warning,
     }
 

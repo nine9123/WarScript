@@ -1013,6 +1013,16 @@ if (!compiled.Success)
         Debug.LogError(d);               // "example:4:1: error: more than 255 arguments in a call"
 ```
 
+A successful compile can also carry warnings (`Severity` `Warning`), such as
+`local 'x' is assigned but never read` for a function local nothing reads — usually a typo on the
+left of an assignment. Set `WarningsAsErrors = true` before the first compile (a mod archive build
+should) to make any warning fail the compile like an error:
+
+```csharp
+script.WarningsAsErrors = true;
+var compiled = script.Compile();         // fails on "example:3:5: error: local 'helth' is assigned but never read"
+```
+
 A diagnostic has the line and column of the error (columns count from 1; a tab is one column). The
 `CompileError` result's `ScriptError` has them too, plus the source line (`SourceLine`), and its
 text shows that line with a caret under the column:

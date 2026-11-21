@@ -31,7 +31,8 @@ namespace Tests.Golden
         public string ExpectErrorSubstring;
         public int ExpectErrorLine;               // 0: any line
         public string ExpectCompileError;         // substring
-        public readonly List<string> ExpectWarnings = new List<string>();
+        /// <summary><c># expect-warning:</c> substrings, each with its line (0 when the directive is on a line of its own: any line).</summary>
+        public readonly List<(string Text, int Line)> ExpectWarnings = new List<(string Text, int Line)>();
         public int Budget = DefaultBudget;
         public long MemoryBudget;
         public bool Isolate;
@@ -144,7 +145,7 @@ namespace Tests.Golden
                     ExpectCompileError = value;
                     break;
                 case "expect-warning":
-                    ExpectWarnings.Add(value);
+                    ExpectWarnings.Add((value, afterCode ? row : 0));
                     break;
                 case "budget":
                     Budget = int.Parse(value.Replace("_", ""), CultureInfo.InvariantCulture);
@@ -187,6 +188,9 @@ namespace Tests.Golden
         public string Crash;                  // how an isolated child process died, or null
         public string Hash;                   // ComputeStateHash() as 16 hex digits, once the script ran
         public string Rejected;               // the loader's InvalidDataException message for GoldenFile.Bytecode, or null
+
+        /// <summary>The compile-time warnings of the file and its imports (T3.8), from the compile of the source.</summary>
+        public readonly List<GoldenWarning> Warnings = new List<GoldenWarning>();
 
         /// <summary>
         /// Runs the file once with <c>CurrentCulture</c> and <c>CurrentUICulture</c>
@@ -266,10 +270,12 @@ namespace Tests.Golden
                 else if (mode == GoldenMode.Source)
                 {
                     target = NewInstance(file.Source);
+                    run.AddWarnings(target.Compile());
                 }
                 else
                 {
                     var compiler = NewInstance(file.Source);
+                    run.AddWarnings(compiler.Compile());
                     var bytes = new MemoryStream();
                     compiler.SaveBytecode(bytes);
                     target = NewInstance("");
@@ -324,6 +330,13 @@ namespace Tests.Golden
             run.InvariantViolation = Invariants.Violation(target, before);
             run.Hash = target.ComputeStateHash().ToString("x16", CultureInfo.InvariantCulture);
             return run;
+        }
+
+        private void AddWarnings(CompileResult compiled)
+        {
+            foreach (var d in compiled.Diagnostics)
+                if (d.Severity == DiagnosticSeverity.Warning)
+                    Warnings.Add(new GoldenWarning(d.ScriptName, d.Line, d.Message));
         }
 
         /// <summary>"&lt;type&gt;: &lt;message&gt; (in &lt;the WarScript method that threw, or called the BCL method that did&gt;)".</summary>
@@ -389,8 +402,8 @@ namespace Tests.Golden
             if (CompileError != null)
                 return "compile error: " + CompileError;
 
-            if (file.ExpectWarnings.Count > 0)
-                return "'# expect-warning' needs compile-time diagnostics, which arrive with T3.8";
+            var warningFailure = MatchWarnings(file);
+            if (warningFailure != null) return warningFailure;
 
             if (file.ExpectErrorKind != null)
             {
@@ -413,6 +426,29 @@ namespace Tests.Golden
             return null;
         }
 
+        /// <summary>
+        /// Every warning must be expected and every <c># expect-warning:</c>
+        /// met (T3.8: the corpus compiles without diagnostics apart from
+        /// these). A directive trailing a code line also names the line, in
+        /// the file itself; one on a line of its own matches any line.
+        /// </summary>
+        private string MatchWarnings(GoldenFile file)
+        {
+            var unmatched = new List<GoldenWarning>(Warnings);
+            foreach (var (text, line) in file.ExpectWarnings)
+            {
+                var index = unmatched.FindIndex(w => w.Message.Contains(text)
+                    && (line == 0 || (w.Line == line && w.Script == file.Name)));
+                if (index < 0)
+                    return $"expected a warning containing '{text}'" + (line != 0 ? $" at line {line}" : "") +
+                           (Warnings.Count == 0 ? ", but there was none" : ", got: " + string.Join("; ", Warnings));
+                unmatched.RemoveAt(index);
+            }
+            if (unmatched.Count > 0)
+                return "unexpected warning: " + string.Join("; ", unmatched);
+            return null;
+        }
+
         private string MatchError(GoldenFile file)
         {
             // Every error has its kind and the line it was raised at (T2.5).
@@ -426,5 +462,23 @@ namespace Tests.Golden
                 return $"expected the error at line {file.ExpectErrorLine}, got line {ErrorLine}: {ErrorMessage}";
             return null;
         }
+    }
+
+    /// <summary>One compile-time warning of a golden run (T3.8).</summary>
+    internal sealed class GoldenWarning
+    {
+        public readonly string Script;
+        public readonly int Line;
+        public readonly string Message;
+
+        public GoldenWarning(string script, int line, string message)
+        {
+            Script = script;
+            Line = line;
+            Message = message;
+        }
+
+        public override string ToString() =>
+            Script + ":" + Line.ToString(CultureInfo.InvariantCulture) + ": " + Message;
     }
 }

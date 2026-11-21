@@ -177,6 +177,10 @@ namespace WarScript
         private CompileResult? _compileResult;
         private Exception.SyntaxException? _compileError;
         private CompiledFunction? _cachedCompiled;
+
+        // While Compile() runs: the warnings the compiler reports (T3.8,
+        // through Warn); null otherwise.
+        private List<CompileDiagnostic>? _compileWarnings;
         private WarVM? _cachedVM;
 
         public readonly DefinitionScope GlobalDefinitionScope;
@@ -424,6 +428,26 @@ namespace WarScript
         public bool LogUnhandledErrors { get; set; } = true;
 
         /// <summary>
+        /// When true, <see cref="Compile"/> fails on a warning (PROP-31, T3.8):
+        /// every warning becomes an error diagnostic, nothing is installed,
+        /// and the entry points return a <c>CompileError</c> result for the
+        /// first one. Default false. Read when <see cref="Compile"/> runs:
+        /// set it before the first compile (or call <see cref="Reload"/>
+        /// afterwards), as the result is cached.
+        /// </summary>
+        public bool WarningsAsErrors { get; set; }
+
+        /// <summary>
+        /// A compile-time warning (T3.8: PROP-26) at <paramref name="line"/>,
+        /// <paramref name="column"/> of <paramref name="scriptName"/> (an
+        /// import path, or null for this script). Ignored outside
+        /// <see cref="Compile"/>.
+        /// </summary>
+        internal void Warn(string message, string? scriptName, int line, int column) =>
+            _compileWarnings?.Add(new CompileDiagnostic(DiagnosticSeverity.Warning, message,
+                scriptName ?? ScriptName, line, column));
+
+        /// <summary>
         /// Returns a halted instance to normal operation. State changed
         /// before the fault (globals, native side effects) is kept; the
         /// coroutines cleared by the fault stay cleared.
@@ -556,6 +580,8 @@ namespace WarScript
             // The parser adds `const`/`enum` names as it goes; a failed
             // compile puts the set back, so none of the script stays behind.
             var constantsBefore = new HashSet<string>(ConstantNames);
+            var warnings = new List<CompileDiagnostic>();
+            _compileWarnings = warnings;
             DefinitionContext.PushScope(_definitionScope);
             try
             {
@@ -569,6 +595,25 @@ namespace WarScript
                 ParsingFile = ScriptName;
                 var module = StatementParser.ParseModule(this, tokens, ScriptName);
                 _cachedCompiled = Compiler.CompileScript(this, module.TopLevel, _definitionScope);
+
+                // Warnings as errors (PROP-31): the script does not compile,
+                // and every warning is reported as an error.
+                if (WarningsAsErrors && warnings.Count > 0)
+                {
+                    RollBackCompile(constantsBefore);
+                    var first = warnings[0];
+                    var error = new Exception.CompileError(first.Message, first.ScriptName, first.Line, first.Column);
+                    if (first.ScriptName == ScriptName) error.LocateIn(ScriptName, _sourceCode);
+                    var errors = new CompileDiagnostic[warnings.Count];
+                    for (int i = 0; i < errors.Length; i++)
+                    {
+                        var w = warnings[i];
+                        errors[i] = new CompileDiagnostic(DiagnosticSeverity.Error, w.Message, w.ScriptName, w.Line, w.Column);
+                    }
+                    _compileError = error;
+                    _compileResult = new CompileResult(false, errors);
+                    return _compileResult;
+                }
 
                 // One namespace for the module set (5.8): every import's
                 // definitions are the script's from now on, before any
@@ -584,7 +629,7 @@ namespace WarScript
                 // details, compiled bytecode) intact.
                 DiscardAST(_definitionScope);
                 _imports = imports;
-                _compileResult = CompileResult.Succeeded;
+                _compileResult = warnings.Count == 0 ? CompileResult.Succeeded : new CompileResult(true, warnings.ToArray());
             }
             catch (Exception.SyntaxException e)
             {
@@ -593,7 +638,12 @@ namespace WarScript
                 RollBackCompile(constantsBefore);
                 e.LocateIn(ScriptName, _sourceCode);
                 _compileError = e;
-                _compileResult = new CompileResult(false, new[] { Diagnose(e) });
+                // The error first (the entry points report it), then the
+                // warnings found before it.
+                var diagnostics = new CompileDiagnostic[warnings.Count + 1];
+                diagnostics[0] = Diagnose(e);
+                warnings.CopyTo(diagnostics, 1);
+                _compileResult = new CompileResult(false, diagnostics);
             }
             catch
             {
@@ -605,6 +655,7 @@ namespace WarScript
             }
             finally
             {
+                _compileWarnings = null;
                 _parsingImports = null;
                 ParsingFile = null;
                 _definitionScope.Declared = null;
