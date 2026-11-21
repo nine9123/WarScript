@@ -554,8 +554,9 @@ end
 
 ### Constants
 
-Immutable globals. Reassignment is rejected at **parse time** with a `SyntaxException`, so it fails
-before anything runs.
+Immutable globals. Reassignment is rejected when the script compiles (a `SyntaxException`), so it
+fails before anything runs: anywhere in the script, above the declaration too, and in the files it
+imports.
 
 ```ruby
 const MAX_HP = 100
@@ -876,7 +877,7 @@ runs once per script instance, before the script's own top-level code: dependenc
 order the imports are written. An error in an import's top-level code stops `Run` there (the
 import runs again on the next `Run`), and a `yield` in it, or in a function it calls, is a
 `TypeError` (`Cannot yield while importing 'path'`): an import cannot suspend. A `const` or `enum` of an imported file cannot be reassigned by the
-importer, and a named-argument call to an imported function is put in its parameter order. A
+importer, nor one of the importer by an import, and a named-argument call to an imported function is put in its parameter order. A
 script and its imports share one namespace: a function (name and arity) or class that two of them
 define is a compile error at the second definition, naming the file of the first; importing the
 same file through two imports is not. The imported functions and classes belong to the script as
@@ -1074,7 +1075,7 @@ An error in an imported file names that file, and the line and column in it.
 
 The constructor no longer lexes, so a malformed source shows up in `Compile()` (or as the
 `CompileError` result of `Run()`), not in `new WarScriptLanguage(...)`. Register natives and
-`[WsConst]`/`[WsEnum]` bindings before compiling: assignments to constants are checked at parse time.
+`[WsConst]`/`[WsEnum]` bindings before compiling: assignments to constants are checked when the script compiles.
 
 ### Results and errors
 

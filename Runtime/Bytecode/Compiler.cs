@@ -804,6 +804,12 @@ namespace WarScript.Bytecode
                 // writes the scope chain (the globals, then the host
                 // globals), creating the name in the globals.
                 _script.DeclareGlobalWrite(v.Name);
+                if (!assign.DeclaresConstant)
+                {
+                    var onThisLine = v.Line > 0 && v.Line == _line;
+                    _script.CheckConstantWrite(v.Name, _source,
+                        onThisLine ? v.Line : _line, onThisLine ? v.Column : _column);
+                }
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(v.Name));
                 Chunk.EmitOp(OpCode.SetGlobal, line);
                 Chunk.EmitU16(nameIdx, line);

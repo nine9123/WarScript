@@ -211,6 +211,12 @@ namespace WarScript
         // checked by CheckCalls once the module set is compiled. Null
         // otherwise.
         private List<(string Name, int Arguments, bool ClassBody, string? File, string? Source, int Line, int Column)>? _calls;
+
+        // While Compile() runs: every global write (SetGlobal) the compiler
+        // emitted that is not the declaration of a const or enum (T3.8);
+        // checked by CheckConstantWrites once the module set is compiled.
+        // Null otherwise.
+        private List<(string Name, string? File, string? Source, int Line, int Column)>? _constantWrites;
         private Dictionary<string, HashSet<string>>? _enumMembers;
         private WarVM? _cachedVM;
 
@@ -630,6 +636,7 @@ namespace WarScript
             _globalWrites = new HashSet<string>(System.StringComparer.Ordinal);
             _globalWritesUnknown = false;
             _calls = new List<(string, int, bool, string?, string?, int, int)>();
+            _constantWrites = new List<(string, string?, string?, int, int)>();
             DefinitionContext.PushScope(_definitionScope);
             try
             {
@@ -648,6 +655,7 @@ namespace WarScript
                 CheckProperties();
                 CheckGlobalReads();
                 CheckCalls();
+                CheckConstantWrites();
 
                 // Warnings as errors (PROP-31): the script does not compile,
                 // and every warning is reported as an error.
@@ -716,6 +724,7 @@ namespace WarScript
                 _globalWrites = null;
                 _globalWritesUnknown = false;
                 _calls = null;
+                _constantWrites = null;
                 _parsingImports = null;
                 ParsingFile = null;
                 ParsingSource = null;
@@ -1247,6 +1256,36 @@ namespace WarScript
                     : $"Function '{name}' takes {ArityList(set)}, not {arguments.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
                 throw new Exception.CompileError(message, file, line, column).LocateIn(file, source);
             }
+        }
+
+        /// <summary>
+        /// Records a write of the global <paramref name="name"/> (a
+        /// <c>SetGlobal</c> that is not the declaration of a <c>const</c> or
+        /// <c>enum</c>) at <paramref name="line"/>, <paramref name="column"/>
+        /// of <paramref name="file"/> (T3.8), checked by
+        /// <see cref="CheckConstantWrites"/> once the module set is compiled.
+        /// Ignored outside <see cref="Compile"/>.
+        /// </summary>
+        internal void CheckConstantWrite(string name, string? file, int line, int column) =>
+            _constantWrites?.Add((name, file, ParsingSource, line, column));
+
+        /// <summary>
+        /// The compile error <c>Cannot reassign constant 'X'</c> for the first
+        /// recorded global write (T3.8) of a name that is a constant once the
+        /// module set is parsed: a <c>const</c> or <c>enum</c> of any of its
+        /// files, or a host constant. The parser rejects a reassignment it
+        /// reads after the declaration; this check covers the writes it reads
+        /// first: in an import of the file declaring the constant, or earlier
+        /// in the same file (a function above it, a top-level assignment
+        /// before it). A bytecode import's writes are not known.
+        /// </summary>
+        private void CheckConstantWrites()
+        {
+            if (_constantWrites == null) return;
+            foreach (var (name, file, source, line, column) in _constantWrites)
+                if (ConstantNames.Contains(name))
+                    throw new Exception.CompileError($"Cannot reassign constant '{name}'", file, line, column)
+                        .LocateIn(file, source);
         }
 
         /// <summary><c>1 argument</c>, <c>0 or 2 arguments</c>, <c>0, 1 or 2 arguments</c>.</summary>

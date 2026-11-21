@@ -697,7 +697,7 @@ namespace WarScript
             var assign = new AssignmentOperator(
                 _script,
                 new VariableExpression(_script, name.Value),
-                valueExpr);
+                valueExpr) { DeclaresConstant = true };
             _compositeStatement.AddStatement(
                 new ExpressionStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName, assign));
         }
@@ -864,7 +864,8 @@ namespace WarScript
                 _script,
                 new VariableExpression(_script, enumName.Value),
                 new ClassInstanceOperator(_script,
-                    new ClassExpression(_script, enumName.Value, new List<IExpression>())));
+                    new ClassExpression(_script, enumName.Value, new List<IExpression>())))
+                { DeclaresConstant = true };
             _compositeStatement.AddStatement(
                 new ExpressionStatement(_script, line, blockName, instantiate));
 
