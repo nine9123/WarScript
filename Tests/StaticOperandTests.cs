@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using NUnit.Framework;
 using WarScript;
+using WarScript.Expression.Value;
 
 namespace Tests
 {
@@ -101,5 +102,67 @@ namespace Tests
             Assert.IsTrue(script.Run().IsOk);
             Assert.AreEqual(new[] { "21", "abab!", "[1, 2, 3]", "false", "true" }, output);
         }
-    }
+    
+        [Test]
+        public void AnImportReadingItsImportersConstant_IsCheckedAgainstItsValue()
+        {
+            // The import is compiled before the importer is parsed: the
+            // check waits for the whole module set.
+            var (script, _) = Script(
+                "import \"lib\"\nconst LABEL = \"x\"\n",
+                new Dictionary<string, string> { ["lib"] = "fun f []\n    return LABEL * {1}\nend\n" });
+
+            var result = script.Compile();
+
+            Assert.IsFalse(result.Success);
+            Assert.AreEqual(1, result.Diagnostics.Count);
+            Assert.AreEqual("Cannot apply '*' to text and array", result.Diagnostics[0].Message);
+            Assert.AreEqual("lib", result.Diagnostics[0].ScriptName);
+            Assert.AreEqual(2, result.Diagnostics[0].Line);
+            Assert.AreEqual(18, result.Diagnostics[0].Column, "at the '*'");
+        }
+
+        [Test]
+        public void AConstantOfAConstant_HasItsType_AndACycleHasNone()
+        {
+            var (script, _) = Script("const A = 2\nconst B = A * 3\nprint B < \"x\"\n");
+            Assert.AreEqual("Cannot apply '<' to number and text", script.Compile().Diagnostics[0].Message);
+
+            // Each read runs before the other's declaration: a NameError at runtime.
+            (script, _) = Script("const A = B + 1\nconst B = A + 1\nprint A - \"x\"\n");
+            Assert.IsTrue(script.Compile().Success);
+        }
+
+        [Test]
+        public void AConstantInAClassBody_OrANameTheInstanceHolds_IsNotTyped()
+        {
+            // A class body's bare read may find a field of any class part first.
+            var (script, _) = Script(
+                "const K = 1\n" +
+                "class C\n" +
+                "    y = K - \"x\"\n" +
+                "end\n");
+            Assert.IsTrue(script.Compile().Success, "class body");
+
+            // A host global named like the constant is read until the declaration runs.
+            (script, _) = Script("print K - \"x\"\nconst K = 1\n");
+            script.GlobalMemoryScope.Set("K", WarValue.FromText("host"));
+            Assert.IsTrue(script.Compile().Success, "a global the instance holds");
+        }
+
+        [Test]
+        public void AnEnumMemberOfAnEnumNotAtTheTopLevel_IsNotTyped()
+        {
+            var (script, _) = Script(
+                "class Holder\n" +
+                "    enum Inner\n" +
+                "        A\n" +
+                "    end\n" +
+                "end\n" +
+                "fun f [Inner]\n" +
+                "    return Inner :: A - \"x\"\n" +
+                "end\n");
+            Assert.IsTrue(script.Compile().Success);
+        }
+}
 }

@@ -894,6 +894,8 @@ namespace WarScript.Bytecode
                 // writes the scope chain (the globals, then the host
                 // globals), creating the name in the globals.
                 _script.DeclareGlobalWrite(v.Name);
+                if (assign.DeclaresConstant && _script.CollectsTypedOperands)
+                    _script.DeclareConstantType(v.Name, ConstantType(assign.Right));
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(v.Name));
                 Chunk.EmitOp(OpCode.SetGlobal, line);
                 Chunk.EmitU16(nameIdx, line);
@@ -1720,9 +1722,10 @@ namespace WarScript.Bytecode
                 case NegateOperator n:
                 {
                     CompileExpression(n.Value);
-                    var operand = TypeOf(n.Value);
-                    if (operand != StaticType.Unknown && operand != StaticType.Number)
-                        throw new CompileError("Cannot apply '-' to " + StaticTypeName(operand), _source, _line, _column);
+                    var negateError = NegateError(TypeOf(n.Value));
+                    if (negateError != null) throw new CompileError(negateError, _source, _line, _column);
+                    var negated = n.Value;
+                    DeferTypedCheck(names => NegateError(TypeOf(negated, names)), negated);
                     Chunk.EmitOp(OpCode.Negate, _line);
                     break;
                 }
@@ -1890,8 +1893,10 @@ namespace WarScript.Bytecode
         /// follows from plan 5.3. No inference through variables or calls.
         /// Indexing is not checked: the grammar only indexes a name
         /// (<c>x{i}</c>, <c>obj :: x{i}</c>), whose type is never known.
+        /// A <c>const</c> and an enum member of the module set are typed
+        /// once the module set is compiled (<see cref="DeferTypedCheck"/>).
         /// </summary>
-        private enum StaticType { Unknown, Null, Number, Logical, Text, Array }
+        internal enum StaticType { Unknown, Null, Number, Logical, Text, Array }
 
         /// <summary>The type name an error message uses (<see cref="WarVM.TypeName"/>).</summary>
         private static string StaticTypeName(StaticType type) => type switch
@@ -1906,12 +1911,17 @@ namespace WarScript.Bytecode
         /// <summary>
         /// The type <paramref name="expr"/> evaluates to whenever it
         /// evaluates without an error (PROP-28), else
-        /// <see cref="StaticType.Unknown"/>.
+        /// <see cref="StaticType.Unknown"/>. <paramref name="names"/> types
+        /// a bare name or a <c>::</c> (a constant or an enum member, once
+        /// the module set is compiled); null: unknown.
         /// </summary>
-        private static StaticType TypeOf(IExpression expr)
+        private static StaticType TypeOf(IExpression expr, System.Func<IExpression, StaticType>? names = null)
         {
             switch (expr)
             {
+                case VariableExpression _:
+                case ClassPropertyOperator _:
+                    return names?.Invoke(expr) ?? StaticType.Unknown;
                 case ConstantExpression c:
                 {
                     var v = c.Value;
@@ -1926,16 +1936,16 @@ namespace WarScript.Bytecode
                     return StaticType.Array;
                 case AdditionOperator a:
                 {
-                    var left = TypeOf(a.Left);
-                    var right = TypeOf(a.Right);
+                    var left = TypeOf(a.Left, names);
+                    var right = TypeOf(a.Right, names);
                     if (left == StaticType.Text || right == StaticType.Text) return StaticType.Text;
                     if (left == right && (left == StaticType.Number || left == StaticType.Array)) return left;
                     return StaticType.Unknown;
                 }
                 case MultiplicationOperator m:
                 {
-                    var left = TypeOf(m.Left);
-                    var right = TypeOf(m.Right);
+                    var left = TypeOf(m.Left, names);
+                    var right = TypeOf(m.Right, names);
                     if (left == StaticType.Text || right == StaticType.Text) return StaticType.Text;
                     if (left == StaticType.Number && right == StaticType.Number) return StaticType.Number;
                     return StaticType.Unknown;
@@ -1957,21 +1967,21 @@ namespace WarScript.Bytecode
                 // 'and'/'or' leave one of their operands.
                 case LogicalAndOperator la:
                 {
-                    var left = TypeOf(la.Left);
-                    return left == TypeOf(la.Right) ? left : StaticType.Unknown;
+                    var left = TypeOf(la.Left, names);
+                    return left == TypeOf(la.Right, names) ? left : StaticType.Unknown;
                 }
                 case LogicalOrOperator lo:
                 {
-                    var left = TypeOf(lo.Left);
-                    return left == TypeOf(lo.Right) ? left : StaticType.Unknown;
+                    var left = TypeOf(lo.Left, names);
+                    return left == TypeOf(lo.Right, names) ? left : StaticType.Unknown;
                 }
                 // '<<' leaves the array.
                 case ArrayAppendOperator ap:
-                    return TypeOf(ap.Left) == StaticType.Array ? StaticType.Array : StaticType.Unknown;
+                    return TypeOf(ap.Left, names) == StaticType.Array ? StaticType.Array : StaticType.Unknown;
                 // An assignment's value is the value assigned ('x = 5 << 3'
                 // is '(x = 5) << 3').
                 case AssignmentOperator a:
-                    return TypeOf(a.Right);
+                    return TypeOf(a.Right, names);
                 default:
                     return StaticType.Unknown;
             }
@@ -1980,13 +1990,21 @@ namespace WarScript.Bytecode
         /// <summary>
         /// The compile error of a binary operator whose operands' types are
         /// both known and rejected by plan 5.3 (PROP-28), with the VM's
-        /// message (<c>WarVM.OperandError</c>), at the operator.
+        /// message (<c>WarVM.OperandError</c>), at the operator. An operand
+        /// that reads a constant or an enum member is checked again once the
+        /// module set is compiled (<see cref="DeferTypedCheck"/>).
         /// </summary>
         private void CheckOperands(string op, IExpression leftExpr, IExpression rightExpr)
         {
-            var left = TypeOf(leftExpr);
-            var right = TypeOf(rightExpr);
-            if (left == StaticType.Unknown || right == StaticType.Unknown) return;
+            var error = OperandError(op, TypeOf(leftExpr), TypeOf(rightExpr));
+            if (error != null) throw new CompileError(error, _source, _line, _column);
+            DeferTypedCheck(names => OperandError(op, TypeOf(leftExpr, names), TypeOf(rightExpr, names)), leftExpr, rightExpr);
+        }
+
+        /// <summary>The VM's message for <paramref name="op"/> on those operand types, or null when they are accepted or not both known.</summary>
+        private static string? OperandError(string op, StaticType left, StaticType right)
+        {
+            if (left == StaticType.Unknown || right == StaticType.Unknown) return null;
             bool ok;
             switch (op)
             {
@@ -2008,10 +2026,12 @@ namespace WarScript.Bytecode
                     ok = left == StaticType.Number && right == StaticType.Number;
                     break;
             }
-            if (!ok)
-                throw new CompileError("Cannot apply '" + op + "' to " + StaticTypeName(left)
-                    + " and " + StaticTypeName(right), _source, _line, _column);
+            return ok ? null : "Cannot apply '" + op + "' to " + StaticTypeName(left) + " and " + StaticTypeName(right);
         }
+
+        /// <summary>The VM's message for unary <c>-</c> on an operand of that type, or null.</summary>
+        private static string? NegateError(StaticType operand) =>
+            operand != StaticType.Unknown && operand != StaticType.Number ? "Cannot apply '-' to " + StaticTypeName(operand) : null;
 
         /// <summary>
         /// The compile error of a <c>::</c> whose left operand has a known
@@ -2022,6 +2042,89 @@ namespace WarScript.Bytecode
         {
             if (TypeOf(left) != StaticType.Unknown)
                 throw new CompileError(message, _source, _line, _column);
+            DeferTypedCheck(names => TypeOf(left, names) != StaticType.Unknown ? message : null, left);
+        }
+
+        /// <summary>
+        /// Records <paramref name="check"/> for
+        /// <see cref="WarScriptLanguage.CheckTypedOperands"/> when one of
+        /// <paramref name="operands"/> has a type that depends on a bare
+        /// global read or an <c>E :: x</c> of one (a <c>const</c> or an enum
+        /// member: the declaration may come later or in another file), at
+        /// the operator's position (PROP-28). The check gets the type of
+        /// such a read; it is run once the module set is compiled.
+        /// </summary>
+        private void DeferTypedCheck(System.Func<System.Func<IExpression, StaticType>, string?> check, params IExpression[] operands)
+        {
+            var keys = TypedNames(operands);
+            if (keys == null) return;
+            _script.CheckTypedOperand(name => check(e => TypeOfKey(keys, e, name)), _source, _line, _column);
+        }
+
+        /// <summary>
+        /// The leaves of <paramref name="operands"/> that <see cref="TypeOf"/>
+        /// would ask about and that read a constant or an enum member if
+        /// anything (<see cref="TypedNameKey"/>), with their keys; null when
+        /// there are none or the module set is not being compiled.
+        /// </summary>
+        private List<(IExpression Expression, string Key)>? TypedNames(params IExpression[] operands)
+        {
+            if (!_script.CollectsTypedOperands) return null;
+            List<(IExpression, string)>? keys = null;
+            foreach (var operand in operands)
+                TypeOf(operand, e =>
+                {
+                    var key = TypedNameKey(e);
+                    if (key != null) (keys ??= new List<(IExpression, string)>()).Add((e, key));
+                    return StaticType.Unknown;
+                });
+            return keys;
+        }
+
+        private static StaticType TypeOfKey(List<(IExpression Expression, string Key)> keys, IExpression e, System.Func<string, StaticType> name)
+        {
+            foreach (var (expression, key) in keys)
+                if (ReferenceEquals(expression, e)) return name(key);
+            return StaticType.Unknown;
+        }
+
+        /// <summary>
+        /// <c>X</c> for a bare global read of <c>X</c>, <c>E::x</c> for
+        /// <c>E :: x</c> and <c>E::m[]</c> for <c>E :: m [...]</c> where
+        /// <c>E</c> is a bare global read; else null. Not in a class body,
+        /// where a bare read may find a field of the instance first (of any
+        /// class part, Q-16).
+        /// </summary>
+        private string? TypedNameKey(IExpression e)
+        {
+            if (_classBody) return null;
+            switch (e)
+            {
+                case VariableExpression v:
+                    return ResolveLocal(v.Name) == -1 ? v.Name : null;
+                case ClassPropertyOperator cp when cp.Left is VariableExpression enumName && ResolveLocal(enumName.Name) == -1:
+                    if (cp.Right is VariableExpression member) return enumName.Name + "::" + member.Name;
+                    if (cp.Right is FunctionExpression method) return enumName.Name + "::" + method.Name + "[]";
+                    return null;
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// The type of a <c>const</c>'s value for
+        /// <see cref="WarScriptLanguage.CheckTypedOperands"/>, given the
+        /// types of the constants and enum members it reads.
+        /// </summary>
+        private System.Func<System.Func<string, StaticType>, StaticType> ConstantType(IExpression value)
+        {
+            var keys = TypedNames(value);
+            if (keys == null)
+            {
+                var type = TypeOf(value);
+                return _ => type;
+            }
+            return name => TypeOf(value, e => TypeOfKey(keys, e, name));
         }
 
         // ── Function call ──

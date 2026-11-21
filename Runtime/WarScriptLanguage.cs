@@ -228,6 +228,14 @@ namespace WarScript
         // Null otherwise.
         private List<(string Name, string? File, string? Source, int Line, int Column)>? _constantWrites;
 
+        // While Compile() runs: every operator or `::` check whose operand
+        // reads a global or an `E :: x` of one (T3.8, PROP-28; the check
+        // gets the type of such a read and returns the error message or
+        // null), and the type of every `const`'s value; checked by
+        // CheckTypedOperands once the module set is compiled. Null otherwise.
+        private List<(System.Func<System.Func<string, Compiler.StaticType>, string?> Check, string? File, string? Source, int Line, int Column)>? _typedOperands;
+        private Dictionary<string, System.Func<System.Func<string, Compiler.StaticType>, Compiler.StaticType>>? _constantTypes;
+
         // While Compile() runs: the errors found so far (T3.8), each once, in
         // the order found: those the compiler recovered from at a statement
         // or definition boundary, then those of the module-set checks
@@ -654,6 +662,8 @@ namespace WarScript
             _globalWritesUnknown = false;
             _calls = new List<(string, int, bool, string?, string?, int, int)>();
             _constantWrites = new List<(string, string?, string?, int, int)>();
+            _typedOperands = new List<(System.Func<System.Func<string, Compiler.StaticType>, string?>, string?, string?, int, int)>();
+            _constantTypes = new Dictionary<string, System.Func<System.Func<string, Compiler.StaticType>, Compiler.StaticType>>(System.StringComparer.Ordinal);
             _compileErrors = new List<Exception.SyntaxException>();
             DefinitionContext.PushScope(_definitionScope);
             try
@@ -674,6 +684,7 @@ namespace WarScript
                 CheckGlobalReads();
                 CheckCalls();
                 CheckConstantWrites();
+                CheckTypedOperands();
 
                 // Every error the compiler recovered from and the module-set
                 // checks found (T3.8), the first being the one the entry
@@ -751,6 +762,8 @@ namespace WarScript
                 _globalWritesUnknown = false;
                 _calls = null;
                 _constantWrites = null;
+                _typedOperands = null;
+                _constantTypes = null;
                 _compileErrors = null;
                 _parsingImports = null;
                 ParsingFile = null;
@@ -1314,6 +1327,90 @@ namespace WarScript
                 if (ConstantNames.Contains(name))
                     ReportCompileError(new Exception.CompileError($"Cannot reassign constant '{name}'", file, line, column)
                         .LocateIn(file, source));
+        }
+
+        /// <summary>True while <see cref="Compile"/> runs: the compiler records the checks of <see cref="CheckTypedOperands"/>.</summary>
+        internal bool CollectsTypedOperands => _typedOperands != null;
+
+        /// <summary>
+        /// Records a check of an operator or <c>::</c> at
+        /// <paramref name="line"/>, <paramref name="column"/> of
+        /// <paramref name="file"/> whose operand reads a global, or an
+        /// <c>E :: x</c> of one (T3.8, PROP-28), for
+        /// <see cref="CheckTypedOperands"/>. Ignored outside <see cref="Compile"/>.
+        /// </summary>
+        internal void CheckTypedOperand(System.Func<System.Func<string, Compiler.StaticType>, string?> check, string? file, int line, int column) =>
+            _typedOperands?.Add((check, file, ParsingSource, line, column));
+
+        /// <summary>
+        /// Records the type of the value a <c>const</c> declaration writes
+        /// to the global <paramref name="name"/> (given the types of the
+        /// constants and enum members it reads), for
+        /// <see cref="CheckTypedOperands"/>. Ignored outside <see cref="Compile"/>.
+        /// </summary>
+        internal void DeclareConstantType(string name, System.Func<System.Func<string, Compiler.StaticType>, Compiler.StaticType> type)
+        {
+            if (_constantTypes != null) _constantTypes[name] = type;
+        }
+
+        /// <summary>
+        /// PROP-28 for constants and enum members (T3.8): every recorded
+        /// operator or <c>::</c> check is run again with the type of each
+        /// global it reads that is a <c>const</c> of the module set (the type
+        /// of its declared value) or of each <c>E :: x</c> where <c>E</c> is
+        /// an enum declared at a file's top level (a member or <c>count</c>:
+        /// a number; <c>values</c>, <c>names</c>: an array;
+        /// <c>E :: name [...]</c>: a text), and its error is reported at the
+        /// operator. Such a global holds nothing else whenever it is read
+        /// without an error: no other write compiles (<see cref="CheckConstantWrites"/>),
+        /// and a read before the declaration runs is a NameError. So a name
+        /// the instance or the host already holds when <see cref="Compile"/>
+        /// runs is not typed, and nothing is checked when a bytecode import
+        /// (whose writes are unknown) is in the module set. Host constants
+        /// are not typed: a manifest's stub holds null.
+        /// </summary>
+        private void CheckTypedOperands()
+        {
+            if (_typedOperands == null || _typedOperands.Count == 0 || _globalWritesUnknown) return;
+            var known = new Dictionary<string, Compiler.StaticType>(System.StringComparer.Ordinal);
+            var visiting = new HashSet<string>(System.StringComparer.Ordinal);
+
+            Compiler.StaticType TypeOfName(string key)
+            {
+                if (known.TryGetValue(key, out var type)) return type;
+                type = Compiler.StaticType.Unknown;
+                var separator = key.IndexOf("::", System.StringComparison.Ordinal);
+                var global = separator < 0 ? key : key.Substring(0, separator);
+                if (ConstantNames.Contains(global) && !UserMemoryScope.TryGet(global, out _))
+                {
+                    if (separator < 0)
+                    {
+                        // A cycle (`const A = B + 1`, `const B = A + 1`)
+                        // reads a constant before its declaration runs.
+                        if (_constantTypes!.TryGetValue(key, out var typeOf) && visiting.Add(key))
+                        {
+                            type = typeOf(TypeOfName);
+                            visiting.Remove(key);
+                        }
+                    }
+                    else if (_enumMembers != null && _enumMembers.TryGetValue(global, out var members))
+                    {
+                        var member = key.Substring(separator + 2);
+                        if (member == "name[]") type = Compiler.StaticType.Text;
+                        else if (member == "values" || member == "names") type = Compiler.StaticType.Array;
+                        else if (members.Contains(member)) type = Compiler.StaticType.Number;
+                    }
+                }
+                known[key] = type;
+                return type;
+            }
+
+            foreach (var (check, file, source, line, column) in _typedOperands)
+            {
+                var message = check(TypeOfName);
+                if (message != null)
+                    ReportCompileError(new Exception.CompileError(message, file, line, column).LocateIn(file, source));
+            }
         }
 
         /// <summary>
