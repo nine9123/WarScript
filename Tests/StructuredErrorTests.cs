@@ -120,6 +120,9 @@ fun main []
     fire []
 end
 main []
+if false
+    missing = 0
+end
 ");
             s = script;
             AddNative(script, "fire", 0, _ =>

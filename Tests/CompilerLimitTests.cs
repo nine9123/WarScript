@@ -117,8 +117,8 @@ namespace Tests
             CollectionAssert.AreEqual(new[] { "2" }, output);
         }
 
-        [TestCase("print f [{0}]")]                                                      // Call
-        [TestCase("fun g []\n    return f [{0}]\nend")]                                    // TailCall
+        [TestCase("f = null\nprint f [{0}]")]                                            // Call
+        [TestCase("f = null\nfun g []\n    return f [{0}]\nend")]                          // TailCall
         [TestCase("fun g [h]\n    return h [{0}]\nend")]                                   // CallValue
         [TestCase("class C\n    fun m []\n    end\nend\nc = new C\nprint c :: m [{0}]")]   // CallMethod
         [TestCase("class C [{1}]\nend\nc = new C [{0}]")]                                         // NewInstance

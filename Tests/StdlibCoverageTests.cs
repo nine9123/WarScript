@@ -163,9 +163,10 @@ namespace Tests
         public void NativeCall_WrongArity_IsUndefinedFunction()
         {
             // Lookup is by (name, argCount), so a wrong arity fails resolution
-            // before the native body ever runs.
-            var output = Output("begin\nprint sqrt []\nrescue e\nprint e\nend");
-            Assert.AreEqual("Function 'sqrt' with 0 args is not defined", output[0]);
+            // before the native body ever runs: the compiler reports it (T3.8).
+            var e = Assert.Catch<WarScript.Exception.SyntaxException>(() =>
+                Output("begin\nprint sqrt []\nrescue e\nprint e\nend"));
+            StringAssert.Contains("Function 'sqrt' takes 1 argument, not 0", e.Message);
         }
 
         [Test]

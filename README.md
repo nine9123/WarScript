@@ -418,6 +418,13 @@ imports, which share one namespace. So is a function with the name and an arity 
 function`); a method may take a native's name, and then a bare call inside its class reaches the
 method (the host log says `Shadowing native function 'abs'`).
 
+A call to a name that no function of the script, its imports, their classes' methods or the host
+defines is a compile error (`Function 'heal' is not defined`), and so is a call with an argument
+count no function of that name takes, which lists the counts it does take (`Function 'add' takes
+2 arguments, not 3`). A call compiles when the name is a global written anywhere (it may hold a
+lambda); if it holds no function at runtime the call raises a `NameError`. A function defined
+inside another function or a block is never found by a call.
+
 #### Locals and globals
 
 Inside a function, method or lambda, every name the body assigns is a **local of the whole body**
@@ -825,8 +832,8 @@ stop_coroutine [id]
 stop_all_coroutines []
 ```
 
-> `start_coroutine ["patrol"]` — with only one argument — fails with
-> `Function 'start_coroutine' with 1 args is not defined`, because native functions are matched on
+> `start_coroutine ["patrol"]` — with only one argument — does not compile:
+> `Function 'start_coroutine' takes 2 arguments, not 1`, because native functions are matched on
 > exact arity. Always pass the second argument: `start_coroutine ["patrol", {}]`.
 
 Arguments are passed as an array and bound to the coroutine function's parameters:
@@ -1430,7 +1437,7 @@ ingredients:
 | Code up to the first `yield` runs, then nothing ever happens again | The host never calls `TickCoroutines(dt)`. | Call `script.TickCoroutines(dt)` every tick |
 | `yield` advances but `yield wait N` never completes | `dt` is zero (paused game), or is not in seconds. | Pass real elapsed seconds as `F64` — e.g. `F64.Ratio(1, 60)` |
 | `StartCoroutine` returns `-1` and nothing runs | The function name/arity does not resolve: wrong argument count, or the name is a **class method** (only top-level functions can be coroutines). The result's `Error` says which (a `NameError`). Like any error at a host entry, it also halts the instance. | Match the arity; move the body to a top-level function; `ClearFault()` |
-| Log shows `Function 'start_coroutine' with 1 args is not defined` | Native functions match on exact arity. | `start_coroutine ["name", {}]` — pass the args array even when empty |
+| Compile error `Function 'start_coroutine' takes 2 arguments, not 1` | Native functions match on exact arity. | `start_coroutine ["name", {}]` — pass the args array even when empty |
 | A `loop`+`yield` coroutine only advances one iteration per tick | Correct by design: one resume per coroutine per `TickCoroutines` call, regardless of how large `dt` is. | Tick more often, or don't `yield` in the inner loop |
 | A looping coroutine seems to skip a tick between repetitions | Also by design: `loop: true` restarts the function on the *next* tick after it completes. | — |
 | Every coroutine stopped, and nothing runs any more | An uncaught error inside a coroutine ended it, and — because `TickCoroutines` is a host entry — halted the instance, which clears all coroutines. `TickCoroutines` returned that error, `IsHalted` is true and `Fault` holds it. | Check the logger output or the result; `ClearFault()` and restart them |

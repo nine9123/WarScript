@@ -15,6 +15,9 @@ begin
 rescue e
     print e + 1
 end
+if false
+    missing = 0   # a global, so the call compiles (T3.8)
+end
 # expect: Division by zero
 # expect: Function 'missing' with 0 args is not defined
 # expect: 43

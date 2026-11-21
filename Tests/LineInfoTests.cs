@@ -112,7 +112,7 @@ namespace Tests
         [Test]
         public void MultiLineCall_UsesTheStatementsFirstLine()
         {
-            var (body, _) = Compile("x = 1\ny = max [\n    x,\n    2\n]\n");
+            var (body, _) = Compile("x = 1\ny = max [\n    x,\n    2\n]\nfun max [a, b] return a end\n");
             CollectionAssert.AreEqual(new[] { 2 }, LinesOf(body, OpCode.Call));
         }
 

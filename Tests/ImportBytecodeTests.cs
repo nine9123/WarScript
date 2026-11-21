@@ -27,18 +27,25 @@ namespace Tests
         /// call is resolved against the callee's declared parameters while
         /// parsing, so the signatures have to be in scope at compile time.
         /// Imports are resolved when compiling (T3.7), so the build has to
-        /// find them: here every imported path is an empty file. The saved
-        /// bytecode holds only this file's definitions.
+        /// find them: here every imported path is an empty file unless
+        /// <paramref name="imports"/> gives its source (a call into an import
+        /// must find the function, T3.8). The saved bytecode holds only this
+        /// file's definitions.
         /// </summary>
-        private static byte[] Compile(string source)
+        private static byte[] Compile(string source, Dictionary<string, string> imports = null)
         {
-            var script = new WarScriptLanguage("precompiled", source, _ => "", null);
+            var script = new WarScriptLanguage("precompiled", source,
+                path => imports != null && imports.TryGetValue(path, out var src) ? src : "", null);
             WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
 
             var stream = new MemoryStream();
             script.SaveBytecode(stream);
             return stream.ToArray();
         }
+
+        /// <summary>The source of an import 'inner' defining <c>inner_fn []</c>, for a build of its importer.</summary>
+        private static Dictionary<string, string> InnerFn =>
+            new Dictionary<string, string> { ["inner"] = "fun inner_fn [] return 0 end" };
 
         private static (WarScriptLanguage script, List<string> output) Run(
             string source,
@@ -113,7 +120,7 @@ namespace Tests
         {
             var bytecode = new Dictionary<string, byte[]>
             {
-                ["outer"] = Compile("import \"inner\"\nfun outer_fn [] return inner_fn [] + 1 end"),
+                ["outer"] = Compile("import \"inner\"\nfun outer_fn [] return inner_fn [] + 1 end", InnerFn),
                 ["inner"] = Compile("fun inner_fn [] return 41 end")
             };
             var (_, output) = Run("import \"outer\"\nprint outer_fn []", bytecode);
@@ -161,7 +168,7 @@ namespace Tests
         {
             var bytecode = new Dictionary<string, byte[]>
             {
-                ["outer"] = Compile("import \"inner\"\nfun outer_fn [] return inner_fn [] + 1 end")
+                ["outer"] = Compile("import \"inner\"\nfun outer_fn [] return inner_fn [] + 1 end", InnerFn)
             };
             var files = new Dictionary<string, string>
             {
@@ -319,7 +326,7 @@ namespace Tests
         {
             var bytecode = new Dictionary<string, byte[]>
             {
-                ["outer"] = Compile("import \"inner\"\nprint \"outer\"\nfun outer_fn [] return inner_fn [] + 1 end")
+                ["outer"] = Compile("import \"inner\"\nprint \"outer\"\nfun outer_fn [] return inner_fn [] + 1 end", InnerFn)
             };
             var files = new Dictionary<string, string> { ["inner"] = "print \"inner\"\nfun inner_fn [] return 1 end" };
             var output = new List<string>();

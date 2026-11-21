@@ -493,17 +493,28 @@ namespace Tests
         [Test]
         public void CallUndefinedFunction_MessageNamesFunctionAndArity()
         {
-            var output = Run("begin\nnope [1]\nrescue e\nprint e\nend");
+            // The compiler reports a call nothing can answer (T3.8), so the
+            // name is a global written on a path that never runs.
+            var output = Run("if false\nnope = 0\nend\nbegin\nnope [1]\nrescue e\nprint e\nend");
             Assert.AreEqual("Function 'nope' with 1 args is not defined", output[0]);
         }
 
         [Test]
-        public void CallWithWrongArity_IsUndefined()
+        public void CallUndefinedFunction_IsACompileError()
         {
-            var output = Run(
+            var e = Assert.Catch<WarScript.Exception.SyntaxException>(() => Run("begin\nnope [1]\nrescue e\nprint e\nend"));
+            StringAssert.Contains("Function 'nope' is not defined", e.Message);
+            Assert.AreEqual(2, e.Line);
+        }
+
+        [Test]
+        public void CallWithWrongArity_IsACompileError()
+        {
+            var e = Assert.Catch<WarScript.Exception.SyntaxException>(() => Run(
                 "fun f [a] return a end\n" +
-                "begin\nf [1, 2]\nrescue e\nprint e\nend");
-            Assert.AreEqual("Function 'f' with 2 args is not defined", output[0]);
+                "begin\nf [1, 2]\nrescue e\nprint e\nend"));
+            StringAssert.Contains("Function 'f' takes 1 argument, not 2", e.Message);
+            Assert.AreEqual(3, e.Line);
         }
 
         [Test]

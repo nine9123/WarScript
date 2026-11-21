@@ -204,6 +204,13 @@ namespace WarScript
         private List<(string Name, bool ClassBody, string? File, string? Source, int Line, int Column)>? _globalReads;
         private HashSet<string>? _globalWrites;
         private bool _globalWritesUnknown;
+
+        // While Compile() runs: every call by name (Call, TailCall) the
+        // compiler emitted (T3.8; ClassBody: in a class body, where the VM's
+        // function-value fallback looks in the instance's fields first);
+        // checked by CheckCalls once the module set is compiled. Null
+        // otherwise.
+        private List<(string Name, int Arguments, bool ClassBody, string? File, string? Source, int Line, int Column)>? _calls;
         private Dictionary<string, HashSet<string>>? _enumMembers;
         private WarVM? _cachedVM;
 
@@ -622,6 +629,7 @@ namespace WarScript
             _globalReads = new List<(string, bool, string?, string?, int, int)>();
             _globalWrites = new HashSet<string>(System.StringComparer.Ordinal);
             _globalWritesUnknown = false;
+            _calls = new List<(string, int, bool, string?, string?, int, int)>();
             DefinitionContext.PushScope(_definitionScope);
             try
             {
@@ -639,6 +647,7 @@ namespace WarScript
                 CheckInstantiations();
                 CheckProperties();
                 CheckGlobalReads();
+                CheckCalls();
 
                 // Warnings as errors (PROP-31): the script does not compile,
                 // and every warning is reported as an error.
@@ -706,6 +715,7 @@ namespace WarScript
                 _globalReads = null;
                 _globalWrites = null;
                 _globalWritesUnknown = false;
+                _calls = null;
                 _parsingImports = null;
                 ParsingFile = null;
                 ParsingSource = null;
@@ -1163,6 +1173,79 @@ namespace WarScript
                 }
                 throw new Exception.CompileError(Bytecode.WarVM.UndefinedVariableMessage(name), file, line, column)
                     .LocateIn(file, source);
+            }
+        }
+
+        /// <summary>
+        /// Records a call by name of <paramref name="name"/> with
+        /// <paramref name="arguments"/> arguments at <paramref name="line"/>,
+        /// <paramref name="column"/> of <paramref name="file"/> (T3.8;
+        /// <paramref name="classBody"/>: in a class body), checked by
+        /// <see cref="CheckCalls"/> once the module set is compiled. Ignored
+        /// outside <see cref="Compile"/>.
+        /// </summary>
+        internal void CheckCall(string name, int arguments, bool classBody, string? file, int line, int column) =>
+            _calls?.Add((name, arguments, classBody, file, ParsingSource, line, column));
+
+        /// <summary>
+        /// The compile error for the first recorded call by name (T3.8,
+        /// DEC-21) that can only raise NameError at runtime: no function of
+        /// that name (<c>Function 'f' is not defined</c>) or none taking that
+        /// many arguments (<c>Function 'f' takes 1 or 2 arguments, not 3</c>)
+        /// anywhere a call can find one — the top level of each file of the
+        /// module set, the methods of its classes (a function called from a
+        /// method finds the method's class), the host's scopes — and no
+        /// global of that name that could hold a function value (the VM's
+        /// fallback): none the module set writes, none defined when
+        /// <see cref="Compile"/> runs and, in a class body, no field of a
+        /// class of the module set. A function defined inside a function or
+        /// a block is never found by a call at runtime, so it does not count.
+        /// Nothing is checked when a bytecode import is in the module set
+        /// (which globals it writes is not known).
+        /// </summary>
+        private void CheckCalls()
+        {
+            if (_calls == null || _calls.Count == 0 || _globalWritesUnknown) return;
+            var arities = new Dictionary<string, SortedSet<int>>(System.StringComparer.Ordinal);
+            void Add(DefinitionScope scope)
+            {
+                foreach (var f in scope.Functions)
+                {
+                    if (!arities.TryGetValue(f.Details.Name, out var set))
+                        arities[f.Details.Name] = set = new SortedSet<int>();
+                    for (var a = f.Details.MinArity; a <= f.Details.Arguments.Count; a++) set.Add(a);
+                }
+            }
+            Add(_definitionScope);
+            if (_parsingImports != null)
+                foreach (var imported in _parsingImports) Add(imported);
+            for (var host = _definitionScope.Parent; host != null; host = host.Parent) Add(host);
+            foreach (var c in ModuleSetClasses()) Add(c.GetDefinitionScope());
+
+            HashSet<string>? fields = null;
+
+            foreach (var (name, arguments, classBody, file, source, line, column) in _calls)
+            {
+                arities.TryGetValue(name, out var set);
+                if (set != null && set.Contains(arguments)) continue;
+                if (_globalWrites!.Contains(name) || UserMemoryScope.TryGet(name, out _)) continue;
+                if (classBody)
+                {
+                    if (fields == null)
+                    {
+                        fields = new HashSet<string>(System.StringComparer.Ordinal);
+                        foreach (var c in ModuleSetClasses())
+                        {
+                            fields.UnionWith(c.ClassDetails.Properties);
+                            if (c.Fields != null) fields.UnionWith(c.Fields);
+                        }
+                    }
+                    if (fields.Contains(name)) continue;
+                }
+                var message = set == null
+                    ? $"Function '{name}' is not defined"
+                    : $"Function '{name}' takes {ArityList(set)}, not {arguments.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+                throw new Exception.CompileError(message, file, line, column).LocateIn(file, source);
             }
         }
 

@@ -922,6 +922,7 @@ namespace WarScript.Bytecode
                 int line = Line(stmt);
                 foreach (var arg in tailCall.ArgumentExpression)
                     CompileExpression(arg);
+                CheckCall(tailCall);
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(tailCall.Name));
                 Chunk.EmitOp(OpCode.TailCall, line);
                 Chunk.EmitU16(nameIdx, line);
@@ -1795,11 +1796,29 @@ namespace WarScript.Bytecode
             {
                 foreach (var arg in call.ArgumentExpression)
                     CompileExpression(arg);
+                CheckCall(call);
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(call.Name));
                 Chunk.EmitOp(OpCode.Call, _line);
                 Chunk.EmitU16(nameIdx, _line);
                 EmitArgCount(call.ArgumentExpression.Count, _line);
             }
+        }
+
+        /// <summary>
+        /// A call by name (<c>Call</c>, <c>TailCall</c>) must name a function
+        /// taking that many arguments, or a global that may hold a function
+        /// value (T3.8): recorded for <see cref="WarScriptLanguage.CheckCall"/>,
+        /// checked once the module set is compiled, at the function name. In
+        /// a class body the VM's fallback looks in the instance's fields
+        /// first, so a call naming a field of the class (or any call, when
+        /// its fields are unknown) is not recorded.
+        /// </summary>
+        private void CheckCall(FunctionExpression call)
+        {
+            if (_classBody && (_classFields == null || _classFields.Contains(call.Name))) return;
+            var onThisLine = call.Line > 0 && call.Line == _line;
+            _script.CheckCall(call.Name, call.ArgumentExpression.Count, _classBody, _source,
+                onThisLine ? call.Line : _line, onThisLine ? call.Column : _column);
         }
 
         // ── Class instantiation: new ClassName[args] ──

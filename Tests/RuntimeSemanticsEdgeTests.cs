@@ -54,8 +54,9 @@ end
         {
             // Lambdas have no closures: inside the lambda body, a function-local
             // variable holding the lambda itself is not visible, so the
-            // self-call resolves to an undefined function (catchable).
-            var output = Run(@"
+            // self-call names an undefined function: a compile error since
+            // T3.8 (it was a catchable runtime error).
+            var e = Assert.Catch<WarScript.Exception.SyntaxException>(() => Run(@"
 fun run_deep []
     step = fun [n]
         if n == 0
@@ -70,8 +71,9 @@ begin
 rescue err
     print ""caught: "" + err
 end
-");
-            Assert.AreEqual("caught: Function 'step' with 1 args is not defined", output[0]);
+"));
+            StringAssert.Contains("Function 'step' is not defined", e.Message);
+            Assert.AreEqual(7, e.Line);
         }
 
         [Test]
