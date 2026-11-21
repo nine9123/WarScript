@@ -1054,6 +1054,10 @@ if (!compiled.Success)
         Debug.LogError(d);               // "example:4:1: error: more than 255 arguments in a call"
 ```
 
+A syntax error stops the compile at the first one. The checks that need the whole script and its
+imports (an unknown function, class, `::` name or variable, a write to a constant) report every
+error they find; the `CompileError` result of `Run()`/`Call()` carries the first.
+
 A successful compile can also carry warnings (`Severity` `Warning`), such as
 `local 'x' is assigned but never read` for a function local nothing reads — usually a typo on the
 left of an assignment — and `unreachable code after 'return'` (or `'break'`, `'next'`, `'raise'`)

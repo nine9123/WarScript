@@ -227,6 +227,11 @@ namespace WarScript
         // checked by CheckConstantWrites once the module set is compiled.
         // Null otherwise.
         private List<(string Name, string? File, string? Source, int Line, int Column)>? _constantWrites;
+
+        // While Compile() runs: the errors the module-set checks found
+        // (CheckInstantiations to CheckConstantWrites, T3.8), each once, in
+        // the order found; null otherwise. Every one is reported.
+        private List<Exception.SyntaxException>? _moduleSetErrors;
         private Dictionary<string, HashSet<string>>? _enumMembers;
         private WarVM? _cachedVM;
 
@@ -647,6 +652,7 @@ namespace WarScript
             _globalWritesUnknown = false;
             _calls = new List<(string, int, bool, string?, string?, int, int)>();
             _constantWrites = new List<(string, string?, string?, int, int)>();
+            _moduleSetErrors = new List<Exception.SyntaxException>();
             DefinitionContext.PushScope(_definitionScope);
             try
             {
@@ -666,6 +672,23 @@ namespace WarScript
                 CheckGlobalReads();
                 CheckCalls();
                 CheckConstantWrites();
+
+                // Every error the module-set checks found (T3.8), the first
+                // being the one the entry points report, then the warnings.
+                if (_moduleSetErrors.Count > 0)
+                {
+                    RollBackCompile(constantsBefore);
+                    var diagnostics = new List<CompileDiagnostic>(_moduleSetErrors.Count + warnings.Count);
+                    foreach (var error in _moduleSetErrors)
+                    {
+                        error.LocateIn(ScriptName, _sourceCode);
+                        diagnostics.Add(Diagnose(error));
+                    }
+                    diagnostics.AddRange(warnings);
+                    _compileError = _moduleSetErrors[0];
+                    _compileResult = new CompileResult(false, diagnostics.ToArray());
+                    return _compileResult;
+                }
 
                 // Warnings as errors (PROP-31): the script does not compile,
                 // and every warning is reported as an error.
@@ -735,6 +758,7 @@ namespace WarScript
                 _globalWritesUnknown = false;
                 _calls = null;
                 _constantWrites = null;
+                _moduleSetErrors = null;
                 _parsingImports = null;
                 ParsingFile = null;
                 ParsingSource = null;
@@ -985,7 +1009,7 @@ namespace WarScript
             _instantiations?.Add((className, arguments, nested, file, ParsingSource, line, column));
 
         /// <summary>
-        /// The compile error for the first recorded <c>new C [...]</c> (T3.8,
+        /// The compile errors for every recorded <c>new C [...]</c> (T3.8,
         /// PROP-29) whose class is no class of the module set or the host
         /// (<c>Class 'C' is not defined</c>, as the VM would raise), or that
         /// takes another number of arguments than every class named
@@ -1024,7 +1048,7 @@ namespace WarScript
                 else if (arguments >= 0 && !set.Contains(arguments))
                     message = ConstructorArityMessage(name, ArityList(set), arguments);
                 else continue;
-                throw new Exception.CompileError(message, file, line, column).LocateIn(file, source);
+                ReportModuleSetError(new Exception.CompileError(message, file, line, column).LocateIn(file, source));
             }
         }
 
@@ -1080,7 +1104,7 @@ namespace WarScript
             _propertyUses?.Add((name, enumName, file, ParsingSource, line, column));
 
         /// <summary>
-        /// The compile error for the first recorded <c>::</c> (T3.8, PROP-29)
+        /// The compile errors for every recorded <c>::</c> (T3.8, PROP-29)
         /// that can only fail at runtime:
         /// <list type="bullet">
         /// <item><c>E :: X</c> or <c>E :: X [...]</c> where <c>E</c> is an
@@ -1132,7 +1156,7 @@ namespace WarScript
                 else if (namesKnown && !names.Contains(name))
                     message = $"'{name}' is not a field or method of any class";
                 if (message != null)
-                    throw new Exception.CompileError(message, file, line, column).LocateIn(file, source);
+                    ReportModuleSetError(new Exception.CompileError(message, file, line, column).LocateIn(file, source));
             }
         }
 
@@ -1157,7 +1181,7 @@ namespace WarScript
         internal void DeclareGlobalWrite(string name) => _globalWrites?.Add(name);
 
         /// <summary>
-        /// The compile error <c>undefined variable 'x'</c> for the first
+        /// The compile error <c>undefined variable 'x'</c> for every
         /// recorded global read (T3.8, PROP-27, DEC-21) of a name that no file
         /// of the module set ever writes as a global and that is not defined
         /// when <see cref="Compile"/> runs (a host global, or a global the
@@ -1190,8 +1214,8 @@ namespace WarScript
                     }
                     if (fields.Contains(name)) continue;
                 }
-                throw new Exception.CompileError(Bytecode.WarVM.UndefinedVariableMessage(name), file, line, column)
-                    .LocateIn(file, source);
+                ReportModuleSetError(new Exception.CompileError(Bytecode.WarVM.UndefinedVariableMessage(name), file, line, column)
+                    .LocateIn(file, source));
             }
         }
 
@@ -1207,7 +1231,7 @@ namespace WarScript
             _calls?.Add((name, arguments, classBody, file, ParsingSource, line, column));
 
         /// <summary>
-        /// The compile error for the first recorded call by name (T3.8,
+        /// The compile errors for every recorded call by name (T3.8,
         /// DEC-21) that can only raise NameError at runtime: no function of
         /// that name (<c>Function 'f' is not defined</c>) or none taking that
         /// many arguments (<c>Function 'f' takes 1 or 2 arguments, not 3</c>)
@@ -1264,7 +1288,7 @@ namespace WarScript
                 var message = set == null
                     ? $"Function '{name}' is not defined"
                     : $"Function '{name}' takes {ArityList(set)}, not {arguments.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
-                throw new Exception.CompileError(message, file, line, column).LocateIn(file, source);
+                ReportModuleSetError(new Exception.CompileError(message, file, line, column).LocateIn(file, source));
             }
         }
 
@@ -1280,7 +1304,7 @@ namespace WarScript
             _constantWrites?.Add((name, file, ParsingSource, line, column));
 
         /// <summary>
-        /// The compile error <c>Cannot reassign constant 'X'</c> for the first
+        /// The compile error <c>Cannot reassign constant 'X'</c> for every
         /// recorded bare assignment (T3.8) of a name that is a constant once the
         /// module set is parsed: a <c>const</c> or <c>enum</c> of any of its
         /// files, or a host constant. The parser rejects a reassignment it
@@ -1295,8 +1319,24 @@ namespace WarScript
             if (_constantWrites == null) return;
             foreach (var (name, file, source, line, column) in _constantWrites)
                 if (ConstantNames.Contains(name))
-                    throw new Exception.CompileError($"Cannot reassign constant '{name}'", file, line, column)
-                        .LocateIn(file, source);
+                    ReportModuleSetError(new Exception.CompileError($"Cannot reassign constant '{name}'", file, line, column)
+                        .LocateIn(file, source));
+        }
+
+        /// <summary>
+        /// Records an error of a module-set check (T3.8), unless the same
+        /// message was already recorded at the same place (code the compiler
+        /// emits twice, an ensure body inlined where a <c>break</c>/<c>next</c>
+        /// leaves it, records its uses twice).
+        /// </summary>
+        private void ReportModuleSetError(Exception.SyntaxException error)
+        {
+            var reason = error is Exception.CompileError c ? c.Reason : error.Message;
+            foreach (var e in _moduleSetErrors!)
+                if ((e is Exception.CompileError ce ? ce.Reason : e.Message) == reason && e.ScriptName == error.ScriptName
+                    && e.Line == error.Line && e.Column == error.Column)
+                    return;
+            _moduleSetErrors.Add(error);
         }
 
         /// <summary><c>1 argument</c>, <c>0 or 2 arguments</c>, <c>0, 1 or 2 arguments</c>.</summary>
