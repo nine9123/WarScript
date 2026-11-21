@@ -896,7 +896,10 @@ namespace WarScript.Bytecode
                 // globals), creating the name in the globals.
                 _script.DeclareGlobalWrite(v.Name);
                 if (assign.DeclaresConstant && _script.CollectsTypedOperands)
+                {
                     _script.DeclareConstantType(v.Name, ConstantType(assign.Right));
+                    if (LiteralNumber(assign.Right, out var number)) _script.DeclareConstantNumber(v.Name, number);
+                }
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(v.Name));
                 Chunk.EmitOp(OpCode.SetGlobal, line);
                 Chunk.EmitU16(nameIdx, line);
@@ -1134,13 +1137,26 @@ namespace WarScript.Bytecode
 
             // The loop runs while `i < limit`, so a step that is not
             // positive either never runs the body or never ends it: a
-            // literal one is a compile error (T3.8).
-            var stepError = NonPositiveStepError(stmt.Step);
-            if (stepError != null)
+            // literal one is a compile error (T3.8), at the step.
+            var outerColumn = _column;
+            if (stmt.StepColumn > 0) SetColumn(stmt.StepColumn);
+            if (LiteralNumber(stmt.Step, out var stepValue) && stepValue <= F64.Zero)
+                throw new CompileError(NonPositiveStepError(stepValue), _source, _line, _column);
+            // A `const` step (or a negated one) is checked once the module
+            // set is compiled, with the constant's literal value.
+            var negatedStep = stmt.Step is NegateOperator;
+            var stepName = TypedNameKey(stmt.Step is NegateOperator negate ? negate.Value : stmt.Step);
+            if (stepName != null && stepName.IndexOf("::", System.StringComparison.Ordinal) < 0 && _script.CollectsTypedOperands)
             {
-                if (stmt.StepColumn > 0) SetColumn(stmt.StepColumn);
-                throw new CompileError(stepError, _source, _line, _column);
+                var script = _script;
+                _script.CheckTypedOperand(_ =>
+                {
+                    if (!script.TryConstantNumber(stepName, out var value)) return null;
+                    if (negatedStep) value = -value;
+                    return value <= F64.Zero ? NonPositiveStepError(value) : null;
+                }, _source, _line, _column);
             }
+            SetColumn(outerColumn);
 
             // The first `i < limit` always runs (PROP-28, T3.8): bounds of
             // known types it rejects are a compile error, at the `..` (where
@@ -1200,23 +1216,33 @@ namespace WarScript.Bytecode
         }
 
         /// <summary>
-        /// The error for a range step that is a number literal (or a negated
-        /// one) not greater than 0, else null. A step from a variable, a
-        /// constant or a call is not checked.
+        /// The value of a number literal, or of a negated one (whether the
+        /// lexer folds the sign into the literal or not).
         /// </summary>
-        private static string? NonPositiveStepError(IExpression step)
+        private static bool LiteralNumber(IExpression e, out F64 value)
         {
-            F64 value;
-            if (step is ConstantExpression c && c.Value.IsNumeric)
+            if (e is ConstantExpression c && c.Value.IsNumeric)
+            {
                 value = c.Value.Numeric;
-            else if (step is NegateOperator n && n.Value is ConstantExpression nc && nc.Value.IsNumeric)
+                return true;
+            }
+            if (e is NegateOperator n && n.Value is ConstantExpression nc && nc.Value.IsNumeric)
+            {
                 value = -nc.Value.Numeric;
-            else
-                return null;
-            if (value > F64.Zero) return null;
-            return "The step of a range loop must be greater than 0, not " + WarValue.FormatNumber(value)
-                + ": the loop runs while its variable is less than the upper bound";
+                return true;
+            }
+            value = default;
+            return false;
         }
+
+        /// <summary>
+        /// The error for a range step that is not greater than 0 (T3.8):
+        /// the loop runs while its variable is less than the upper bound, so
+        /// such a step never runs the body or never ends the loop.
+        /// </summary>
+        private static string NonPositiveStepError(F64 step) =>
+            "The step of a range loop must be greater than 0, not " + WarValue.FormatNumber(step)
+            + ": the loop runs while its variable is less than the upper bound";
 
         // ── Iterable loop (loop x in collection) ──
         private void CompileIterableLoop(IterableLoopStatement stmt)

@@ -223,6 +223,61 @@ namespace Tests
             Assert.AreEqual(new[] { "0", "0.5" }, output);
         }
 
+        [TestCase("const STEP = 0\n", "STEP", "0")]
+        [TestCase("const STEP = -0.5\n", "STEP", "-0.5")]
+        [TestCase("const STEP = 2\n", "-STEP", "-2")]
+        [TestCase("", "STEP", "0")]
+        public void ARangeLoopsConstStepNotAboveZero_IsACompileErrorAtTheStep(string before, string step, string shown)
+        {
+            // The last case declares the constant after the loop, in a
+            // function that runs it later.
+            var (script, _) = Script(before +
+                "fun f []\n    loop i in 0..3 by " + step + "\n        print i\n    end\nend\n" +
+                (before == "" ? "const STEP = 0\n" : "") + "f []\n");
+
+            var result = script.Compile();
+
+            Assert.IsFalse(result.Success);
+            Assert.AreEqual(1, result.Diagnostics.Count);
+            StringAssert.StartsWith("The step of a range loop must be greater than 0, not " + shown + ":", result.Diagnostics[0].Message);
+            Assert.AreEqual(before == "" ? 2 : 3, result.Diagnostics[0].Line);
+            Assert.AreEqual(23, result.Diagnostics[0].Column, "at the step");
+        }
+
+        [Test]
+        public void AnImportsRangeLoop_WithItsImportersConstStep_IsChecked()
+        {
+            var (script, _) = Script(
+                "import \"lib\"\nconst STEP = 0\n",
+                new Dictionary<string, string>
+                {
+                    ["lib"] = "fun f []\n    loop i in 0..3 by STEP\n    end\nend\n",
+                });
+
+            var result = script.Compile();
+
+            Assert.IsFalse(result.Success);
+            StringAssert.StartsWith("The step of a range loop must be greater than 0, not 0:", result.Diagnostics[0].Message);
+            Assert.AreEqual("lib", result.Diagnostics[0].ScriptName);
+            Assert.AreEqual(2, result.Diagnostics[0].Line);
+        }
+
+        [Test]
+        public void ARangeLoopsStepFromAConstExpressionOrAGlobal_IsNotChecked()
+        {
+            var (script, output) = Script(
+                "const ONE = 1\n" +
+                "const NONE = ONE - 1\n" +
+                "STEP = 0\n" +
+                "loop i in 1..0 by NONE\n    print i\nend\n" +
+                "loop i in 1..0 by STEP\n    print i\nend\n" +
+                "loop i in 0..2 by ONE\n    print i\nend\n");
+
+            Assert.IsTrue(script.Compile().Success);
+            Assert.IsTrue(script.Run().IsOk);
+            Assert.AreEqual(new[] { "0", "1" }, output);
+        }
+
         [Test]
         public void ARangeLoopsStepError_IsAtTheStep()
         {

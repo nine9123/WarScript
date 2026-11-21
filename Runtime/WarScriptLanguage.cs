@@ -235,6 +235,9 @@ namespace WarScript
         // CheckTypedOperands once the module set is compiled. Null otherwise.
         private List<(System.Func<System.Func<string, Compiler.StaticType>, string?> Check, string? File, string? Source, int Line, int Column)>? _typedOperands;
         private Dictionary<string, System.Func<System.Func<string, Compiler.StaticType>, Compiler.StaticType>>? _constantTypes;
+        // The value of each `const` of the module set declared as a number
+        // literal (or a negated one), for range steps (T3.8). Null outside Compile.
+        private Dictionary<string, FixMath.F64>? _constantNumbers;
 
         // While Compile() runs: the errors found so far (T3.8), each once, in
         // the order found: those the compiler recovered from at a statement
@@ -664,6 +667,7 @@ namespace WarScript
             _constantWrites = new List<(string, string?, string?, int, int)>();
             _typedOperands = new List<(System.Func<System.Func<string, Compiler.StaticType>, string?>, string?, string?, int, int)>();
             _constantTypes = new Dictionary<string, System.Func<System.Func<string, Compiler.StaticType>, Compiler.StaticType>>(System.StringComparer.Ordinal);
+            _constantNumbers = new Dictionary<string, FixMath.F64>(System.StringComparer.Ordinal);
             _compileErrors = new List<Exception.SyntaxException>();
             DefinitionContext.PushScope(_definitionScope);
             try
@@ -764,6 +768,7 @@ namespace WarScript
                 _constantWrites = null;
                 _typedOperands = null;
                 _constantTypes = null;
+                _constantNumbers = null;
                 _compileErrors = null;
                 _parsingImports = null;
                 ParsingFile = null;
@@ -1351,6 +1356,29 @@ namespace WarScript
         internal void DeclareConstantType(string name, System.Func<System.Func<string, Compiler.StaticType>, Compiler.StaticType> type)
         {
             if (_constantTypes != null) _constantTypes[name] = type;
+        }
+
+        /// <summary>
+        /// Records that the <c>const</c> <paramref name="name"/> is declared
+        /// as the number <paramref name="value"/> (a literal), for
+        /// <see cref="TryConstantNumber"/>. Ignored outside <see cref="Compile"/>.
+        /// </summary>
+        internal void DeclareConstantNumber(string name, FixMath.F64 value)
+        {
+            if (_constantNumbers != null) _constantNumbers[name] = value;
+        }
+
+        /// <summary>
+        /// The number a bare read of <paramref name="name"/> gives, when it
+        /// is a <c>const</c> of the module set declared as a number literal;
+        /// only meaningful while <see cref="CheckTypedOperands"/> runs its
+        /// checks (the same conditions as a constant's type there).
+        /// </summary>
+        internal bool TryConstantNumber(string name, out FixMath.F64 value)
+        {
+            value = default;
+            return _constantNumbers != null && !_globalWritesUnknown && ConstantNames.Contains(name)
+                && !UserMemoryScope.TryGet(name, out _) && _constantNumbers.TryGetValue(name, out value);
         }
 
         /// <summary>
