@@ -69,6 +69,10 @@ namespace WarScript.Context.Definition
             return _parent?.GetClass(name);
         }
 
+        /// <summary>The class of that name defined in this scope itself (not its parents), or null.</summary>
+        internal ClassDefinition? GetOwnClass(string name)
+            => _classes.TryGetValue(name, out var classDefinition) ? classDefinition : null;
+
         /// <summary>
         /// Add ClassDefinition to the current block
         /// </summary>
@@ -105,15 +109,26 @@ namespace WarScript.Context.Definition
         /// <summary>
         /// Add FunctionDefinition to the current block
         /// </summary>
-        public void AddFunction(FunctionDefinition functionDefinition)
+        public void AddFunction(FunctionDefinition functionDefinition) => AddFunction(functionDefinition, true);
+
+        /// <param name="reportShadowing">
+        /// False for a definition copied in from an import
+        /// (<see cref="CopyImportedDefinitionsTo"/>): its own file already
+        /// reported shadowing a native when it was defined there.
+        /// </param>
+        private void AddFunction(FunctionDefinition functionDefinition, bool reportShadowing)
         {
             // Check if a native/parent function with the same signature already exists
-            var existing = _parent?.GetFunction(
-                functionDefinition.Details.Name,
-                functionDefinition.Details.Arguments.Count);
-    
-            if (existing is NativeFunctionDefinition)
-                _script.Log($"Shadowing native function '{functionDefinition.Details.Name}'");
+            if (reportShadowing)
+            {
+                var existing = _parent?.GetFunction(
+                    functionDefinition.Details.Name,
+                    functionDefinition.Details.Arguments.Count);
+
+                if (existing is NativeFunctionDefinition)
+                    _script.Log($"Shadowing native function '{functionDefinition.Details.Name}'");
+            }
+
             
             Functions.Add(functionDefinition);
             _script.DefinitionsChanged();
@@ -172,7 +187,7 @@ namespace WarScript.Context.Definition
 
             foreach (var functionDefinition in Functions)
                 if (!IsImported(functionDefinition) && target._imported.Add(functionDefinition))
-                    target.AddFunction(functionDefinition);
+                    target.AddFunction(functionDefinition, false);
         }
 
         /// <summary>

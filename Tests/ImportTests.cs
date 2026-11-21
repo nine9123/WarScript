@@ -228,6 +228,19 @@ namespace Tests
         }
 
         [Test]
+        public void Import_ShadowingANative_LogsOnce()
+        {
+            // Joining the namespace (5.8) copies the import's definitions into
+            // the script's scope; that copy is not a second shadowing.
+            var files = new Dictionary<string, string> { ["lib"] = "fun twice [a] return a end" };
+            var (_, output) = TestHelper.Run("import_test", "import \"lib\"\nprint twice [3]",
+                setupScope: (s, scope) => scope.AddFunction(new WarScript.Context.Definition.NativeFunctionDefinition(
+                    new WarScript.Context.Definition.FunctionDetails("twice", new List<string> { "a" }), args => args[0], "", "")),
+                fileResolver: path => files.TryGetValue(path, out var src) ? src : null);
+            Assert.AreEqual(new[] { "Shadowing native function 'twice'", "3" }, output);
+        }
+
+        [Test]
         public void Import_OfItself_IsACompileError()
         {
             var files = new Dictionary<string, string> { ["a"] = "import \"a\"" };
@@ -358,20 +371,45 @@ namespace Tests
         }
 
         [Test]
-        public void Import_BaseParameterBoundTwice_IsARescuableTypeErrorAtNew()
+        public void Import_BaseParameterBoundTwice_IsACompileError()
         {
-            // Q-16: the bases come from an import, so the compiler cannot
-            // check the bindings; 'new' raises the error instead.
+            // Q-16: the bases come from an import, which Compile() has
+            // compiled before the importer (T3.7), so the bindings are checked
+            // at compile time like those of the file's own classes.
             var files = new Dictionary<string, string>
             {
                 ["ops"] = "class Sub [a, b]\nend\nclass Mul [a, b]\nend"
             };
-            var (_, output) = Run(
+            var (_, result, _) = Compile(
                 "import \"ops\"\n" +
                 "class Calculator [p, q] : Sub [q, p], Mul [p, q]\nend\n" +
-                "begin\n    c = new Calculator [2, 10]\nrescue e\n    print e\nend",
-                files);
-            Assert.AreEqual(new[] { "'a' is bound twice in class 'Calculator': base class 'Mul' binds its parameter 'a' to a different argument" }, output);
+                "c = new Calculator [2, 10]",
+                Files(files));
+            AssertCompileError(result, "'a' is bound twice in class 'Calculator': base class 'Mul' binds its parameter 'a' to a different argument", "import_test", 2);
+        }
+
+        [Test]
+        public void Import_FieldOfAnImportedBase_IsCheckedAtCompileTime()
+        {
+            var files = new Dictionary<string, string> { ["animal"] = "class Animal [name]\n    legs = 4\nend" };
+            var (_, result, _) = Compile(
+                "import \"animal\"\n" +
+                "class Bird [name] : Animal [name]\n    fun wings []\n        return @wingz\n    end\nend",
+                Files(files));
+            AssertCompileError(result, "'wingz' is not a field of class 'Bird'", "import_test", 4);
+        }
+
+        [Test]
+        public void Import_BaseFromAnImportsImport_IsCheckedInTheImport()
+        {
+            // 'shapes' derives from a class of its own import 'base'.
+            var files = new Dictionary<string, string>
+            {
+                ["base"] = "class Shape [id]\nend",
+                ["shapes"] = "import \"base\"\nclass Square [id, side] : Shape [id]\n    fun area []\n        return @sid * @sid\n    end\nend"
+            };
+            var (_, result, _) = Compile("import \"shapes\"\nprint 1", Files(files));
+            AssertCompileError(result, "'sid' is not a field of class 'Square'", "shapes", 4);
         }
 
         [Test]

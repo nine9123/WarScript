@@ -615,9 +615,10 @@ checked against them when the script compiles: `'shield' is not a field of class
 cannot add a field. An instance has one field per name, shared by every class of its inheritance
 chain, so two base classes may not bind parameters of the same name to different arguments:
 `class C [p, q] : Sub [q, p], Mul [p, q]` with `Sub [a, b]` and `Mul [a, b]` is a compile error
-(`'a' is bound twice in class 'C'`); name the base parameters differently. *(v2 in progress: when a
-base class comes from an import, the field check is skipped and the binding error is a rescuable
-TypeError at `new`.)*
+(`'a' is bound twice in class 'C'`); name the base parameters differently. This holds for base
+classes defined in an imported file too. *(v2 in progress: when a base class comes from a
+bytecode import, or is registered by the host, the field check is skipped and the binding error is
+a rescuable TypeError at `new`.)*
 
 ```ruby
 g = 5

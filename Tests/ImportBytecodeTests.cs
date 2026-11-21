@@ -314,5 +314,19 @@ namespace Tests
             StringAssert.Contains("Class 'Unit' is already defined in 'lib'", e.Message);
             Assert.AreEqual(2, e.Line);
         }
+
+        [Test]
+        public void BaseParameterBoundTwice_ThroughABytecodeImport_IsARescuableTypeErrorAtNew()
+        {
+            // Q-16: a bytecode import's classes have no source, so the
+            // compiler cannot check the bindings; 'new' raises the error.
+            var bytecode = new Dictionary<string, byte[]> { ["ops"] = Compile("class Sub [a, b]\nend\nclass Mul [a, b]\nend") };
+            var (_, output) = Run(
+                "import \"ops\"\n" +
+                "class Calculator [p, q] : Sub [q, p], Mul [p, q]\nend\n" +
+                "begin\n    c = new Calculator [2, 10]\nrescue e\n    print e\nend",
+                bytecode);
+            Assert.AreEqual(new[] { "'a' is bound twice in class 'Calculator': base class 'Mul' binds its parameter 'a' to a different argument" }, output);
+        }
     }
 }

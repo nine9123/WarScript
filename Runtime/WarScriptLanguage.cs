@@ -699,6 +699,23 @@ namespace WarScript
         }
 
         /// <summary>
+        /// For a base class the scope chain does not resolve while
+        /// <see cref="Compile"/> compiles (T3.7): the class of that name in
+        /// the imports resolved so far, or null. A class is defined once in
+        /// the module set (PROP-12), so there is at most one.
+        /// </summary>
+        internal Context.Definition.ClassDefinition? FindImportedClass(string name)
+        {
+            if (_parsingImports == null) return null;
+            for (int i = _parsingImports.Count - 1; i >= 0; i--)
+            {
+                var found = _parsingImports[i].GetOwnClass(name);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Expression spans recorded while parsing (T3.2): null, except
         /// during <see cref="ParseForMigration"/>, so a normal parse records
         /// nothing. The migration tool supplies a reference-equality map.

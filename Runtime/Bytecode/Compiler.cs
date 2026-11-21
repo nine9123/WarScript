@@ -283,12 +283,13 @@ namespace WarScript.Bytecode
         /// parameters, the names its body assigns (bare, or as <c>@x</c> /
         /// <c>this :: x</c>) and not declared <c>global</c>, and the fields
         /// of its base classes. Null when a class is not known here (a base
-        /// defined in an import, or one without source: registered by the
-        /// host or loaded from bytecode), shares its name with a nested class
+        /// defined nowhere this compile sees, or one without source:
+        /// registered by the host or loaded from bytecode, a bytecode
+        /// import's included), shares its name with a nested class
         /// of the class deriving from it, or is on its own base path (a
         /// runtime error at <c>new</c>, Q-11): nothing can be checked then.
         /// </summary>
-        private static HashSet<string>? ClassFields(ClassDefinition classDef, List<ClassDefinition> path)
+        private HashSet<string>? ClassFields(ClassDefinition classDef, List<ClassDefinition> path)
         {
             if (classDef.Statement == null) return null;
             var fields = OwnFields(classDef);
@@ -300,7 +301,7 @@ namespace WarScript.Bytecode
                 // nested classes: when one has the base's name, which class
                 // the base is depends on that site, so nothing is checked.
                 if (DefinesNestedClass(classDef, baseType.Name)) return null;
-                var baseDef = classDef.GetDefinitionScope().GetClass(baseType.Name);
+                var baseDef = BaseClass(classDef, baseType.Name);
                 if (baseDef == null || path.Contains(baseDef)) return null;
                 var baseFields = ClassFields(baseDef, path);
                 if (baseFields == null) return null;
@@ -352,7 +353,7 @@ namespace WarScript.Bytecode
                 var derivedParameters = derived.ClassDetails.Properties;
                 foreach (var baseType in derived.BaseTypes)
                 {
-                    var baseDef = derived.GetDefinitionScope().GetClass(baseType.Name)!;
+                    var baseDef = BaseClass(derived, baseType.Name)!;
                     var baseParameters = baseDef.ClassDetails.Properties;
                     var baseBindings = new int[baseParameters.Count];
                     for (int j = 0; j < baseParameters.Count; j++)
@@ -373,6 +374,17 @@ namespace WarScript.Bytecode
                 }
             }
         }
+
+        /// <summary>
+        /// The base class <paramref name="name"/> of <paramref name="derived"/>
+        /// as the VM will find it: in the class's scope chain, else in the
+        /// imports <see cref="WarScriptLanguage.Compile"/> has resolved so far
+        /// (T3.7, 5.8: their classes are the script's once it compiles, and
+        /// a class name is defined once in the module set, PROP-12). Null
+        /// when neither has it.
+        /// </summary>
+        private ClassDefinition? BaseClass(ClassDefinition derived, string name)
+            => derived.GetDefinitionScope().GetClass(name) ?? _script.FindImportedClass(name);
 
         private static bool DefinesNestedClass(ClassDefinition classDef, string name)
         {
