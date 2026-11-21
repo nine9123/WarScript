@@ -108,7 +108,7 @@ assert first_only == {0}
 ran3 = false
 loop i in 0..5
     next
-    ran3 = true
+    ran3 = true    # expect-warning: unreachable code after 'next'
 end
 assert !ran3
 

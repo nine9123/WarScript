@@ -23,7 +23,7 @@ result = "before"
 begin
     result = "inside"
     raise "error"
-    result = "unreachable"
+    result = "unreachable"    # expect-warning: unreachable code after 'raise'
 rescue e
     result = "rescued"
 end
@@ -56,7 +56,7 @@ log = {}
 begin
     log << "begin"
     raise "fail"
-    log << "unreachable"
+    log << "unreachable"    # expect-warning: unreachable code after 'raise'
 rescue e
     log << "rescue"
 ensure
@@ -137,7 +137,7 @@ end
 fun step2 []
     steps << "step2"
     raise "fail at step2"
-    steps << "unreachable"
+    steps << "unreachable"    # expect-warning: unreachable code after 'raise'
 end
 fun step3 []
     steps << "step3"

@@ -467,6 +467,11 @@ end
 create_unit [team: "Red", name: "Soldier", hp: 100]   # → Soldier (100 HP) on team Red
 ```
 
+A parameter given no argument is `null` (so it takes its default). Naming a parameter twice is a
+compile error, and so is a name that is not a parameter of the function. Named arguments are matched
+when the call is parsed, so define the function above the call (or in an import): a call to a
+function defined further down passes them in the order written.
+
 #### Multi-line calls
 
 Argument lists may span lines:
@@ -1015,7 +1020,8 @@ if (!compiled.Success)
 
 A successful compile can also carry warnings (`Severity` `Warning`), such as
 `local 'x' is assigned but never read` for a function local nothing reads — usually a typo on the
-left of an assignment. Set `WarningsAsErrors = true` before the first compile (a mod archive build
+left of an assignment — and `unreachable code after 'return'` (or `'break'`, `'next'`, `'raise'`)
+for a statement that follows one in the same block. Set `WarningsAsErrors = true` before the first compile (a mod archive build
 should) to make any warning fail the compile like an error:
 
 ```csharp
@@ -1450,7 +1456,8 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 - `grid{0}{1}` does not chain — assign the inner array to a temporary first.
 - There is no postfix call on an index expression (`arr{0}[args]`) — use a temporary.
 - A `fun` nested inside another `fun` is not callable from the outer body; use a lambda value.
-- `this` outside a class method is a `NameError` (`'this' can only be used inside a class`).
+- `this` (or `@x`) outside every class is a compile error (`'this' and '@' fields can only be used
+  inside a class`).
 - A raw `"""..."""` literal cannot contain a run of three quotes, and does not interpolate.
 - An unknown escape sequence, an unterminated literal, and an unterminated `{` interpolation are
   all syntax errors — they used to be accepted silently.

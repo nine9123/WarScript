@@ -203,6 +203,7 @@ namespace WarScript.Bytecode
             CompileDefinitions(defScope);
 
             // Compile main body
+            WarnUnreachable(program);
             foreach (var stmt in program.StatementsToExecute)
                 CompileStatement(stmt);
 
@@ -250,6 +251,7 @@ namespace WarScript.Bytecode
 
             // Compile function body (nested definitions are compiled separately
             // via the flat CompileAllDefinitions walk)
+            child.WarnUnreachable(funcDef.Statement);
             foreach (var stmt in funcDef.Statement.StatementsToExecute)
                 child.CompileStatement(stmt);
             child.WarnUnreadLocals();
@@ -422,6 +424,7 @@ namespace WarScript.Bytecode
             child._constructorParameters = classDef.ClassDetails.Properties.ToArray();
             child._declaredGlobals = BodyNames.Collect(classDef.ClassDetails.Properties, classDef.Statement, _source, classBody: true).Globals;
 
+            child.WarnUnreachable(classDef.Statement);
             foreach (var stmt in stmts)
                 child.CompileStatement(stmt);
 
@@ -497,6 +500,7 @@ namespace WarScript.Bytecode
             compiler._enclosingLocals = enclosingLocals;
             compiler.BeginBody(lambda.Parameters, lambda.Body);
 
+            compiler.WarnUnreachable(lambda.Body);
             foreach (var stmt in lambda.Body.StatementsToExecute)
                 compiler.CompileStatement(stmt);
             compiler.WarnUnreadLocals();
@@ -558,6 +562,49 @@ namespace WarScript.Bytecode
                 if (local.Kind != LocalKind.BodyLocal || _readLocals.Contains(local.Name)) continue;
                 var (line, column) = _firstAssignments.TryGetValue(local.Name, out var at) ? at : (_line, 0);
                 _script.Warn("local '" + local.Name + "' is assigned but never read", _source, line, column);
+            }
+        }
+
+        /// <summary>
+        /// A warning for the first statement after a <c>return</c>,
+        /// <c>break</c>, <c>next</c> or <c>raise</c> in the same block
+        /// (PROP-29, T3.8), in <paramref name="block"/> and the blocks nested
+        /// in it (not in nested definitions or lambdas, which are bodies of
+        /// their own). One warning per block; statements without a line
+        /// (desugared ones) are skipped.
+        /// </summary>
+        private void WarnUnreachable(CompositeStatement block)
+        {
+            string? after = null;
+            foreach (var statement in block.StatementsToExecute)
+            {
+                if (after != null)
+                {
+                    if (statement.RowNumber is int row && row > 0)
+                    {
+                        _script.Warn("unreachable code after '" + after + "'", _source, row, statement.Column);
+                        return;
+                    }
+                    continue;
+                }
+                switch (statement)
+                {
+                    case ReturnStatement:          after = "return"; break;
+                    case BreakStatement:           after = "break";  break;
+                    case NextStatement:            after = "next";   break;
+                    case RaiseExceptionStatement:  after = "raise";  break;
+                    case ConditionStatement c:
+                        foreach (var branch in c.Cases) WarnUnreachable(branch.Value);
+                        break;
+                    case AbstractLoopStatement loop:
+                        WarnUnreachable(loop);
+                        break;
+                    case HandleExceptionStatement h:
+                        WarnUnreachable(h.BeginStatement);
+                        if (h.RescueStatement != null) WarnUnreachable(h.RescueStatement);
+                        if (h.EnsureStatement != null) WarnUnreachable(h.EnsureStatement);
+                        break;
+                }
             }
         }
 

@@ -438,14 +438,24 @@ namespace WarScript
         public bool WarningsAsErrors { get; set; }
 
         /// <summary>
-        /// A compile-time warning (T3.8: PROP-26) at <paramref name="line"/>,
-        /// <paramref name="column"/> of <paramref name="scriptName"/> (an
-        /// import path, or null for this script). Ignored outside
-        /// <see cref="Compile"/>.
+        /// A compile-time warning (T3.8: PROP-26, PROP-29) at
+        /// <paramref name="line"/>, <paramref name="column"/> of
+        /// <paramref name="scriptName"/> (an import path, or null for this
+        /// script). Ignored outside <see cref="Compile"/>. Reported once:
+        /// code the compiler emits twice (an ensure body inlined where a
+        /// <c>break</c>/<c>next</c> leaves it, with the lambdas in it) warns
+        /// once.
         /// </summary>
-        internal void Warn(string message, string? scriptName, int line, int column) =>
-            _compileWarnings?.Add(new CompileDiagnostic(DiagnosticSeverity.Warning, message,
-                scriptName ?? ScriptName, line, column));
+        internal void Warn(string message, string? scriptName, int line, int column)
+        {
+            if (_compileWarnings == null) return;
+            var warning = new CompileDiagnostic(DiagnosticSeverity.Warning, message, scriptName ?? ScriptName, line, column);
+            foreach (var w in _compileWarnings)
+                if (w.Message == warning.Message && w.ScriptName == warning.ScriptName
+                    && w.Line == warning.Line && w.Column == warning.Column)
+                    return;
+            _compileWarnings.Add(warning);
+        }
 
         /// <summary>
         /// Returns a halted instance to normal operation. State changed
@@ -869,6 +879,13 @@ namespace WarScript
         /// reader. Parse-time state only.
         /// </summary>
         internal ParseBody ParsingBody;
+
+        /// <summary>
+        /// How many class definitions the parser is inside (T3.8, PROP-29):
+        /// <c>this</c> and <c>@x</c> outside every class are a compile
+        /// error. Parse-time state only.
+        /// </summary>
+        internal int ParsingClassDepth;
 
         /// <summary>
         /// The file <see cref="Compile"/> is parsing (the script's name or an

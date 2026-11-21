@@ -456,38 +456,35 @@ namespace Tests
         }
 
         // ────────────────────────────────────────────────
-        //  this outside a class (regression: used to crash the VM)
+        //  this outside a class (regression: used to crash the VM; a
+        //  runtime NameError until T3.8, a compile error since, PROP-29)
         // ────────────────────────────────────────────────
 
-        [Test]
-        public void This_AtTopLevel_IsCatchableRuntimeError()
+        private static void AssertThisOutsideAClass(string source)
         {
-            var output = Run("begin\nprint this\nrescue e\nprint \"err: \" + e\nend");
-            Assert.AreEqual("err: 'this' can only be used inside a class", output[0]);
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() => TestHelper.Run("this_outside", source));
+            StringAssert.Contains("'this' and '@' fields can only be used inside a class", e.Message);
         }
 
         [Test]
-        public void ThisProperty_AtTopLevel_IsCatchableRuntimeError()
-        {
-            var output = Run("begin\nprint this :: x\nrescue e\nprint \"err: \" + e\nend");
-            Assert.AreEqual("err: 'this' can only be used inside a class", output[0]);
-        }
+        public void This_AtTopLevel_IsCompileError() =>
+            AssertThisOutsideAClass("begin\nprint this\nrescue e\nprint \"err: \" + e\nend");
 
         [Test]
-        public void ThisPropertyWrite_AtTopLevel_IsCatchableRuntimeError()
-        {
-            var output = Run("begin\nthis :: x = 1\nrescue e\nprint \"err: \" + e\nend");
-            Assert.AreEqual("err: 'this' can only be used inside a class", output[0]);
-        }
+        public void ThisProperty_AtTopLevel_IsCompileError() =>
+            AssertThisOutsideAClass("begin\nprint this :: x\nrescue e\nprint \"err: \" + e\nend");
 
         [Test]
-        public void This_InFreeFunction_IsCatchableRuntimeError()
-        {
-            var output = Run(
-                "fun f [] return this end\n" +
-                "begin\nprint f []\nrescue e\nprint \"caught\"\nend");
-            Assert.AreEqual("caught", output[0]);
-        }
+        public void ThisPropertyWrite_AtTopLevel_IsCompileError() =>
+            AssertThisOutsideAClass("begin\nthis :: x = 1\nrescue e\nprint \"err: \" + e\nend");
+
+        [Test]
+        public void This_InFreeFunction_IsCompileError() =>
+            AssertThisOutsideAClass("fun f [] return this end\nbegin\nprint f []\nrescue e\nprint \"caught\"\nend");
+
+        [Test]
+        public void Field_InFreeFunction_IsCompileError() =>
+            AssertThisOutsideAClass("fun f []\n    return @x\nend\nprint f []");
 
         // ────────────────────────────────────────────────
         //  Runtime error messages (pinned so hosts can rely on them)
@@ -634,14 +631,28 @@ namespace Tests
         // ────────────────────────────────────────────────
 
         [Test]
-        public void NamedArgs_UnknownName_IsDroppedAndMissingParamIsNull()
+        public void NamedArgs_UnknownName_IsCompileError()
         {
-            // Unknown names are silently discarded; parameters without a
-            // matching named argument arrive as null.
+            // v1 silently dropped an unknown name; T3.8 (PROP-29) rejects it.
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() => TestHelper.Run("named_unknown",
+                "fun mk [a, b] return \"\" + a + b end\n" +
+                "print mk [a: 1, zzz: 2]"));
+            StringAssert.Contains("Function 'mk' has no parameter 'zzz'", e.Message);
+            Assert.AreEqual(2, e.Line);
+            Assert.AreEqual(17, e.Column);
+        }
+
+        [Test]
+        public void NamedArgs_MissingParamIsNull()
+        {
+            // Parameters without a matching named argument arrive as null.
             var output = Run(
                 "fun mk [a, b] return \"\" + a + b end\n" +
-                "print mk [a: 1, zzz: 2]");
-            Assert.AreEqual("1null", output[0]);
+                "fun pair [a, b = 5] return \"\" + a + b end\n" +
+                "print mk [b: 1, a: 2]\n" +
+                "print pair [b: 1]");
+            Assert.AreEqual("21", output[0]);
+            Assert.AreEqual("null1", output[1]);
         }
 
         [Test, Timeout(10000)]

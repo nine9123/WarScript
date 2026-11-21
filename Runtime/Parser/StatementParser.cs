@@ -288,7 +288,7 @@ namespace WarScript
         {
             // read class details
             Tokens.TryPeek(out var nameToken);
-            var classDetails = ReadClassDetails();
+            var classDetails = ReadClassDetails(declaration: true);
             CheckDuplicate(d => d.AddClass(classDetails.Name, _script.ParsingFile, nameToken.RowNumber), nameToken);
 
             // read base types
@@ -298,7 +298,7 @@ namespace WarScript
                 while (Tokens.Peek(TokenType.GroupDivider, ":", CommaValue))
                 {
                     Tokens.Next();
-                    baseTypes.Add(ReadClassDetails());
+                    baseTypes.Add(ReadClassDetails(declaration: false));
                 }
             }
 
@@ -312,7 +312,15 @@ namespace WarScript
             _script.DefinitionContext.GetScope().AddClass(classDefinition);
 
             // parse class's statements
-            Parse(this, classStatement, classScope, ParseBody.ClassBody);
+            _script.ParsingClassDepth++;
+            try
+            {
+                Parse(this, classStatement, classScope, ParseBody.ClassBody);
+            }
+            finally
+            {
+                _script.ParsingClassDepth--;
+            }
             Tokens.Next(TokenType.Keyword, "end");
         }
 
@@ -329,7 +337,24 @@ namespace WarScript
             if (message != null) throw new SyntaxException(message, at.RowNumber, at.Column);
         }
 
-        private ClassDetails ReadClassDetails()
+        /// <summary>
+        /// Reads <c>Name [a, b]</c>: a class's name and constructor
+        /// parameters (<paramref name="declaration"/>: each named once), or a
+        /// base type and the parameters passed on to it.
+        /// </summary>
+        /// <summary>
+        /// A parameter list names each parameter once (T3.8, PROP-29):
+        /// throws at <paramref name="parameter"/> when
+        /// <paramref name="parameters"/> already has it. Not for v1 scripts.
+        /// </summary>
+        internal static void CheckParameter(WarScriptLanguage script, List<string> parameters, Token.Token parameter)
+        {
+            if (!script.ParsingV1 && parameters.Contains(parameter.Value))
+                throw new SyntaxException("Parameter '" + parameter.Value + "' is declared twice",
+                    parameter.RowNumber, parameter.Column);
+        }
+
+        private ClassDetails ReadClassDetails(bool declaration)
         {
             var className = Tokens.Next(TokenType.Variable);
             var classArguments = new List<string>();
@@ -341,6 +366,7 @@ namespace WarScript
                 while (!Tokens.Peek(TokenType.GroupDivider, "]"))
                 {
                     var argumentToken = Tokens.Next(TokenType.Variable);
+                    if (declaration) CheckParameter(_script, classArguments, argumentToken);
                     classArguments.Add(argumentToken.Value);
 
                     if (Tokens.Peek(TokenType.GroupDivider, ","))
@@ -367,6 +393,7 @@ namespace WarScript
                 while (!Tokens.Peek(TokenType.GroupDivider, "]"))
                 {
                     var argumentToken = Tokens.Next(TokenType.Variable);
+                    CheckParameter(_script, arguments, argumentToken);
                     arguments.Add(argumentToken.Value);
 
                     // Check for default value: param = expr
@@ -695,11 +722,16 @@ namespace WarScript
 
             // Collect members: (name, numericValue)
             var members = new List<(string Name, int Value)>();
+            var memberNames = new HashSet<string>();
             var nextValue = 0;
 
             while (!Tokens.Peek(TokenType.Keyword, "end"))
             {
                 var memberName = Tokens.Next(TokenType.Variable);
+                // Each member once (T3.8, PROP-29).
+                if (!memberNames.Add(memberName.Value) && !_script.ParsingV1)
+                    throw new SyntaxException("Enum member '" + memberName.Value + "' is already declared in enum '" + enumName.Value + "'",
+                        memberName.RowNumber, memberName.Column);
 
                 // Optional explicit value: MEMBER = <numeric literal>
                 if (Tokens.PeekSameLine(TokenType.Operator, "="))

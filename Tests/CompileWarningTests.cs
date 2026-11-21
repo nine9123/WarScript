@@ -8,8 +8,8 @@ namespace Tests
 {
     /// <summary>
     /// Compile-time warnings (v2 plan T3.8): a body local that is assigned
-    /// but never read (PROP-26) is a warning diagnostic of a successful
-    /// compile, and <see cref="WarScriptLanguage.WarningsAsErrors"/>
+    /// but never read (PROP-26) and unreachable code (PROP-29) are warning
+    /// diagnostics of a successful compile, and <see cref="WarScriptLanguage.WarningsAsErrors"/>
     /// (PROP-31) turns every warning into an error.
     /// </summary>
     [TestFixture]
@@ -145,7 +145,7 @@ namespace Tests
         [Test]
         public void ACompileError_ComesFirst_ThenTheWarningsFoundBeforeIt()
         {
-            var (script, _) = Script("fun f []\n    t = 1\nend\nfun g []\n    return u\n    u = 1\nend\n");
+            var (script, _) = Script("fun f []\n    t = 1\nend\nfun g []\n    print u\n    u = 1\nend\n");
 
             var result = script.Compile();
 
@@ -155,6 +155,107 @@ namespace Tests
             Assert.AreEqual(2, result.Diagnostics.Count);
             Assert.AreEqual(DiagnosticSeverity.Warning, result.Diagnostics[1].Severity);
             Assert.AreEqual("local 't' is assigned but never read", result.Diagnostics[1].Message);
+        }
+
+        [Test]
+        public void ALambdaInAnEnsureBodyLeftByBreak_WarnsOnce()
+        {
+            // The ensure body is compiled twice (inlined where 'break' leaves
+            // its block), and the lambda in it with it: one warning.
+            var (script, _) = Script(
+                "fun f []\n" +
+                "    loop i in 0..2\n" +
+                "        begin\n" +
+                "            break\n" +
+                "        ensure\n" +
+                "            g = fun []\n" +
+                "                z = 1\n" +
+                "                return 0\n" +
+                "            end\n" +
+                "            g []\n" +
+                "        end\n" +
+                "    end\n" +
+                "    return 0\n" +
+                "end\n");
+
+            var warnings = Warnings(script.Compile());
+
+            Assert.AreEqual(1, warnings.Count, string.Join("; ", warnings));
+            Assert.AreEqual("local 'z' is assigned but never read", warnings[0].Message);
+            Assert.AreEqual(7, warnings[0].Line);
+        }
+
+        // ── Unreachable code (PROP-29) ──────────────────────────
+
+        [Test]
+        public void CodeAfterReturn_IsAWarning_AtTheFirstUnreachableStatement_OncePerBlock()
+        {
+            var (script, output) = Script(
+                "fun f []\n" +
+                "    return 1\n" +
+                "    print \"a\"\n" +
+                "    print \"b\"\n" +
+                "end\n" +
+                "print f []\n");
+
+            var result = script.Compile();
+
+            Assert.IsTrue(result.Success);
+            Assert.AreEqual(1, result.Diagnostics.Count);
+            var w = result.Diagnostics[0];
+            Assert.AreEqual(DiagnosticSeverity.Warning, w.Severity);
+            Assert.AreEqual("unreachable code after 'return'", w.Message);
+            Assert.AreEqual(3, w.Line);
+            Assert.AreEqual(5, w.Column);
+            Assert.IsTrue(script.Run().IsOk);
+            CollectionAssert.AreEqual(new[] { "1" }, output);
+        }
+
+        [Test]
+        public void CodeAfterABlockThatEndsWithRaise_IsNotReported()
+        {
+            var (script, _) = Script(
+                "x = 1\n" +
+                "if x > 0\n" +
+                "    raise \"no\"\n" +
+                "end\n" +
+                "print x\n" +
+                "class C [a]\n" +
+                "    fun m []\n" +
+                "        begin\n" +
+                "            return @a\n" +
+                "        ensure\n" +
+                "            print \"done\"\n" +
+                "        end\n" +
+                "    end\n" +
+                "end\n");
+
+            CollectionAssert.IsEmpty(script.Compile().Diagnostics);
+        }
+
+        [Test]
+        public void CodeAfterRaiseInAClassBody_IsAWarning()
+        {
+            var (script, _) = Script("class C [a]\n    raise \"no\"\n    b = 2\nend\n");
+
+            var warnings = Warnings(script.Compile());
+
+            Assert.AreEqual(1, warnings.Count);
+            Assert.AreEqual("unreachable code after 'raise'", warnings[0].Message);
+            Assert.AreEqual(3, warnings[0].Line);
+        }
+
+        [Test]
+        public void UnreachableCode_FailsTheCompile_UnderWarningsAsErrors()
+        {
+            var (script, _) = Script("loop true\n    break\n    print 1\nend\n");
+            script.WarningsAsErrors = true;
+
+            var result = script.Compile();
+
+            Assert.IsFalse(result.Success);
+            Assert.AreEqual("unreachable code after 'break'", result.Diagnostics[0].Message);
+            Assert.AreEqual(DiagnosticSeverity.Error, result.Diagnostics[0].Severity);
         }
 
         // ── Warnings as errors (PROP-31) ────────────────────────

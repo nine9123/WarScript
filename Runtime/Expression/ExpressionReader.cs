@@ -214,6 +214,9 @@ namespace WarScript.Expression
                                 // A lambda has no `this` (T3.3, PROP-16); `@x` is lexed as `this :: x`.
                                 if (_script.ParsingBody == ParseBody.Lambda && !_script.ParsingV1)
                                     throw new SyntaxException("'this' and '@' fields cannot be used in a lambda", token.RowNumber, token.Column);
+                                // Nor has code outside every class (T3.8, PROP-29).
+                                if (_script.ParsingClassDepth == 0 && !_script.ParsingV1)
+                                    throw new SyntaxException("'this' and '@' fields can only be used inside a class", token.RowNumber, token.Column);
                                 operand = _script.ThisExpr;
                                 break;
                             case TokenType.Variable:
@@ -346,6 +349,7 @@ namespace WarScript.Expression
                 // Allocated lazily — only if an argument turns out to be named.
                 // The common case (positional args) never touches this dictionary.
                 Dictionary<string, IExpression>? namedArgs = null;
+                List<Token.Token>? namedTokens = null;
                 var isNamed = false;
                 var checkedNaming = false;
 
@@ -365,10 +369,16 @@ namespace WarScript.Expression
                     var before = Tokens.Position;
                     if (isNamed)
                     {
-                        var argName = Tokens.Next(TokenType.Variable).Value;
+                        var argToken = Tokens.Next(TokenType.Variable);
+                        var argName = argToken.Value;
                         Tokens.Next(TokenType.GroupDivider, ":");
                         var argExpr = ReadExpression(_script, this);
-                        (namedArgs ??= new Dictionary<string, IExpression>())[argName] = argExpr;
+                        namedArgs ??= new Dictionary<string, IExpression>();
+                        // Each name once (T3.8, PROP-29).
+                        if (namedArgs.ContainsKey(argName) && !_script.ParsingV1)
+                            throw new SyntaxException("Argument '" + argName + "' is given twice", argToken.RowNumber, argToken.Column);
+                        namedArgs[argName] = argExpr;
+                        (namedTokens ??= new List<Token.Token>()).Add(argToken);
                     }
                     else
                     {
@@ -391,6 +401,13 @@ namespace WarScript.Expression
 
                     if (definition != null)
                     {
+                        // Every name must be a parameter (T3.8, PROP-29):
+                        // v1 dropped the argument.
+                        if (!_script.ParsingV1)
+                            foreach (var named in namedTokens!)
+                                if (!definition.Details.Arguments.Contains(named.Value))
+                                    throw new SyntaxException("Function '" + token.Value + "' has no parameter '" + named.Value + "'",
+                                        named.RowNumber, named.Column);
                         foreach (var paramName in definition.Details.Arguments)
                         {
                             if (namedArgs.TryGetValue(paramName, out var expr))
@@ -482,6 +499,7 @@ namespace WarScript.Expression
             while (!Tokens.Peek(TokenType.GroupDivider, "]"))
             {
                 var param = Tokens.Next(TokenType.Variable);
+                StatementParser.CheckParameter(_script, parameters, param);
                 parameters.Add(param.Value);
                 if (Tokens.Peek(TokenType.GroupDivider, ","))
                     Tokens.Next();

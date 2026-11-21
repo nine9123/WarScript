@@ -1,7 +1,7 @@
 # T3.5: 'this' is part of the call frame. A method or constructor frame has
 # its instance; a method called by its bare name from another method, and a
-# function or lambda called from one, see the caller's; code outside any
-# class has none.
+# function or lambda called from one, see the caller's. Code outside every
+# class cannot name 'this' (a compile error since T3.8: this_outside_class.ws).
 class Counter [n]
     fun twice []
         return @n * 2
@@ -29,15 +29,6 @@ class Outer [x]
 end
 print (new Outer [10]) :: make []
 
-fun outside []
-    return this
-end
-begin
-    outside []
-rescue e
-    print e
-end
 # expect: 3 twice is 6
 # expect: 5 twice is 10 / 3
 # expect: 22 10
-# expect: 'this' can only be used inside a class

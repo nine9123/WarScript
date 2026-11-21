@@ -358,9 +358,12 @@ end", null, (w, m) => output.Add(m));
         {
             // T3.5: 'this' is part of the call frame, so a callback a native
             // makes from inside a method does not see the method's instance.
+            // Since T3.8 (PROP-29) a free function cannot name 'this' at all
+            // (a compile error), so what is left to check is that the
+            // callback runs and the method's instance is intact afterwards.
             var (_, output) = RunWithCallback(@"
 fun on_event []
-    print this
+    print ""callback""
 end
 class C [x]
     fun go []
@@ -373,7 +376,7 @@ class C [x]
     end
 end
 (new C [7]) :: go []", _ => { });
-            CollectionAssert.AreEqual(new[] { "'this' can only be used inside a class", "7" }, output);
+            CollectionAssert.AreEqual(new[] { "callback", "7" }, output);
         }
     }
 }

@@ -112,7 +112,7 @@ begin
     begin
         outer_log << "inner_start"
         raise "inner_error"
-        outer_log << "inner_unreachable"
+        outer_log << "inner_unreachable"    # expect-warning: unreachable code after 'raise'
     rescue e
         outer_log << "inner_rescue"
     ensure
