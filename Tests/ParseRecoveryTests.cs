@@ -199,5 +199,39 @@ namespace Tests
             Assert.IsFalse(script.ConstantNames.Contains("K"));
             Assert.IsFalse(script.ConstantNames.Contains("L"));
         }
-    }
+    
+        [Test]
+        public void ABlockHeaderWithoutItsExpression_IsASyntaxError()
+        {
+            // These compiled before and failed (or did nothing) at runtime:
+            // the missing expression was read as null.
+            var script = Script(
+                "x = 1\nif x == 1\n    print 1\nelif\n    print 2\nend\n" +
+                "if\n    print 1\nend\n" +
+                "loop i in\n    print i\nend\n" +
+                "loop i in 0..\n    print i\nend\n" +
+                "loop i in 0..3 by\n    print i\nend\n");
+
+            var result = script.Compile();
+
+            CollectionAssert.AreEqual(
+                new[] { "Error main:4:1", "Error main:7:1", "Error main:10:1", "Error main:13:1", "Error main:16:1" },
+                Positions(result));
+            StringAssert.Contains("'elif' at line 4 requires a condition", result.Diagnostics[0].Message);
+            StringAssert.Contains("'if' at line 7 requires a condition", result.Diagnostics[1].Message);
+            StringAssert.Contains("requires an iterable or a range after 'in'", result.Diagnostics[2].Message);
+            StringAssert.Contains("requires an upper bound after '..'", result.Diagnostics[3].Message);
+            StringAssert.Contains("requires a step after 'by'", result.Diagnostics[4].Message);
+        }
+
+        [Test]
+        public void ANullLiteral_IsAnExpression()
+        {
+            var (_, output) = TestHelper.Run("main",
+                "if null\n    print 1\nelse\n    print 0\nend\n" +
+                "loop null\n    print 2\nend\n");
+
+            CollectionAssert.AreEqual(new[] { "0" }, output);
+        }
+}
 }

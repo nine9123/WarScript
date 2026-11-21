@@ -399,7 +399,7 @@ namespace WarScript
                 if (type.Value == "else")
                     caseCondition = new ConstantExpression(WarValue.True); // else has no condition
                 else
-                    caseCondition = ExpressionReader.ReadExpression(_script, Tokens);
+                    caseCondition = RequireExpression(ExpressionReader.ReadExpression(_script, Tokens), type, "a condition");
 
                 // read case statements
                 var caseStatement = new CompositeStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName);
@@ -636,18 +636,18 @@ namespace WarScript
             {
                 // loop <variable> in <bounds>
                 Tokens.Next(TokenType.Keyword, "in");
-                var bounds = ExpressionReader.ReadExpression(_script, Tokens);
+                var bounds = RequireExpression(ExpressionReader.ReadExpression(_script, Tokens), rowToken, "an iterable or a range after 'in'");
 
                 if (Tokens.Peek(TokenType.GroupDivider, ".."))
                 {
                     Tokens.Next(TokenType.GroupDivider, "..");
-                    var upperBound = ExpressionReader.ReadExpression(_script, Tokens);
+                    var upperBound = RequireExpression(ExpressionReader.ReadExpression(_script, Tokens), rowToken, "an upper bound after '..'");
 
                     if (Tokens.Peek(TokenType.Keyword, "by"))
                     {
                         // loop <variable> in <lower_bound>..<upper_bound> by <step>
                         Tokens.Next(TokenType.Keyword, "by");
-                        var step = ExpressionReader.ReadExpression(_script, Tokens);
+                        var step = RequireExpression(ExpressionReader.ReadExpression(_script, Tokens), rowToken, "a step after 'by'");
                         loopStatement = new ForLoopStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName, variable, bounds, upperBound, step);
                     }
                     else
@@ -673,6 +673,20 @@ namespace WarScript
             Tokens.Next(TokenType.Keyword, "end");
 
             _compositeStatement.AddStatement(loopStatement);
+        }
+
+        /// <summary>
+        /// Rejects an empty expression where a block header needs one (an
+        /// <c>if</c>/<c>elif</c> condition, a loop's iterable, bounds or
+        /// step), which <see cref="ExpressionReader.ReadExpression"/> reads
+        /// as null: <c>if</c> alone, <c>loop i in 0..</c> (T3.8 review).
+        /// </summary>
+        private IExpression RequireExpression(IExpression expression, Token.Token keyword, string what)
+        {
+            if (!ReferenceEquals(expression, _script.NullExpr)) return expression;
+            throw new SyntaxException(
+                System.FormattableString.Invariant($"'{keyword.Value}' at line {keyword.RowNumber} requires {what}"),
+                keyword.RowNumber, keyword.Column);
         }
 
         private void ParseBreakStatement(Token.Token rowToken)

@@ -208,7 +208,9 @@ namespace WarScript.Expression
                                 operand = ReadArrayInstance();
                                 break;
                             case TokenType.Null:
-                                operand = _script.NullExpr;
+                                // Not NullExpr: that stands for an empty expression, which
+                                // a block header rejects (StatementParser.RequireExpression).
+                                operand = new ConstantExpression(WarValue.Null);
                                 break;
                             case TokenType.This:
                                 // A lambda has no `this` (T3.3, PROP-16); `@x` is lexed as `this :: x`.
