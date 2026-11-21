@@ -144,6 +144,16 @@ namespace WarScript.Migrate
             _hostGlobals = new HashSet<string>(hostGlobals, StringComparer.Ordinal);
         }
 
+        /// <summary>
+        /// The host globals a native manifest declares (T3.8, PROP-30): its
+        /// globals, constants and enums (a <c>[WsEnum]</c> is a host global
+        /// holding the enum's instance), sorted ordinally. Natives and
+        /// classes are not globals.
+        /// </summary>
+        public static IReadOnlyList<string> HostGlobals(NativeManifest manifest) =>
+            manifest.Globals.Concat(manifest.Constants).Concat(manifest.Enums.Select(e => e.Name))
+                .Distinct(StringComparer.Ordinal).OrderBy(n => n, StringComparer.Ordinal).ToList();
+
         public MigrationResult Run(IReadOnlyList<MigrationFile> files)
         {
             var result = new MigrationResult { FileCount = files.Count };

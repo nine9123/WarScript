@@ -2,6 +2,7 @@
 //
 //   dotnet run --project "Tools~/WarScript.Migrate" -- (--report | --rewrite) <root>...
 //       [--out <dir>] [--report-file <file>] [--host-globals <a,b,...>] [--host-globals-file <file>]
+//       [--manifest <file>]
 //
 // <root> is a .ws file or a folder (searched recursively for *.ws). Every
 // file is parsed with the v1 frontend; files connected by imports form a
@@ -10,7 +11,9 @@
 // their paths relative to the root they were found under). The report goes
 // to --report-file, by default migration-report.md in --out or in the
 // current folder. Host globals ([WsConst]/[WsEnum] names and anything the
-// host sets) are given by name, or one per line in a file ('#' comments).
+// host sets) are given by name, or one per line in a file ('#' comments),
+// or read from a native manifest (WarScriptNatives.wsmanifest, written by
+// Generate Bindings: its globals, constants and enums; T3.8, PROP-30).
 //
 // Exit code: 0 done (with or without manual items), 1 bad arguments,
 // 2 a file did not parse (it is listed in the report and left unchanged).
@@ -48,6 +51,9 @@ namespace WarScript.Migrate
                             hostGlobals.AddRange(File.ReadAllLines(args[++i])
                                 .Select(l => l.Split('#')[0].Trim()).Where(l => l.Length > 0));
                             break;
+                        case "--manifest":
+                            hostGlobals.AddRange(Migrator.HostGlobals(NativeManifest.Parse(File.ReadAllText(args[++i]))));
+                            break;
                         default:
                             if (args[i].StartsWith("--", StringComparison.Ordinal)) throw new ArgumentException("unknown option " + args[i]);
                             roots.Add(args[i]);
@@ -57,10 +63,10 @@ namespace WarScript.Migrate
                 if (rewrite == null) throw new ArgumentException("give --report or --rewrite");
                 if (roots.Count == 0) throw new ArgumentException("give at least one root");
             }
-            catch (System.Exception e) when (e is ArgumentException || e is IndexOutOfRangeException || e is IOException)
+            catch (System.Exception e) when (e is ArgumentException || e is IndexOutOfRangeException || e is IOException || e is FormatException)
             {
                 Console.Error.WriteLine("WarScript.Migrate: " + e.Message);
-                Console.Error.WriteLine("usage: WarScript.Migrate (--report | --rewrite) <root>... [--out <dir>] [--report-file <file>] [--host-globals <a,b>] [--host-globals-file <file>]");
+                Console.Error.WriteLine("usage: WarScript.Migrate (--report | --rewrite) <root>... [--out <dir>] [--report-file <file>] [--host-globals <a,b>] [--host-globals-file <file>] [--manifest <file>]");
                 return 1;
             }
 

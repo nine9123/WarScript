@@ -300,6 +300,24 @@ namespace Tests
             StringAssert.Contains("    global SPEED\n", Rewritten(result, "a.ws"));
         }
 
+        [Test]
+        public void ManifestHostGlobals_AreItsGlobalsConstantsAndEnums()
+        {
+            var manifest = WarScript.NativeManifest.Parse(
+                "warscript-manifest 1\n" +
+                "function spawn 1 kind\n" +
+                "global SPEED\n" +
+                "const MAX_UNITS\n" +
+                "enum State Idle=0 Moving=1\n" +
+                "class Unit name\n");
+
+            var hostGlobals = Migrator.HostGlobals(manifest);
+
+            Assert.AreEqual(new[] { "MAX_UNITS", "SPEED", "State" }, hostGlobals);
+            var result = MigrateWith(hostGlobals, ("a.ws", "fun f []\n    SPEED = 2\nend\n"));
+            StringAssert.Contains("    global SPEED\n", Rewritten(result, "a.ws"));
+        }
+
         // ── Files ────────────────────────────────────────────────────────
 
         [Test]
