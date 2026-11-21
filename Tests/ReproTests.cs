@@ -285,6 +285,11 @@ end", null, (w, m) => { });
             s = new WarScriptLanguage("t", @"
 class Box [v]
 end
+# Another class has a 'boom', so the call compiles (T3.8, PROP-29).
+class Decoy
+    fun boom []
+    end
+end
 install []
 b = new Box [1]
 begin

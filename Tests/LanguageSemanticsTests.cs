@@ -516,14 +516,14 @@ namespace Tests
         [Test]
         public void PropertyAccessOnNumber_IsCatchable()
         {
-            var output = Run("begin\nprint 5 :: x\nrescue e\nprint e\nend");
+            var output = Run("class P [x]\nend\nbegin\nprint 5 :: x\nrescue e\nprint e\nend");
             Assert.AreEqual("Cannot access property 'x' on non-class value", output[0]);
         }
 
         [Test]
         public void MethodCallOnNull_IsCatchable()
         {
-            var output = Run("n = null\nbegin\nn :: m []\nrescue e\nprint \"caught\"\nend");
+            var output = Run("class C\nfun m []\nend\nend\nn = null\nbegin\nn :: m []\nrescue e\nprint \"caught\"\nend");
             Assert.AreEqual("caught", output[0]);
         }
 

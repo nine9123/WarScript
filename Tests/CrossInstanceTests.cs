@@ -81,6 +81,13 @@ end
 fun count [a]
     return Array_length [a]
 end
+# A name no class of the module set has is a compile error (T3.8,
+# PROP-29): this script's own view of the owner's class.
+class UnitView [hp]
+    fun heal [n]
+        return n
+    end
+end
 ";
 
         private static (WarScriptLanguage script, List<string> output) Instance(string name, string source)

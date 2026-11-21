@@ -1,6 +1,10 @@
 # T3.6 (PROP-15, plan 5.5): an instance's properties are the fields its class
 # parts declare (constructor parameters and class-body assignments, 5.7).
-# Anything else is a NameError, read or written, from any code.
+# Anything else is a NameError, read or written, from any code. (A name no
+# class declares is a compile error, T3.8: 'Other' declares zz, yy and arr, so
+# only the VM can tell.)
+class Other [zz, yy, arr]
+end
 class Base [a]
     b = 2
     if false

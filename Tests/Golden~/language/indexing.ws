@@ -95,7 +95,7 @@ end
 
 # ── Property writes on a non-instance ──
 begin
-    nothing :: hp = 5
+    nothing :: items = 5
 rescue e
-    print e                                   # expect: Cannot set property 'hp' on non-class value
+    print e                                   # expect: Cannot set property 'items' on non-class value
 end

@@ -314,7 +314,12 @@ arrays never grow by index assignment — append with `<<`. Assigning a property
 is not a class instance (`x :: hp = 5` with `x = null`) raises a `TypeError`, as reading it does.
 Reading or writing a property an instance does not declare (its classes' constructor parameters
 and the names their class bodies assign) raises a `NameError` (`'hp' is not a field of class
-'Unit'`); a declared field the class body has not assigned yet reads as `null`.
+'Unit'`); a declared field the class body has not assigned yet reads as `null`. When no class of
+the script, its imports or the host has a field or a method of that name, `obj :: x` (or
+`obj :: x [...]`) is already a compile error: `'hpp' is not a field or method of any class`. So a
+script that reads the fields of an instance another script made must know a class declaring them.
+(Not checked while the host has registered a class without its fields; a generated `[WsEnum]`
+counts with its members.)
 
 **Nested arrays cannot be indexed in one expression.** `grid{0}{1}` silently parses as something
 else; assign to a temporary first:
@@ -573,6 +578,10 @@ loop v in DamageType :: values
     print DamageType :: name [v]
 end
 ```
+
+A name after `DamageType ::` that is none of its members, `values`, `names`, `count` or `name` is a
+compile error (`'PHYSCAL' is not a member of enum 'DamageType'`), for an enum declared at the top
+level of the script or of a file it imports.
 
 Members auto-increment from the previous value; an explicit value resets the counter:
 

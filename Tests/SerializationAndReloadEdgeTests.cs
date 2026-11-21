@@ -168,6 +168,9 @@ end
 fun probe []
     print g :: x
 end
+# Some class must declare 'x' for the read to compile (T3.8, PROP-29).
+class Q [x]
+end
 ");
             script.Call(script.GetFunction("probe", 0));
 

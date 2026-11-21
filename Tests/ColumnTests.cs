@@ -258,14 +258,14 @@ namespace Tests
             AssertRuntimeAt("x = 1 / 0", 1, 7);
             AssertRuntimeAt("x = 0\ny = 2 + (5 % x)", 2, 12);
             AssertRuntimeAt("y = 1 + true * 2", 1, 14);                   // logical * number
-            AssertRuntimeAt("x = 5\ny = x :: hp", 2, 7);                   // property of a non-instance
+            AssertRuntimeAt("class U [hp]\nend\nx = 5\ny = x :: hp", 4, 7);     // property of a non-instance
         }
 
         [Test]
         public void RuntimeErrors_AtTheirCallOrNew()
         {
             AssertRuntimeAt("x = 1\ny = 2 + missing [x]", 2, 9);         // undefined function
-            AssertRuntimeAt("x = new Nope [1]", 1, 9);                    // undefined class: its name
+            AssertRuntimeAt("x = new Nope [1]", 1, 9);                    // undefined class: its name (a compile error since T3.8)
             AssertRuntimeAt("x = 1\n\tsqrt [\"a\"]", 2, 2);               // a native's argument error: the call
         }
 

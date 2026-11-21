@@ -859,6 +859,7 @@ namespace WarScript.Bytecode
                     }
 
                     CompileExpression(cp.Left);      // instance
+                    CheckProperty(cp.Left, propName.Name, propName.Line, propName.Column);
                     CompileExpression(assign.Right);  // value
                     var nameIdx2 = Chunk.AddConstant(WarValue.FromText(propName.Name));
                     Chunk.EmitOp(OpCode.SetProperty, line);
@@ -871,6 +872,7 @@ namespace WarScript.Bytecode
                 {
                     if (cp.Left is ThisExpression) CheckField(arrName.Name, arrName.Line, arrName.Column);
                     CompileExpression(cp.Left);         // instance
+                    if (!(cp.Left is ThisExpression)) CheckProperty(cp.Left, arrName.Name, arrName.Line, arrName.Column);
                     CompileExpression(propArr.Right);    // index
                     CompileExpression(assign.Right);     // value
                     var nameIdx = Chunk.AddConstant(WarValue.FromText(arrName.Name));
@@ -1407,6 +1409,25 @@ namespace WarScript.Bytecode
         }
 
         /// <summary>
+        /// <c>obj :: name</c> and <c>obj :: name [...]</c> must name a field or
+        /// a method of some class, and <c>E :: X</c> a member of the enum
+        /// <c>E</c> (T3.8, PROP-29): recorded for
+        /// <see cref="WarScriptLanguage.CheckProperty"/>, checked once the
+        /// module set is compiled. <paramref name="left"/> names an enum only
+        /// when it is a bare name read as a global (not a local, and not a
+        /// field of the class body being compiled).
+        /// </summary>
+        private void CheckProperty(IExpression left, string name, int line, int column)
+        {
+            if (line <= 0 || line != _line) { line = _line; column = _column; }
+            string? enumName = null;
+            if (left is VariableExpression v && ResolveLocal(v.Name) == -1
+                && !(_classBody && (_classFields == null || _classFields.Contains(v.Name))))
+                enumName = v.Name;
+            _script.CheckProperty(name, enumName, _source, line, column);
+        }
+
+        /// <summary>
         /// The slot a read of <paramref name="v"/> uses, or -1 for a global
         /// read, after the read checks of <see cref="CheckRead"/>.
         /// </summary>
@@ -1829,6 +1850,7 @@ namespace WarScript.Bytecode
 
             if (cp.Right is VariableExpression varExpr)
             {
+                CheckProperty(cp.Left, varExpr.Name, varExpr.Line, varExpr.Column);
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(varExpr.Name));
                 Chunk.EmitOp(OpCode.GetProperty, _line);
                 Chunk.EmitU16(nameIdx, _line);
@@ -1837,6 +1859,7 @@ namespace WarScript.Bytecode
             else if (cp.Right is FunctionExpression funcExpr)
             {
                 // Method call: obj::method[args]
+                CheckProperty(cp.Left, funcExpr.Name, funcExpr.Line, funcExpr.Column);
                 foreach (var arg in funcExpr.ArgumentExpression)
                     CompileExpression(arg);
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(funcExpr.Name));
@@ -1847,6 +1870,7 @@ namespace WarScript.Bytecode
             else if (cp.Right is ArrayValueOperator arrayOp && arrayOp.Left is VariableExpression arrayVar)
             {
                 // obj::arr{i}  →  GetProperty then IndexGet
+                CheckProperty(cp.Left, arrayVar.Name, arrayVar.Line, arrayVar.Column);
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(arrayVar.Name));
                 Chunk.EmitOp(OpCode.GetProperty, _line);
                 Chunk.EmitU16(nameIdx, _line);

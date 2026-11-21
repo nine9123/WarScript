@@ -850,6 +850,11 @@ namespace WarScript
 
             // Protect the enum variable from reassignment
             _script.ConstantNames.Add(enumName.Value);
+
+            // Its members, for `E :: X` (T3.8, PROP-29): only an enum at the
+            // top level of a file is a global the compiler can name.
+            if (_script.ParsingBody == ParseBody.TopLevel && _script.ParsingClassDepth == 0 && !_script.ParsingV1)
+                _script.DeclareEnum(enumName.Value, memberNames);
         }
     }
 }

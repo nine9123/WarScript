@@ -186,6 +186,14 @@ namespace WarScript
         // PROP-29), checked once the whole module set is compiled
         // (CheckInstantiations); null otherwise.
         private List<(string Class, int Arguments, bool Nested, string? File, string? Source, int Line, int Column)>? _instantiations;
+
+        // While Compile() runs: every `obj :: x` / `obj :: m [...]` the
+        // compiler emitted (T3.8, PROP-29; Enum: the left operand's name when
+        // it is a bare global read), and the members of every enum declared
+        // at the top level of a file of the module set; checked by
+        // CheckProperties once the module set is compiled. Null otherwise.
+        private List<(string Name, string? Enum, string? File, string? Source, int Line, int Column)>? _propertyUses;
+        private Dictionary<string, HashSet<string>>? _enumMembers;
         private WarVM? _cachedVM;
 
         public readonly DefinitionScope GlobalDefinitionScope;
@@ -598,6 +606,8 @@ namespace WarScript
             var warnings = new List<CompileDiagnostic>();
             _compileWarnings = warnings;
             _instantiations = new List<(string, int, bool, string?, string?, int, int)>();
+            _propertyUses = new List<(string, string?, string?, string?, int, int)>();
+            _enumMembers = new Dictionary<string, HashSet<string>>(System.StringComparer.Ordinal);
             DefinitionContext.PushScope(_definitionScope);
             try
             {
@@ -613,6 +623,7 @@ namespace WarScript
                 var module = StatementParser.ParseModule(this, tokens, ScriptName);
                 _cachedCompiled = Compiler.CompileScript(this, module.TopLevel, _definitionScope);
                 CheckInstantiations();
+                CheckProperties();
 
                 // Warnings as errors (PROP-31): the script does not compile,
                 // and every warning is reported as an error.
@@ -675,6 +686,8 @@ namespace WarScript
             {
                 _compileWarnings = null;
                 _instantiations = null;
+                _propertyUses = null;
+                _enumMembers = null;
                 _parsingImports = null;
                 ParsingFile = null;
                 ParsingSource = null;
@@ -939,20 +952,12 @@ namespace WarScript
         {
             if (_instantiations == null || _instantiations.Count == 0) return;
             var arities = new Dictionary<string, SortedSet<int>>(System.StringComparer.Ordinal);
-            void Add(DefinitionScope scope)
+            foreach (var c in ModuleSetClasses())
             {
-                foreach (var c in scope.ClassDefinitions)
-                {
-                    if (!arities.TryGetValue(c.ClassDetails.Name, out var set))
-                        arities[c.ClassDetails.Name] = set = new SortedSet<int>();
-                    set.Add(c.ClassDetails.Properties.Count);
-                    Add(c.GetDefinitionScope());
-                }
+                if (!arities.TryGetValue(c.ClassDetails.Name, out var set))
+                    arities[c.ClassDetails.Name] = set = new SortedSet<int>();
+                set.Add(c.ClassDetails.Properties.Count);
             }
-            Add(_definitionScope);
-            if (_parsingImports != null)
-                foreach (var imported in _parsingImports) Add(imported);
-            for (var host = _definitionScope.Parent; host != null; host = host.Parent) Add(host);
 
             foreach (var (name, arguments, nested, file, source, line, column) in _instantiations)
             {
@@ -966,6 +971,114 @@ namespace WarScript
                     message = ConstructorArityMessage(name, ArityList(set), arguments);
                 else continue;
                 throw new Exception.CompileError(message, file, line, column).LocateIn(file, source);
+            }
+        }
+
+        /// <summary>
+        /// Every class <c>new</c> can instantiate while <see cref="Compile"/>
+        /// runs (T3.8): those at the top level of each file of the module
+        /// set, the classes nested in them, and the classes of the host's
+        /// definition scopes. A class defined inside a function or a block is
+        /// never found by <c>new</c> at runtime, so it is not one.
+        /// </summary>
+        private List<ClassDefinition> ModuleSetClasses()
+        {
+            var classes = new List<ClassDefinition>();
+            void Add(DefinitionScope scope)
+            {
+                foreach (var c in scope.ClassDefinitions)
+                {
+                    classes.Add(c);
+                    Add(c.GetDefinitionScope());
+                }
+            }
+            Add(_definitionScope);
+            if (_parsingImports != null)
+                foreach (var imported in _parsingImports) Add(imported);
+            for (var host = _definitionScope.Parent; host != null; host = host.Parent) Add(host);
+            return classes;
+        }
+
+        /// <summary>
+        /// Records the members of an enum declared at the top level of a file
+        /// of the module set (T3.8, PROP-29), with <c>values</c>,
+        /// <c>names</c>, <c>count</c> and <c>name</c>, for
+        /// <see cref="CheckProperties"/>.
+        /// Ignored outside <see cref="Compile"/>.
+        /// </summary>
+        internal void DeclareEnum(string name, IEnumerable<string> members)
+        {
+            if (_enumMembers == null) return;
+            var set = new HashSet<string>(members, System.StringComparer.Ordinal) { "values", "names", "count", "name" };
+            _enumMembers[name] = set;
+        }
+
+        /// <summary>
+        /// Records <c>obj :: <paramref name="name"/></c> (a read, a write or
+        /// a method call) at <paramref name="line"/>, <paramref name="column"/>
+        /// of <paramref name="file"/> (T3.8, PROP-29);
+        /// <paramref name="enumName"/> is <c>obj</c> when it is a bare name
+        /// read as a global. Checked by <see cref="CheckProperties"/> once
+        /// every class of the module set is known. Ignored outside
+        /// <see cref="Compile"/>.
+        /// </summary>
+        internal void CheckProperty(string name, string? enumName, string? file, int line, int column) =>
+            _propertyUses?.Add((name, enumName, file, ParsingSource, line, column));
+
+        /// <summary>
+        /// The compile error for the first recorded <c>::</c> (T3.8, PROP-29)
+        /// that can only fail at runtime:
+        /// <list type="bullet">
+        /// <item><c>E :: X</c> or <c>E :: X [...]</c> where <c>E</c> is an
+        /// enum declared at the top level of a file of the module set (a
+        /// constant, so the global is that enum) and <c>X</c> is none of its
+        /// members, <c>values</c>, <c>names</c>, <c>count</c> or
+        /// <c>name</c>: <c>'X' is not a member of enum 'E'</c>;</item>
+        /// <item><c>obj :: x</c> or <c>obj :: x [...]</c> where <c>x</c> is
+        /// neither a field nor a method of any class of the module set or the
+        /// host: <c>'x' is not a field or method of any class</c>. Not
+        /// checked when a host class's fields are unknown (it was registered
+        /// without them, so the VM accepts any name), except a host enum
+        /// (<c>[WsEnum]</c>): a host constant named like its class, whose
+        /// fields are what that instance holds.</item>
+        /// </list>
+        /// <c>this :: x</c> and <c>@x</c> are checked against the class
+        /// itself by the compiler; a nested <c>obj :: new C</c> by
+        /// <see cref="CheckInstantiations"/>.
+        /// </summary>
+        private void CheckProperties()
+        {
+            if (_propertyUses == null || _propertyUses.Count == 0) return;
+            var names = new HashSet<string>(System.StringComparer.Ordinal);
+            var unknownFields = new HashSet<ClassDefinition>();
+            foreach (var c in ModuleSetClasses())
+            {
+                foreach (var f in c.GetDefinitionScope().Functions) names.Add(f.Details.Name);
+                names.UnionWith(c.ClassDetails.Properties);
+                if (c.Fields != null) names.UnionWith(c.Fields);
+                else unknownFields.Add(c);
+            }
+            // A host enum: its instance is a host constant.
+            if (unknownFields.Count > 0)
+                foreach (var global in GlobalMemoryScope.GetAllLocals())
+                    if (global.Value.IsClass && ConstantNames.Contains(global.Key)
+                        && global.Value.ClassValue.Definition.ClassDetails.Name == global.Key
+                        && unknownFields.Remove(global.Value.ClassValue.Definition))
+                        names.UnionWith(global.Value.ClassValue.MemoryScope.GetAllLocals().Keys);
+            var namesKnown = unknownFields.Count == 0;
+
+            foreach (var (name, enumName, file, source, line, column) in _propertyUses)
+            {
+                string? message = null;
+                if (enumName != null && _enumMembers != null && ConstantNames.Contains(enumName)
+                    && _enumMembers.TryGetValue(enumName, out var members))
+                {
+                    if (!members.Contains(name)) message = $"'{name}' is not a member of enum '{enumName}'";
+                }
+                else if (namesKnown && !names.Contains(name))
+                    message = $"'{name}' is not a field or method of any class";
+                if (message != null)
+                    throw new Exception.CompileError(message, file, line, column).LocateIn(file, source);
             }
         }
 
