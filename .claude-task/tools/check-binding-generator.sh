@@ -6,6 +6,8 @@
 # script's output; exits non-zero if any step fails. Also writes the module's
 # native manifest (PROP-30) and compiles the same script against it on an
 # instance without the bindings: prints the manifest and "manifest: compiles".
+# Then checks that the [WsConst] and [WsEnum] type operands (PROP-28) with the
+# bindings and with the manifest alike, and that an enum member is read-only.
 #
 # The run project is named WarScript.Tests so that it may use the runtime's
 # internals: generated [WsConst]/[WsEnum] code calls the internal
@@ -115,6 +117,26 @@ class RunMain
         var compiled = checker.Compile();
         System.Console.WriteLine(compiled.Success ? "manifest: compiles" : "manifest: " + compiled.Diagnostics[0]);
         if (!compiled.Success) System.Environment.Exit(1);
+
+        // PROP-28 (T3.8): the host constant and enum are typed, the same with
+        // the bindings and with the manifest; enum members are constant.
+        var typed = "a = MAX_UNITS - \"x\"\nb = State :: Idle << 1\n";
+        foreach (var useManifest in new[] { false, true })
+        {
+            var t = new WarScriptLanguage("typed", typed, null, (x, m) => { });
+            if (useManifest) NativeManifest.Parse(text).Register(t);
+            else Demo.DemoModule.Register(t, t.GlobalDefinitionScope);
+            var r = t.Compile();
+            System.Console.WriteLine((useManifest ? "manifest" : "bindings") + " typed: "
+                + string.Join(" | ", System.Linq.Enumerable.Select(r.Diagnostics, d => d.Message)));
+            if (r.Success || r.Diagnostics.Count != 2) System.Environment.Exit(1);
+        }
+        var w = new WarScriptLanguage("write", "s = State\ns :: Idle = 3\n", null, (x, m) => { });
+        Demo.DemoModule.Register(w, w.GlobalDefinitionScope);
+        w.LogUnhandledErrors = false;
+        var wr = w.Run();
+        System.Console.WriteLine("enum write: " + wr.Error?.Kind + ": " + wr.Error?.Message);
+        if (wr.IsOk) System.Environment.Exit(1);
     }
 }
 EOF

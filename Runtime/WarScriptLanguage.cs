@@ -238,6 +238,18 @@ namespace WarScript
         // The value of each `const` of the module set declared as a number
         // literal (or a negated one), for range steps (T3.8). Null outside Compile.
         private Dictionary<string, FixMath.F64>? _constantNumbers;
+        // The constant names before Compile parsed anything (the host's), for
+        // CheckTypedOperands. Null outside Compile.
+        private HashSet<string>? _constantsBeforeCompile;
+
+        /// <summary>
+        /// The types a native manifest declares for the host constants it
+        /// registers as stubs (T3.8, PROP-28: a stub holds null, whatever
+        /// the host's value is), for <see cref="CheckTypedOperands"/>. Kept
+        /// by <see cref="Reload"/>, like the host constants themselves.
+        /// </summary>
+        internal readonly Dictionary<string, Compiler.StaticType> HostConstantTypes =
+            new Dictionary<string, Compiler.StaticType>(System.StringComparer.Ordinal);
 
         // While Compile() runs: the errors found so far (T3.8), each once, in
         // the order found: those the compiler recovered from at a statement
@@ -655,6 +667,7 @@ namespace WarScript
             // The parser adds `const`/`enum` names as it goes; a failed
             // compile puts the set back, so none of the script stays behind.
             var constantsBefore = new HashSet<string>(ConstantNames);
+            _constantsBeforeCompile = constantsBefore;
             var warnings = new List<CompileDiagnostic>();
             _compileWarnings = warnings;
             _instantiations = new List<(string, int, bool, string?, string?, int, int)>();
@@ -769,6 +782,7 @@ namespace WarScript
                 _typedOperands = null;
                 _constantTypes = null;
                 _constantNumbers = null;
+                _constantsBeforeCompile = null;
                 _compileErrors = null;
                 _parsingImports = null;
                 ParsingFile = null;
@@ -1394,8 +1408,9 @@ namespace WarScript
         /// and a read before the declaration runs is a NameError. So a name
         /// the instance or the host already holds when <see cref="Compile"/>
         /// runs is not typed, and nothing is checked when a bytecode import
-        /// (whose writes are unknown) is in the module set. Host constants
-        /// are not typed: a manifest's stub holds null.
+        /// (whose writes are unknown) is in the module set. A host constant
+        /// or host enum has the type of what it holds when <see cref="Compile"/>
+        /// runs (<see cref="HostConstantType"/>).
         /// </summary>
         private void CheckTypedOperands()
         {
@@ -1409,7 +1424,19 @@ namespace WarScript
                 type = Compiler.StaticType.Unknown;
                 var separator = key.IndexOf("::", System.StringComparison.Ordinal);
                 var global = separator < 0 ? key : key.Substring(0, separator);
-                if (ConstantNames.Contains(global) && !UserMemoryScope.TryGet(global, out _))
+                if (!ConstantNames.Contains(global) || UserMemoryScope.HasLocal(global))
+                {
+                    // Not a constant, or one the instance already holds.
+                }
+                else if (GlobalMemoryScope.TryGet(global, out var hostValue))
+                {
+                    // A host constant, unless the module set declares the
+                    // name (a host global it is read from until then).
+                    if (_constantsBeforeCompile!.Contains(global) && !_constantTypes!.ContainsKey(global)
+                        && !(_enumMembers?.ContainsKey(global) ?? false))
+                        type = HostConstantType(global, hostValue, separator < 0 ? null : key.Substring(separator + 2));
+                }
+                else
                 {
                     if (separator < 0)
                     {
@@ -1441,6 +1468,46 @@ namespace WarScript
                 if (message != null)
                     ReportCompileError(new Exception.CompileError(message, file, line, column).LocateIn(file, source));
             }
+        }
+
+        /// <summary>
+        /// The type of a read of the host constant <paramref name="name"/>
+        /// (T3.8, PROP-28), which holds <paramref name="value"/> when
+        /// <see cref="Compile"/> runs; <paramref name="member"/> is
+        /// <c>x</c> for <c>name :: x</c>, <c>m[]</c> for
+        /// <c>name :: m [a]</c>, null for the bare read. A script cannot
+        /// write a constant (<see cref="CheckConstantWrites"/>), and the host
+        /// is trusted to keep a constant's type:
+        /// <list type="bullet">
+        /// <item>a number, logical value, text or array has its own type; a
+        /// null (a native manifest's stub) the type the manifest declares,
+        /// if any;</item>
+        /// <item>a host enum (an instance of the enum class of its name,
+        /// <see cref="ClassDefinition.IsEnum"/>, whose members a script
+        /// cannot assign): <c>E :: x</c> has the type of its field
+        /// <c>x</c> (a member or <c>count</c>: a number; <c>values</c>,
+        /// <c>names</c>: an array), and <c>E :: name [a]</c> is a text (the
+        /// generated <c>name</c> method).</item>
+        /// </list>
+        /// </summary>
+        private Compiler.StaticType HostConstantType(string name, WarValue value, string? member)
+        {
+            if (member == null)
+            {
+                if (value.IsNull)
+                    return HostConstantTypes.TryGetValue(name, out var declared) ? declared : Compiler.StaticType.Unknown;
+                return Compiler.TypeOfValue(value);
+            }
+            if (!value.IsClass) return Compiler.StaticType.Unknown;
+            var data = value.ClassValue;
+            if (!data.Definition.IsEnum || data.Root != data || data.Definition.ClassDetails.Name != name)
+                return Compiler.StaticType.Unknown;
+            if (member == "name[]")
+                return data.Definition.GetDefinitionScope().GetFunction("name", 1) is NativeFunctionDefinition
+                    ? Compiler.StaticType.Text : Compiler.StaticType.Unknown;
+            // `E :: name` without a call reads the method `name` as a field.
+            if (member == "name" || !data.MemoryScope.HasLocal(member)) return Compiler.StaticType.Unknown;
+            return Compiler.TypeOfValue(data.MemoryScope.GetLocal(member));
         }
 
         /// <summary>

@@ -1979,6 +1979,17 @@ namespace WarScript.Bytecode
         /// a bare name or a <c>::</c> (a constant or an enum member, once
         /// the module set is compiled); null: unknown.
         /// </summary>
+        /// <summary>The <see cref="StaticType"/> of a value (a class instance, a native object: unknown).</summary>
+        internal static StaticType TypeOfValue(in WarValue v)
+        {
+            if (v.IsNull) return StaticType.Null;
+            if (v.IsNumeric) return StaticType.Number;
+            if (v.IsLogical) return StaticType.Logical;
+            if (v.IsText) return StaticType.Text;
+            if (v.IsArray) return StaticType.Array;
+            return StaticType.Unknown;
+        }
+
         private static StaticType TypeOf(IExpression expr, System.Func<IExpression, StaticType>? names = null)
         {
             switch (expr)
@@ -1987,15 +1998,7 @@ namespace WarScript.Bytecode
                 case ClassPropertyOperator _:
                     return names?.Invoke(expr) ?? StaticType.Unknown;
                 case ConstantExpression c:
-                {
-                    var v = c.Value;
-                    if (v.IsNull) return StaticType.Null;
-                    if (v.IsNumeric) return StaticType.Number;
-                    if (v.IsLogical) return StaticType.Logical;
-                    if (v.IsText) return StaticType.Text;
-                    if (v.IsArray) return StaticType.Array;
-                    return StaticType.Unknown;
-                }
+                    return TypeOfValue(c.Value);
                 case ArrayExpression _:
                     return StaticType.Array;
                 case AdditionOperator a:

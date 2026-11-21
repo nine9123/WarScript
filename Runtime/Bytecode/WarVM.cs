@@ -1499,6 +1499,13 @@ namespace WarScript.Bytecode
                         if (inst.IsClass)
                         {
                             var cd = inst.ClassValue;
+                            if (cd.Root.Definition.IsEnum)
+                            {
+                                // Enum members are constant (T3.8, PROP-28).
+                                RuntimeError(ScriptErrorKind.TypeError, EnumWriteMessage(constants[nameIdx].TextValue, cd.Root));
+                                if (DoHandleException(ref fi, ref code, ref constants)) break;
+                                return;
+                            }
                             var details = cd.Definition.ClassDetails;
                             ref var cache = ref _frames[fi].Function.Chunk.PropertyCaches[cacheSlot];
                             if (ReferenceEquals(cache.CachedType, details))
@@ -2290,6 +2297,13 @@ namespace WarScript.Bytecode
         /// </summary>
         internal static string BoundTwiceMessage(string name, string className, string baseClass) =>
             $"'{name}' is bound twice in class '{className}': base class '{baseClass}' binds its parameter '{name}' to a different argument";
+
+        /// <summary>
+        /// The TypeError message for a property write to an instance of an
+        /// enum's class (T3.8, PROP-28): its members are constant.
+        /// </summary>
+        internal static string EnumWriteMessage(string name, ClassData instance) =>
+            "Cannot assign to '" + name + "' of enum '" + instance.Definition.ClassDetails.Name + "': enum members are constant";
 
         /// <summary>The NameError message for reading a name that is not defined (5.6).</summary>
         internal static string UndefinedVariableMessage(string name) => "undefined variable '" + name + "'";

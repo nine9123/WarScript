@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using FixMath;
+using WarScript.Bytecode;
 using WarScript.Context;
 using WarScript.Context.Definition;
 using WarScript.Expression.Value;
@@ -32,11 +33,12 @@ namespace WarScript
     /// <para>The text format is one entry per line; blank lines and lines
     /// starting with <c>#</c> are ignored, names are separated by single
     /// spaces, and the first other line is the header
-    /// <c>warscript-manifest 1</c>:</para>
+    /// <c>warscript-manifest 2</c> (a version 1 manifest, without constant
+    /// types, is read too):</para>
     /// <code>
     /// function &lt;name&gt; &lt;min arity&gt; &lt;parameter&gt;...
     /// global &lt;name&gt;
-    /// const &lt;name&gt;
+    /// const &lt;name&gt; [&lt;type&gt;]          (number, logical, text or array; absent: unknown)
     /// enum &lt;name&gt; &lt;member&gt;=&lt;integer&gt;...
     /// class &lt;name&gt; &lt;constructor parameter&gt;...
     /// fields &lt;class&gt; &lt;field&gt;...       (absent: the class's fields are unknown)
@@ -46,7 +48,10 @@ namespace WarScript
     public sealed class NativeManifest
     {
         /// <summary>The first line of a manifest file (after comments).</summary>
-        public const string Header = "warscript-manifest 1";
+        public const string Header = "warscript-manifest 2";
+
+        /// <summary>The header of a version 1 manifest (no constant types), still read.</summary>
+        public const string HeaderV1 = "warscript-manifest 1";
 
         /// <summary>A native function or method: its name, its parameters, and how many of them are required.</summary>
         public sealed class FunctionEntry
@@ -109,6 +114,14 @@ namespace WarScript
         public List<FunctionEntry> Functions { get; } = new List<FunctionEntry>();
         public List<string> Globals { get; } = new List<string>();
         public List<string> Constants { get; } = new List<string>();
+
+        /// <summary>
+        /// The type of a constant's value, by constant name: <c>number</c>,
+        /// <c>logical</c>, <c>text</c> or <c>array</c> (a constant without an entry has
+        /// an unknown type). The compiler types a read of the stub constant
+        /// with it (T3.8, PROP-28), since the stub itself holds null.
+        /// </summary>
+        public Dictionary<string, string> ConstantTypes { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
         public List<EnumEntry> Enums { get; } = new List<EnumEntry>();
         public List<ClassEntry> Classes { get; } = new List<ClassEntry>();
 
@@ -125,6 +138,7 @@ namespace WarScript
             var manifest = new NativeManifest();
             var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
             var headerSeen = false;
+            var version = 0;
             var classes = new Dictionary<string, ClassEntry>(StringComparer.Ordinal);
             for (var i = 0; i < lines.Length; i++)
             {
@@ -135,8 +149,9 @@ namespace WarScript
                 {
                     if (!headerSeen)
                     {
-                        if (line != Header)
-                            throw new FormatException($"expected the header '{Header}'");
+                        if (line == Header) version = 2;
+                        else if (line == HeaderV1) version = 1;
+                        else throw new FormatException($"expected the header '{Header}'");
                         headerSeen = true;
                         continue;
                     }
@@ -154,9 +169,17 @@ namespace WarScript
                             manifest.Globals.Add(parts[1]);
                             break;
                         case "const":
-                            Expect(parts, 2);
+                            if (version < 2) Expect(parts, 2);
+                            else if (parts.Length != 2 && parts.Length != 3)
+                                throw new FormatException("'const' takes a name and an optional type");
                             CheckName(parts[1]);
                             manifest.Constants.Add(parts[1]);
+                            if (parts.Length == 3)
+                            {
+                                if (StaticTypeOf(parts[2]) == Compiler.StaticType.Unknown)
+                                    throw new FormatException($"constant type '{parts[2]}' is not number, logical, text or array");
+                                manifest.ConstantTypes[parts[1]] = parts[2];
+                            }
                             break;
                         case "enum":
                         {
@@ -250,7 +273,11 @@ namespace WarScript
             foreach (var g in Globals.OrderBy(g => g, StringComparer.Ordinal))
                 sb.Append("global ").Append(g).Append('\n');
             foreach (var c in Constants.OrderBy(c => c, StringComparer.Ordinal))
-                sb.Append("const ").Append(c).Append('\n');
+            {
+                sb.Append("const ").Append(c);
+                if (ConstantTypes.TryGetValue(c, out var type)) sb.Append(' ').Append(type);
+                sb.Append('\n');
+            }
             foreach (var e in Enums.OrderBy(e => e.Name, StringComparer.Ordinal))
             {
                 sb.Append("enum ").Append(e.Name);
@@ -314,7 +341,13 @@ namespace WarScript
                     manifest.Enums.Add(new EnumEntry(name, members));
                 }
                 else if (script.ConstantNames.Contains(name))
+                {
                     manifest.Constants.Add(name);
+                    // A manifest's stub holds null: keep the type it declared.
+                    var type = TypeName(value.IsNull && script.HostConstantTypes.TryGetValue(name, out var declared)
+                        ? declared : Compiler.TypeOfValue(value));
+                    if (type != null) manifest.ConstantTypes[name] = type;
+                }
                 else
                     manifest.Globals.Add(name);
             }
@@ -330,6 +363,25 @@ namespace WarScript
             }
             return manifest;
         }
+
+        /// <summary>The manifest name of a constant's type, or null when it has none there (unknown, null).</summary>
+        private static string? TypeName(Compiler.StaticType type) => type switch
+        {
+            Compiler.StaticType.Number => "number",
+            Compiler.StaticType.Logical => "logical",
+            Compiler.StaticType.Text => "text",
+            Compiler.StaticType.Array => "array",
+            _ => null,
+        };
+
+        private static Compiler.StaticType StaticTypeOf(string name) => name switch
+        {
+            "number" => Compiler.StaticType.Number,
+            "logical" => Compiler.StaticType.Logical,
+            "text" => Compiler.StaticType.Text,
+            "array" => Compiler.StaticType.Array,
+            _ => Compiler.StaticType.Unknown,
+        };
 
         private static FunctionEntry FromDefinition(FunctionDefinition f) =>
             new FunctionEntry(f.Details.Name, f.Details.MinArity, f.Details.Arguments);
@@ -366,7 +418,9 @@ namespace WarScript
         /// <item>A function or method is a native that raises the rescuable
         /// <c>Native function '&lt;name&gt;' failed: ...</c> when called.</item>
         /// <item>A global or constant is a host global holding null; a
-        /// constant also joins the constant names.</item>
+        /// constant also joins the constant names, and its type (if the
+        /// manifest gives one) types its reads in the compiler's operand
+        /// checks (T3.8, PROP-28).</item>
         /// <item>An enum is a host enum, as <c>[WsEnum]</c> generates it: it
         /// works at run time.</item>
         /// <item>A class is a host class with no constructor body, its
@@ -391,6 +445,8 @@ namespace WarScript
                 {
                     globals.Set(name, WarValue.Null);
                     script.ConstantNames.Add(name);
+                    if (ConstantTypes.TryGetValue(name, out var type))
+                        script.HostConstantTypes[name] = StaticTypeOf(type);
                 }
 
             foreach (var e in Enums)
@@ -439,7 +495,7 @@ namespace WarScript
         {
             var enumScope = new DefinitionScope(script, null);
             var definition = new ClassDefinition(new ClassDetails(e.Name, new List<string>()),
-                new List<ClassDetails>(), new ClassStatement(script, 0, e.Name), enumScope);
+                new List<ClassDetails>(), new ClassStatement(script, 0, e.Name), enumScope) { IsEnum = true };
             scope.AddClass(definition);
 
             var members = e.Members.ToArray();

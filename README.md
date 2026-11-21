@@ -221,7 +221,8 @@ two arrays; `-`, `/`, `%` and unary `-` take numbers; `*` takes numbers or a tex
 Anything else raises a `TypeError` such as `Cannot apply '-' to text and number`. When both
 operand types are visible in the source (literals, interpolated text, array literals, `null`,
 `true`/`false`, a `const` with such a value, a member, `count`, `values`, `names` or `name [...]`
-of an enum declared at the top level, or another operator's result: `"Sir {name}" - "Sir "`,
+of an enum declared at the top level, a host constant or `[WsEnum]` (or a native manifest's typed
+`const` or `enum`), or another operator's result: `"Sir {name}" - "Sir "`,
 `-"x"`, `1 < 2 < 3`, `5 :: hp`, `TITLE - "Sir "` after `const TITLE = "Sir Bob"`), the same
 message is a compile error instead (so are range-loop bounds `<` rejects, `loop i in 0.."3"`); a
 value from a variable or a call is not inferred and raises at runtime. `==` and `!=`
@@ -579,7 +580,8 @@ print HALF     # → 50
 ### Enums
 
 Named numeric constants grouped under a class instance, accessed with `::`. The enum name itself is
-protected from reassignment.
+protected from reassignment, and so are its members: `e = DamageType` then `e :: PHYSICAL = 3` is a
+`TypeError` (`Cannot assign to 'PHYSICAL' of enum 'DamageType': enum members are constant`).
 
 ```ruby
 enum DamageType
@@ -1341,18 +1343,21 @@ NativeManifest.Parse(File.ReadAllText("WarScriptNatives.wsmanifest")).Register(s
 CompileResult c = script.Compile();   // unknown functions, wrong arities, unknown globals... are errors
 ```
 
-A stub function that is called raises a rescuable error, a stub global or constant holds `null`, and
-a manifest enum works like the generated one. Natives you register by hand aren't in the generated
+A stub function that is called raises a rescuable error, a stub global or constant holds `null` (the
+compiler types a constant's reads with the type its line gives, as it types a real host constant
+with its value: `MAX_UNITS - "x"` is a compile error either way), and a manifest enum works like the
+generated one. Natives you register by hand aren't in the generated
 file: `NativeManifest.FromScript(script).ToString()` writes the manifest of an instance after
 everything is registered (natives, host globals, constants, enums and host classes). The headless
 runner takes one: `WarScript.Runner mod.ws --manifest WarScriptNatives.wsmanifest --compile-only`.
 
-The format is one entry per line (`#` starts a comment), after the header `warscript-manifest 1`:
+The format is one entry per line (`#` starts a comment), after the header `warscript-manifest 2`
+(a `warscript-manifest 1` file, whose constants have no type, is still read):
 
 ```
 function spawn_unit 1 kind team     # name, required count, parameters
 global player
-const MAX_UNITS
+const MAX_UNITS number              # optional type: number, logical, text or array
 enum Team Red=0 Blue=1
 class Unit kind                     # constructor parameters
 fields Unit hp                      # optional: without it any `u :: x` is accepted

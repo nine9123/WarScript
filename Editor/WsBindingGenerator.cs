@@ -321,6 +321,8 @@ namespace WarScript.Editor
                 sb.AppendLine($"{indent}            var __enumScope = new DefinitionScope(__script, null);");
                 sb.AppendLine($"{indent}            var __enumStmt = new WarScript.Statement.ClassStatement(__script, 0, \"{Esc(e.WsName)}\");");
                 sb.AppendLine($"{indent}            var __enumDef = new ClassDefinition(__enumDetails, new List<ClassDetails>(), __enumStmt, __enumScope);");
+                // Its members are constant (T3.8, PROP-28; internal, like ConstantNames).
+                sb.AppendLine($"{indent}            __enumDef.IsEnum = true;");
                 sb.AppendLine($"{indent}            __scope.AddClass(__enumDef);");
                 sb.AppendLine();
 
@@ -408,18 +410,22 @@ namespace WarScript.Editor
         internal sealed class ManifestEntries
         {
             public readonly List<(string Name, int Arity, string Line)> Functions = new List<(string, int, string)>();
-            public readonly List<string> Constants = new List<string>();
+            public readonly List<(string Name, string? Type)> Constants = new List<(string, string?)>();
             public readonly List<(string Name, string Line)> Enums = new List<(string, string)>();
 
-            /// <summary>The manifest text: header, then functions, constants and enums, each sorted by name (ordinal).</summary>
+            /// <summary>The manifest text: header, then functions, constants (with their types) and enums, each sorted by name (ordinal).</summary>
             public string Write()
             {
                 var sb = new StringBuilder();
-                sb.Append("warscript-manifest 1\n");
+                sb.Append("warscript-manifest 2\n");
                 foreach (var f in Functions.OrderBy(f => f.Name, StringComparer.Ordinal).ThenBy(f => f.Arity))
                     sb.Append(f.Line).Append('\n');
-                foreach (var c in Constants.OrderBy(c => c, StringComparer.Ordinal))
-                    sb.Append("const ").Append(c).Append('\n');
+                foreach (var c in Constants.OrderBy(c => c.Name, StringComparer.Ordinal))
+                {
+                    sb.Append("const ").Append(c.Name);
+                    if (c.Type != null) sb.Append(' ').Append(c.Type);
+                    sb.Append('\n');
+                }
                 foreach (var e in Enums.OrderBy(e => e.Name, StringComparer.Ordinal))
                     sb.Append(e.Line).Append('\n');
                 return sb.ToString();
@@ -456,7 +462,7 @@ namespace WarScript.Editor
             {
                 var constAttr = field.GetCustomAttribute<WsConstAttribute>();
                 if (constAttr == null || !field.IsLiteral) continue;
-                manifest.Constants.Add(constAttr.Name ?? field.Name);
+                manifest.Constants.Add((constAttr.Name ?? field.Name, ConstManifestType(field.FieldType, field.GetRawConstantValue())));
             }
 
             foreach (var nested in type.GetNestedTypes(BindingFlags.Public | BindingFlags.DeclaredOnly))
@@ -571,6 +577,18 @@ namespace WarScript.Editor
 
         private static string Esc(string s) =>
             s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n");
+
+        /// <summary>
+        /// The manifest type of a [WsConst] (T3.8, PROP-28), matching
+        /// <see cref="ConstValueLiteral"/>: null for a null value.
+        /// </summary>
+        private static string? ConstManifestType(Type fieldType, object? val)
+        {
+            if (val == null) return null;
+            if (fieldType == typeof(string)) return "text";
+            if (fieldType == typeof(bool)) return "logical";
+            return "number";
+        }
 
         private static string ConstValueLiteral(Type fieldType, object? val)
         {

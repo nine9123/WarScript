@@ -23,10 +23,10 @@ namespace Tests
     {
         private const string Sample =
             "# the game\n" +
-            "warscript-manifest 1\n" +
+            "warscript-manifest 2\n" +
             "function spawn_unit 1 kind team\n" +
             "global player\n" +
-            "const MAX_UNITS\n" +
+            "const MAX_UNITS number\n" +
             "enum Team Red=0 Blue=1 Neutral=-7\n" +
             "class Unit kind\n" +
             "fields Unit hp\n" +
@@ -54,6 +54,7 @@ namespace Tests
             CollectionAssert.AreEqual(new[] { "kind", "team" }, manifest.Functions[0].Parameters);
             CollectionAssert.AreEqual(new[] { "player" }, manifest.Globals);
             CollectionAssert.AreEqual(new[] { "MAX_UNITS" }, manifest.Constants);
+            Assert.AreEqual("number", manifest.ConstantTypes["MAX_UNITS"]);
             Assert.AreEqual(-7, manifest.Enums[0].Members[2].Value);
             CollectionAssert.AreEqual(new[] { "hp" }, manifest.Classes[0].Fields);
             Assert.AreEqual("move", manifest.Classes[0].Methods[0].Name);
@@ -63,6 +64,9 @@ namespace Tests
             Assert.AreEqual(text, NativeManifest.Parse(text).ToString());
         }
 
+        [TestCase("warscript-manifest 1\nconst MAX number\n", "line 2: 'const' takes 1 name(s)")]
+        [TestCase("warscript-manifest 2\nconst MAX float\n", "line 2: constant type 'float' is not number, logical, text or array")]
+        [TestCase("warscript-manifest 2\nconst MAX number x\n", "line 2: 'const' takes a name and an optional type")]
         [TestCase("function f 0\n", "line 1: expected the header")]
         [TestCase("warscript-manifest 1\nfunction f x a\n", "line 2: min arity 'x' is not a number")]
         [TestCase("warscript-manifest 1\nfunction f 2 a\n", "line 2:")]
@@ -185,15 +189,76 @@ namespace Tests
             var captured = NativeManifest.FromScript(host).ToString();
 
             Assert.AreEqual(
-                "warscript-manifest 1\n" +
+                "warscript-manifest 2\n" +
                 "function heal 1 unit amount\n" +
                 "function spawn_unit 1 kind team\n" +
                 "global player\n" +
-                "const MAX_UNITS\n" +
+                "const MAX_UNITS number\n" +
                 "enum Team Red=0 Blue=1 Neutral=-7\n" +
                 "class Unit kind\n" +
                 "fields Unit hp kind\n" +
                 "method Unit move 2 x y\n", captured);
+        }
+
+        [Test]
+        public void AVersion1Manifest_IsStillRead()
+        {
+            var manifest = NativeManifest.Parse("warscript-manifest 1\nconst MAX\n");
+            CollectionAssert.AreEqual(new[] { "MAX" }, manifest.Constants);
+            Assert.AreEqual(0, manifest.ConstantTypes.Count);
+            StringAssert.StartsWith(NativeManifest.Header + "\n", manifest.ToString());
+        }
+
+        /// <summary>
+        /// PROP-28 (T3.8): a stub constant holds null, so its reads are typed
+        /// with the type the manifest gives it; a manifest enum is typed like
+        /// a script's top-level enum.
+        /// </summary>
+        [Test]
+        public void AManifestsConstantTypesAndEnums_TypeOperands()
+        {
+            var manifest = NativeManifest.Parse(Sample + "const TITLE text\nconst ANY\n");
+            Assert.AreEqual("Cannot apply '-' to number and text",
+                FirstDiagnostic(Script("x = MAX_UNITS - \"x\"\n", manifest).script.Compile()));
+            Assert.AreEqual("Cannot apply '-' to text and number",
+                FirstDiagnostic(Script("x = TITLE - 1\n", manifest).script.Compile()));
+            Assert.AreEqual("Cannot apply '<<' to number and number",
+                FirstDiagnostic(Script("x = Team :: Blue << 1\n", manifest).script.Compile()));
+            Assert.AreEqual("Cannot apply '-' to text and number",
+                FirstDiagnostic(Script("x = Team :: name [0] - 1\n", manifest).script.Compile()));
+            Assert.AreEqual("Cannot apply '-' to array and number",
+                FirstDiagnostic(Script("x = Team :: values - 1\n", manifest).script.Compile()));
+
+            // No type, or a name the script cannot rely on: not typed.
+            Assert.IsTrue(Script("x = ANY - \"x\"\n", manifest).script.Compile().Success, "untyped");
+            Assert.IsTrue(Script("x = player - \"x\"\n", manifest).script.Compile().Success, "a host global");
+            Assert.IsTrue(Script("x = Team :: name - 1\n", manifest).script.Compile().Success, "name read as a field");
+        }
+
+        [Test]
+        public void AHostConstantsValue_TypesOperands_AndIsCaptured()
+        {
+            var (script, _) = Script("x = TAG * TAG\ny = LIMIT + {1}\n", NativeManifest.Parse("warscript-manifest 2\n"));
+            script.GlobalMemoryScope.Set("TAG", WarValue.FromText("t"));
+            script.ConstantNames.Add("TAG");
+            script.GlobalMemoryScope.Set("LIMIT", WarValue.FromNumeric(3));
+            script.ConstantNames.Add("LIMIT");
+            script.GlobalMemoryScope.Set("FLAG", WarValue.True);
+            script.ConstantNames.Add("FLAG");
+            CollectionAssert.AreEqual(new[] { "Cannot apply '*' to text and text", "Cannot apply '+' to number and array" },
+                script.Compile().Diagnostics.Select(d => d.Message));
+
+            StringAssert.Contains("const FLAG logical\nconst LIMIT number\nconst TAG text\n",
+                NativeManifest.FromScript(script).ToString());
+        }
+
+        [Test]
+        public void AManifestEnumsMembers_AreConstant()
+        {
+            var (script, _) = Script("t = Team\nt :: Red = 5\n", NativeManifest.Parse(Sample));
+            var result = script.Run();
+            Assert.AreEqual(ScriptErrorKind.TypeError, result.Error.Kind);
+            Assert.AreEqual("Cannot assign to 'Red' of enum 'Team': enum members are constant", result.Error.Message);
         }
 
         /// <summary>

@@ -48,6 +48,16 @@ namespace WarScript.Context.Definition
         /// </summary>
         internal HashSet<string>? Fields { get; set; }
 
+        /// <summary>
+        /// True for the class of an <c>enum</c> (the parser's desugar, a
+        /// host <c>[WsEnum]</c>, a native manifest's <c>enum</c>; stored in
+        /// the file since format 12). Its members are constant (T3.8,
+        /// PROP-28): a script's property write to an instance of it is a
+        /// TypeError (<c>WarVM</c>'s <c>SetProperty</c>), so the compiler
+        /// may type <c>E :: X</c> from the declaration.
+        /// </summary>
+        internal bool IsEnum { get; set; }
+
         public ClassDefinition(
             ClassDetails classDetails,
             List<ClassDetails> baseTypes,

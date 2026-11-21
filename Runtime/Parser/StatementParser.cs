@@ -922,7 +922,8 @@ namespace WarScript
             CheckDuplicate(d => d.AddClass(enumName.Value, _script.ParsingFile, enumName.RowNumber), enumName);
             var classScope = _script.DefinitionContext.NewScope();
             var classStatement = new ClassStatement(_script, line, enumName.Value);
-            var classDefinition = new ClassDefinition(classDetails, new List<ClassDetails>(), classStatement, classScope);
+            var classDefinition = new ClassDefinition(classDetails, new List<ClassDetails>(), classStatement, classScope)
+                { IsEnum = true };
             _script.DefinitionContext.GetScope().AddClass(classDefinition);
 
             // Constructor body: assign each member as a property

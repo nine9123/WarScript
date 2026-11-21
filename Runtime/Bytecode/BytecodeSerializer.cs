@@ -136,6 +136,9 @@ namespace WarScript.Bytecode
                     WriteString(w, field);
             }
 
+            // An enum class (format 12, PROP-28): its members are constant.
+            w.Write((byte)(classDef.IsEnum ? 1 : 0));
+
             // Constructor bytecode (optional)
             w.Write((byte)(classDef.CompiledConstructor != null ? 1 : 0));
             if (classDef.CompiledConstructor != null)
@@ -393,6 +396,10 @@ namespace WarScript.Bytecode
                     fields.Add(r.String());
             }
 
+            // Enum flag (format 12)
+            var isEnum = r.U8();
+            if (isEnum > 1) throw new InvalidDataException("Invalid enum flag in class '" + name + "'");
+
             // Constructor bytecode
             CompiledFunction? compiledCtor = null;
             var hasCtor = r.U8();
@@ -411,6 +418,7 @@ namespace WarScript.Bytecode
             var classDef = new ClassDefinition(classDetails, baseTypes, null!, classScope);
             classDef.CompiledConstructor = compiledCtor;
             classDef.Fields = fields;
+            classDef.IsEnum = isEnum != 0;
             return classDef;
         }
 
