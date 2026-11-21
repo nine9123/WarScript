@@ -33,6 +33,14 @@ namespace Tests
                 new FunctionDetails(name, parameters), body, "", ""));
         }
 
+        private static byte[] Bytecode(string source)
+        {
+            var compiled = new WarScriptLanguage("lib", source, null, null);
+            var stream = new System.IO.MemoryStream();
+            compiled.SaveBytecode(stream);
+            return stream.ToArray();
+        }
+
         private static string Text(ScriptResult result)
         {
             Assert.AreEqual(ScriptStatus.Ok, result.Status, result.ToString());
@@ -138,13 +146,16 @@ namespace Tests
         }
 
         [Test]
-        public void Handle_ToANative_FollowsAScriptFunctionThatShadowsIt()
+        public void Handle_ToANative_FollowsALoadedFunctionThatShadowsIt()
         {
-            var (script, _) = Script("fun greet []\n    return \"script\"\nend\n");
+            // A compiled script may not shadow a native (PROP-12), but
+            // bytecode compiled where the native did not exist can.
+            var (script, _) = Script("");
             AddNative(script, "greet", 0, _ => WarValue.FromText("native"));
             var greet = script.GetFunction("greet", 0);
-            Assert.IsInstanceOf<NativeFunctionDefinition>(greet.Definition, "before compiling only the native exists");
+            Assert.IsInstanceOf<NativeFunctionDefinition>(greet.Definition, "before loading only the native exists");
 
+            script.LoadBytecode(new System.IO.MemoryStream(Bytecode("fun greet []\n    return \"script\"\nend\n")));
             script.Run();
 
             Assert.AreEqual("script", Text(script.Call(greet)));
@@ -193,8 +204,9 @@ namespace Tests
         {
             var files = new Dictionary<string, string> { ["lib"] = "fun helper []\n    return \"imported\"\nend\n" };
             var output = new List<string>();
+            // A bytecode import: a compiled one may not shadow the native (PROP-12).
             var script = new WarScriptLanguage("main", "import \"lib\"\n",
-                path => files.TryGetValue(path, out var s) ? s : null, (s, m) => output.Add(m));
+                null, (s, m) => output.Add(m), path => path == "lib" ? Bytecode(files["lib"]) : null);
             script.LogUnhandledErrors = false;
             AddNative(script, "helper", 0, _ => WarValue.FromText("native"));
             var helper = script.GetFunction("helper", 0);

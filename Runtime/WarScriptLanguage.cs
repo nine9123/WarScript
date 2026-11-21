@@ -925,7 +925,8 @@ namespace WarScript
         /// <summary>
         /// Records a <c>new <paramref name="className"/></c> with
         /// <paramref name="arguments"/> arguments (<paramref name="nested"/>:
-        /// <c>obj :: new C [...]</c>) at <paramref name="line"/>,
+        /// <c>obj :: new C [...]</c>; -1: the class of an <c>is</c> or
+        /// <c>as</c>, which only has to exist) at <paramref name="line"/>,
         /// <paramref name="column"/> of <paramref name="file"/> (T3.8,
         /// PROP-29), checked by <see cref="CheckInstantiations"/> once every
         /// class of the module set is known. Ignored outside
@@ -947,6 +948,10 @@ namespace WarScript
         /// a block is never found by <c>new</c> at runtime, so it does not
         /// count. A nested <c>obj :: new C [...]</c> naming no such class is
         /// left to the VM, which reports a foreign <c>obj</c> as such (6.7).
+        /// The class of an <c>is</c> or <c>as</c> must exist too, at any
+        /// arity (T3.8), though the VM would only answer false or null: like
+        /// a <c>::</c> name, a class of another script instance's value
+        /// (6.7) must be known to the script that tests for it.
         /// </summary>
         private void CheckInstantiations()
         {
@@ -967,7 +972,7 @@ namespace WarScript
                     if (nested) continue;
                     message = $"Class '{name}' is not defined";
                 }
-                else if (!set.Contains(arguments))
+                else if (arguments >= 0 && !set.Contains(arguments))
                     message = ConstructorArityMessage(name, ArityList(set), arguments);
                 else continue;
                 throw new Exception.CompileError(message, file, line, column).LocateIn(file, source);

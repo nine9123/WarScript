@@ -1811,11 +1811,21 @@ namespace WarScript.Bytecode
         /// <summary>
         /// The class name on the right of <c>as</c> / <c>is</c>: anything
         /// but a plain name is a <see cref="CompileError"/> (CRASH-6), not
-        /// an <c>InvalidCastException</c>.
+        /// an <c>InvalidCastException</c>; a name that is no class of the
+        /// module set or the host is one too (T3.8), reported by
+        /// <see cref="WarScriptLanguage.CheckInstantiation"/>.
         /// </summary>
         private string TypeNameOperand(IExpression right, string keyword)
         {
-            if (right is VariableExpression type) return type.Name;
+            if (right is VariableExpression type)
+            {
+                // It must name a class (T3.8): checked with the `new`s once
+                // the module set is compiled, at any number of arguments.
+                var onThisLine = type.Line == _line && type.Column > 0;
+                _script.CheckInstantiation(type.Name, -1, false, _source,
+                    _line, onThisLine ? type.Column : _column);
+                return type.Name;
+            }
             throw new CompileError("'" + keyword + "' must be followed by a class name", _source, _line, _column);
         }
 

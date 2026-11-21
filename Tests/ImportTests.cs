@@ -229,12 +229,26 @@ namespace Tests
         }
 
         [Test]
-        public void Import_ShadowingANative_LogsOnce()
+        public void Import_ShadowingANative_IsACompileErrorInTheImport()
+        {
+            var files = new Dictionary<string, string> { ["lib"] = "fun twice [a] return a end" };
+            var ex = Assert.Throws<WarScript.Exception.SyntaxException>(() => TestHelper.Run("import_test", "import \"lib\"\nprint twice [3]",
+                setupScope: (s, scope) => scope.AddFunction(new WarScript.Context.Definition.NativeFunctionDefinition(
+                    new WarScript.Context.Definition.FunctionDetails("twice", new List<string> { "a" }), args => args[0], "", "")),
+                fileResolver: path => files.TryGetValue(path, out var src) ? src : null));
+            StringAssert.Contains("Function 'twice' with 1 argument shadows a native function", ex.Message);
+            Assert.AreEqual("lib", ex.ScriptName);
+            Assert.AreEqual(1, ex.Line);
+            Assert.AreEqual(5, ex.Column);
+        }
+
+        [Test]
+        public void Import_MethodShadowingANative_LogsOnce()
         {
             // Joining the namespace (5.8) copies the import's definitions into
             // the script's scope; that copy is not a second shadowing.
-            var files = new Dictionary<string, string> { ["lib"] = "fun twice [a] return a end" };
-            var (_, output) = TestHelper.Run("import_test", "import \"lib\"\nprint twice [3]",
+            var files = new Dictionary<string, string> { ["lib"] = "class C []\n    fun twice [a] return a end\nend" };
+            var (_, output) = TestHelper.Run("import_test", "import \"lib\"\nc = new C []\nprint c :: twice [3]",
                 setupScope: (s, scope) => scope.AddFunction(new WarScript.Context.Definition.NativeFunctionDefinition(
                     new WarScript.Context.Definition.FunctionDetails("twice", new List<string> { "a" }), args => args[0], "", "")),
                 fileResolver: path => files.TryGetValue(path, out var src) ? src : null);

@@ -338,6 +338,25 @@ namespace WarScript
         }
 
         /// <summary>
+        /// A function that is not a method may not shadow a native at any
+        /// arity it can be called with (T3.8, PROP-12, DEC-21): throws at
+        /// <paramref name="at"/>, its name. A method only shadows the native
+        /// for bare calls inside its class, and keeps the log line of
+        /// <see cref="DefinitionScope.AddFunction(FunctionDefinition)"/>. Not
+        /// for v1 scripts.
+        /// </summary>
+        private void CheckShadowsNative(FunctionDetails details, Token.Token at)
+        {
+            if (_script.ParsingV1) return;
+            var scope = _script.DefinitionContext.GetScope();
+            for (var arity = details.MinArity; arity <= details.Arguments.Count; arity++)
+                if (scope.GetFunction(details.Name, arity) is NativeFunctionDefinition)
+                    throw new SyntaxException(System.FormattableString.Invariant(
+                        $"Function '{details.Name}' with {arity} argument{(arity == 1 ? "" : "s")} shadows a native function"),
+                        at.RowNumber, at.Column);
+        }
+
+        /// <summary>
         /// A parameter list names each parameter once (T3.8, PROP-29):
         /// throws at <paramref name="parameter"/> when
         /// <paramref name="parameters"/> already has it. Not for v1 scripts.
@@ -429,6 +448,7 @@ namespace WarScript
             var functionScope = _script.DefinitionContext.NewScope();
             var functionDetails = new FunctionDetails(name.Value, arguments, minArity);
             CheckDuplicate(d => d.AddFunction(name.Value, functionDetails.MinArity, arguments.Count, _script.ParsingFile, name.RowNumber), name);
+            if (!(_compositeStatement is ClassStatement)) CheckShadowsNative(functionDetails, name);
             var functionDefinition = new FunctionDefinition(functionDetails, functionStatement, functionScope);
             _script.DefinitionContext.GetScope().AddFunction(functionDefinition);
 

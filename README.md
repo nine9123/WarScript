@@ -413,7 +413,10 @@ Functions are resolved by **(name, argument count)** — two functions with the 
 different arities are distinct. Defining a function again with an arity the first one already
 takes (counting the arities its default parameters allow), or a class name again, is a compile
 error — in the same file, in a class (methods), or anywhere among a script and the files it
-imports, which share one namespace.
+imports, which share one namespace. So is a function with the name and an arity of a native
+(`fun abs [n]` against the stdlib's `abs`: `Function 'abs' with 1 argument shadows a native
+function`); a method may take a native's name, and then a bare call inside its class reaches the
+method (the host log says `Shadowing native function 'abs'`).
 
 #### Locals and globals
 
@@ -696,6 +699,9 @@ print d is Animal    # → true
 a = d as Animal      # cast, or null if incompatible
 print a :: name      # → Rex
 ```
+
+The class after `is` or `as` must be a class of the script, its imports or the host: `d is Dgo`
+is a compile error, `Class 'Dgo' is not defined`.
 
 ### Exception handling
 

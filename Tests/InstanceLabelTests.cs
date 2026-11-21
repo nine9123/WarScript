@@ -136,7 +136,8 @@ namespace Tests
         [Test]
         public void ShadowingANativeLogLine_IsPrefixed()
         {
-            var (script, output) = Script("fun twice [a]\n    return a\nend\n");
+            // A method: a function shadowing a native is a compile error (PROP-12).
+            var (script, output) = Script("class C []\n    fun twice [a]\n        return a\n    end\nend\n");
             script.GlobalDefinitionScope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("twice", new List<string> { "a" }), args => args[0], "", ""));
 
