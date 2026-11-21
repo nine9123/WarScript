@@ -477,7 +477,7 @@ namespace WarScript
                 var assign = new AssignmentOperator(
                     _script,
                     new VariableExpression(_script, paramName),
-                    defaultExpr);
+                    defaultExpr) { Desugared = true };
                 assignBody.AddStatement(new ExpressionStatement(_script, line, blockName, assign));
 
                 var condition = new ConditionStatement(_script, line, blockName);
@@ -787,7 +787,7 @@ namespace WarScript
                 var assign = new AssignmentOperator(
                     _script,
                     new VariableExpression(_script, memberName),
-                    new ConstantExpression(WarValue.FromNumeric(memberValue)));
+                    new ConstantExpression(WarValue.FromNumeric(memberValue))) { Desugared = true };
                 classStatement.AddStatement(
                     new ExpressionStatement(_script, line, enumName.Value, assign));
             }
@@ -800,7 +800,7 @@ namespace WarScript
                 new ExpressionStatement(_script, line, enumName.Value,
                     new AssignmentOperator(_script,
                         new VariableExpression(_script, "values"),
-                        new ArrayExpression(_script, valuesElements))));
+                        new ArrayExpression(_script, valuesElements)) { Desugared = true }));
 
             // Add `names` property: array of all string names
             var namesElements = new List<IExpression>();
@@ -810,14 +810,14 @@ namespace WarScript
                 new ExpressionStatement(_script, line, enumName.Value,
                     new AssignmentOperator(_script,
                         new VariableExpression(_script, "names"),
-                        new ArrayExpression(_script, namesElements))));
+                        new ArrayExpression(_script, namesElements)) { Desugared = true }));
 
             // Add `count` property: number of members
             classStatement.AddStatement(
                 new ExpressionStatement(_script, line, enumName.Value,
                     new AssignmentOperator(_script,
                         new VariableExpression(_script, "count"),
-                        new ConstantExpression(WarValue.FromNumeric(members.Count)))));
+                        new ConstantExpression(WarValue.FromNumeric(members.Count))) { Desugared = true }));
 
             // Build name[] method: maps numeric value → string name
             var nameMethodBody = new FunctionStatement(_script, line, enumName.Value + "#name");

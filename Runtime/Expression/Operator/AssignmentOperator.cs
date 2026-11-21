@@ -10,6 +10,15 @@ namespace WarScript.Expression.Operator
         /// </summary>
         internal bool DeclaresConstant { get; set; }
 
+        /// <summary>
+        /// True for an assignment the parser's desugar wrote rather than the
+        /// script: a default parameter value (<c>b = 1</c> when <c>b</c> is
+        /// null) and an enum's members, <c>values</c>, <c>names</c> and
+        /// <c>count</c>. Not a reassignment for the constant check (T3.8)
+        /// either: it writes a parameter or a field of the enum's class.
+        /// </summary>
+        internal bool Desugared { get; set; }
+
         public AssignmentOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
     }
 }

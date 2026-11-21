@@ -781,7 +781,10 @@ namespace WarScript.Bytecode
                 // (T3.8), whatever it compiles to: the parser rejects a body
                 // local or a class-body field named like a constant it has
                 // already read, so one above the declaration is reported too.
-                if (!assign.DeclaresConstant)
+                // Not the parser's own desugared writes (a default parameter
+                // value, an enum's members): they write a parameter or a
+                // field of the enum's class, never the constant.
+                if (!assign.DeclaresConstant && !assign.Desugared)
                 {
                     var onThisLine = v.Line > 0 && v.Line == _line;
                     _script.CheckConstantWrite(v.Name, _source,
