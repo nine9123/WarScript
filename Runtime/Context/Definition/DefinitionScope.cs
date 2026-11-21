@@ -129,7 +129,6 @@ namespace WarScript.Context.Definition
                     _script.Log($"Shadowing native function '{functionDefinition.Details.Name}'");
             }
 
-            
             Functions.Add(functionDefinition);
             _script.DefinitionsChanged();
             _functionIndex[(functionDefinition.Details.Name, functionDefinition.Details.Arguments.Count)] = functionDefinition;

@@ -426,5 +426,83 @@ namespace Tests
                 files);
             Assert.AreEqual(new[] { "Tweety has 2 legs" }, output);
         }
+
+        // ── T3.7: an import's top level is a frame of the importing VM ──
+
+        private static WarScript.WarScriptLanguage Instance(string source, Dictionary<string, string> files, List<string> output)
+        {
+            var script = new WarScript.WarScriptLanguage("main", source,
+                path => files.TryGetValue(path, out var src) ? src : null, (s, m) => output.Add(m));
+            script.LogUnhandledErrors = false;
+            return script;
+        }
+
+        [Test]
+        public void Import_TopLevelRunsOnTheImportingVM_TheDebuggerSeesBothFrames()
+        {
+            // The debugger's call stack is the stack of the VM it stops in;
+            // with an import VM of its own, the importer's frame was missing.
+            var files = new Dictionary<string, string> { ["lib"] = "x = 1\nprint x" };
+            var output = new List<string>();
+            var script = Instance("import \"lib\"\n\nprint 2", files, output);
+            var stacks = new List<string>();
+            script.AddBreakpoint(2);
+            script.DebugHook = ctx =>
+            {
+                stacks.Add(ctx.ScriptName + ": " + string.Join(" > ", ctx.CallStack));
+                ctx.Action = WarScript.Bytecode.StepMode.Continue;
+            };
+
+            var result = script.Run();
+
+            Assert.IsTrue(result.IsOk, result.Error?.ToString());
+            Assert.AreEqual(new[] { "1", "2" }, output);
+            // Line 2 is the import's (the importer's is blank): the import's
+            // frame above the importer's, stopped at its 'import'.
+            Assert.AreEqual(new[] { "main: <script>:1 > <script>:2" }, stacks);
+        }
+
+        [Test]
+        public void Import_TopLevelError_IsNotCached_AndRunsAgainAfterClearFault()
+        {
+            var files = new Dictionary<string, string> { ["lib"] = "print \"loading\"\nx = 1 / 0" };
+            var output = new List<string>();
+            var script = Instance("import \"lib\"\nprint \"not reached\"", files, output);
+
+            for (int run = 0; run < 2; run++)
+            {
+                output.Clear();
+                var result = script.Run();
+                Assert.AreEqual(WarScript.ScriptErrorKind.DivisionByZero, result.Error?.Kind, result.Error?.ToString());
+                Assert.AreEqual(2, result.Error.CallStack.Count);
+                Assert.AreEqual("lib", result.Error.CallStack[0].ScriptName);
+                Assert.AreEqual("main", result.Error.CallStack[1].ScriptName);
+                Assert.AreEqual(new[] { "loading" }, output);
+                script.ClearFault();
+            }
+        }
+
+        [Test]
+        public void Import_HostFaultInTopLevel_LeavesNoImportRunning()
+        {
+            // The import frame is dropped with the VM's other frames; the
+            // next run imports the file again instead of reporting a cycle.
+            var files = new Dictionary<string, string> { ["lib"] = "print \"loading\"\nfun f [] return 1 end\nprint \"loaded\"" };
+            var output = new List<string>();
+            var script = Instance("import \"lib\"\nprint f []", files, output);
+            script.AddBreakpoint(3);
+            script.DebugHook = ctx => throw new System.InvalidOperationException("host failed");
+
+            var result = script.Run();
+            Assert.AreEqual(WarScript.ScriptStatus.HostFault, result.Status);
+            Assert.AreEqual(new[] { "loading" }, output);
+
+            script.ClearFault();
+            script.DebugHook = null;
+            output.Clear();
+            result = script.Run();
+            Assert.IsTrue(result.IsOk, result.Error?.ToString());
+            Assert.AreEqual(new[] { "loading", "loaded", "1" }, output);
+        }
     }
 }

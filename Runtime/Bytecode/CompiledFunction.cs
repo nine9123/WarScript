@@ -66,7 +66,9 @@ namespace WarScript.Bytecode
         /// <summary>A method call: names resolve in the globals; its <see cref="CallFrame.Instance"/> is the instance part whose class defines the method, its <see cref="CallFrame.Definitions"/> that class's definition scope.</summary>
         Method,
         /// <summary>A constructor body (T1.1): names resolve in the instance's fields, then the globals; its <see cref="CallFrame.Instance"/> is the instance part whose body it runs, its <see cref="CallFrame.Definitions"/> that class's definition scope. Its return value is discarded.</summary>
-        Constructor
+        Constructor,
+        /// <summary>An import's top-level code (T3.7), run by the <c>Import</c> instruction on the importing VM: names resolve in the globals; it has no instance, its <see cref="CallFrame.Definitions"/> are the import's. Its return value is discarded.</summary>
+        Import
     }
 
     /// <summary>
@@ -101,8 +103,8 @@ namespace WarScript.Bytecode
         /// class definition scope, a function or lambda frame's caller's
         /// (as when the class scope was pushed on the DefinitionContext for
         /// the method and every call it made), an entry frame's the top of
-        /// the DefinitionContext when it started (the instance's definitions,
-        /// or an import's). Nothing is pushed on the DefinitionContext for a
+        /// the DefinitionContext when it started (the instance's
+        /// definitions), an import frame the import's (T3.7). Nothing is pushed on the DefinitionContext for a
         /// frame, so a suspended coroutine's frames keep theirs between ticks.
         /// </summary>
         public WarScript.Context.Definition.DefinitionScope Definitions;

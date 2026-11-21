@@ -5,8 +5,9 @@ namespace WarScript.Bytecode
     /// <summary>
     /// The instruction and memory budgets of one <see cref="WarScriptLanguage"/>
     /// instance (plan T1.5, PROP-2). Every VM of the instance charges the
-    /// same counters: the cached VM, the VM a nested host entry runs on,
-    /// coroutine VMs and import VMs. Only an outermost entry (<c>Run</c>,
+    /// same counters: the cached VM, the VM a nested host entry runs on and
+    /// coroutine VMs (an import's top level is a frame of the importing VM,
+    /// T3.7). Only an outermost entry (<c>Run</c>,
     /// <c>Call</c>, a coroutine start or resume made by the host) resets them,
     /// so neither a constructor, an import nor a native that calls back into
     /// the instance gets a fresh budget (BUDGET-1).
