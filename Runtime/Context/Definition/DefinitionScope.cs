@@ -36,7 +36,18 @@ namespace WarScript.Context.Definition
         /// <summary>
         /// Parent DefinitionScope to access the structures defined in outer blocks of code
         /// </summary>
-        private readonly DefinitionScope? _parent;
+        private DefinitionScope? _parent;
+
+        /// <summary>The scope this one falls back to, or null.</summary>
+        internal DefinitionScope? Parent => _parent;
+
+        /// <summary>
+        /// Gives this scope another parent: an import resolved for a module
+        /// that is not installed yet (T3.7, <c>LoadBytecode</c>) is resolved
+        /// under the loaded module's scope and moved under the instance's
+        /// once the load succeeds.
+        /// </summary>
+        internal void Reparent(DefinitionScope? parent) => _parent = parent;
 
         private readonly WarScriptLanguage _script;
 

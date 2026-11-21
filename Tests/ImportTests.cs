@@ -217,11 +217,12 @@ namespace Tests
             script.SaveBytecode(afterRun);
             CollectionAssert.AreEqual(beforeRun.ToArray(), afterRun.ToArray(), "running does not add the import's definitions to the file");
 
-            // The import's definitions come from the import when it runs.
+            // The import's definitions come from the import, which the file
+            // lists (format 10) and LoadBytecode resolves.
             var output = new List<string>();
             var loaded = new WarScript.WarScriptLanguage("import_test", "", Files(files), (_, msg) => output.Add(msg));
             loaded.LoadBytecode(new System.IO.MemoryStream(afterRun.ToArray()));
-            Assert.IsNull(loaded.GetFunction("helper", 0));
+            Assert.IsNotNull(loaded.GetFunction("helper", 0));
             Assert.IsTrue(loaded.Run().IsOk);
             Assert.AreEqual(new[] { "7" }, output);
             Assert.IsNotNull(loaded.GetFunction("helper", 0));
@@ -503,6 +504,113 @@ namespace Tests
             result = script.Run();
             Assert.IsTrue(result.IsOk, result.Error?.ToString());
             Assert.AreEqual(new[] { "loading", "loaded", "1" }, output);
+        }
+
+        [Test]
+        public void Import_YieldInTopLevel_EndsTheImportOnly()
+        {
+            // Before the import frame, the import's top level ran on a VM of
+            // its own, where a yield ended that VM's run; the importer went
+            // on. A yield in a function the import's top level calls ends the
+            // import too, without running the function's ensure block (Q-15
+            // is whether either should be an error).
+            var files = new Dictionary<string, string>
+            {
+                ["lib"] = "print \"lib start\"\nyield\nprint \"lib end\"",
+                ["lib2"] = "fun f []\n begin\n  print \"f\"\n  yield wait 2\n  print \"never\"\n ensure\n  print \"ensure\"\n end\nend\nf []\nprint \"lib2 end\""
+            };
+            var output = new List<string>();
+            var script = Instance("import \"lib\"\nimport \"lib2\"\nimport \"lib\"\nbegin\n print \"main\"\n raise \"x\"\nrescue e\n print \"rescued \" + e\nend", files, output);
+
+            var result = script.Run();
+
+            Assert.IsTrue(result.IsOk, result.Error?.ToString());
+            Assert.AreEqual(new[] { "lib start", "f", "main", "rescued x" }, output);
+            Assert.IsTrue(script.IsVMIdle);
+        }
+
+        // ── T3.7: the module header lists the imports; LoadBytecode resolves them ──
+
+        private static byte[] Saved(string source, Dictionary<string, string> files)
+        {
+            var script = new WarScript.WarScriptLanguage("main", source, Files(files), null);
+            var stream = new System.IO.MemoryStream();
+            script.SaveBytecode(stream);
+            return stream.ToArray();
+        }
+
+        [Test]
+        public void SaveBytecode_ListsTheDirectImportsOnce_InOrder()
+        {
+            var files = new Dictionary<string, string> { ["a"] = "import \"c\"", ["b"] = "", ["c"] = "" };
+            var bytes = Saved("import \"b\"\nimport \"a\"\nimport \"b\"", files);
+            using (var r = new System.IO.BinaryReader(new System.IO.MemoryStream(bytes)))
+            {
+                WarScript.Bytecode.BytecodeSerializer.Load(r, new WarScript.WarScriptLanguage("u", "", null, null), null, out var imports);
+                CollectionAssert.AreEqual(new[] { "b", "a" }, imports);
+            }
+        }
+
+        [Test]
+        public void LoadBytecode_ResolvesTheImports_BeforeRun()
+        {
+            var files = new Dictionary<string, string>
+            {
+                ["lib"] = "import \"deep\"\nprint \"lib\"\nfun helper [] return deep_fn [] * 10 end",
+                ["deep"] = "print \"deep\"\nconst LIMIT = 3\nfun deep_fn [] return LIMIT end"
+            };
+            var bytes = Saved("import \"lib\"\nprint helper []", files);
+
+            var output = new List<string>();
+            var loaded = Instance("", files, output);
+            loaded.LoadBytecode(new System.IO.MemoryStream(bytes));
+            Assert.IsNotNull(loaded.GetFunction("helper", 0));
+            Assert.IsNotNull(loaded.GetFunction("deep_fn", 0), "an import's import is in the namespace too");
+            Assert.IsTrue(loaded.ConstantNames.Contains("LIMIT"), "a source import's const, as after Compile");
+
+            var result = loaded.Run();
+            Assert.IsTrue(result.IsOk, result.Error?.ToString());
+            Assert.AreEqual(new[] { "deep", "lib", "30" }, output);
+
+            // Saving the loaded module again writes the same file.
+            var again = new System.IO.MemoryStream();
+            loaded.SaveBytecode(again);
+            CollectionAssert.AreEqual(bytes, again.ToArray());
+        }
+
+        [Test]
+        public void LoadBytecode_ImportFailure_ThrowsInvalidData_AndLeavesTheInstanceUnchanged()
+        {
+            var files = new Dictionary<string, string> { ["lib"] = "fun helper [] return 1 end" };
+            var bytes = Saved("import \"lib\"\nprint helper []", files);
+
+            var cases = new Dictionary<string, (Dictionary<string, string> files, string message)>
+            {
+                ["missing"] = (new Dictionary<string, string>(), "Import 'lib' not found"),
+                ["broken"] = (new Dictionary<string, string> { ["lib"] = "fun helper [" }, ""),
+                ["cycle"] = (new Dictionary<string, string> { ["lib"] = "import \"lib2\"", ["lib2"] = "import \"lib\"" }, "Circular import: lib -> lib2 -> lib"),
+                ["duplicate"] = (new Dictionary<string, string> { ["lib"] = "fun helper [] return 1 end\nfun old [] return 2 end" }, "Function 'old' with 0 arguments is already defined in 'main'")
+            };
+            foreach (var c in cases)
+            {
+                var output = new List<string>();
+                var script = new WarScript.WarScriptLanguage("main", "const KEEP = 1\nfun old [] return \"old\" end",
+                    Files(c.Value.files), (_, m) => output.Add(m));
+                Assert.IsTrue(script.Compile().Success);
+                var bytesWithOld = c.Key == "duplicate"
+                    ? Saved("import \"lib\"\nfun old [] return 3 end", files)
+                    : bytes;
+
+                var e = Assert.Throws<System.IO.InvalidDataException>(() => script.LoadBytecode(new System.IO.MemoryStream(bytesWithOld)), c.Key);
+                Assert.IsInstanceOf<WarScript.Exception.SyntaxException>(e.InnerException, c.Key);
+                StringAssert.Contains(c.Value.message, e.Message, c.Key);
+
+                Assert.IsNull(script.GetFunction("helper", 0), c.Key);
+                Assert.IsTrue(script.ConstantNames.Contains("KEEP"), c.Key);
+                var old = script.Call(script.GetFunction("old", 0));
+                Assert.IsTrue(old.IsOk, c.Key);
+                Assert.AreEqual("old", old.Value.TextValue, c.Key);
+            }
         }
     }
 }

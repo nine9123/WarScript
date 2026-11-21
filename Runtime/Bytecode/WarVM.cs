@@ -1686,15 +1686,21 @@ namespace WarScript.Bytecode
                     // ══════════════════════════════════════════════
 
                     case OpCode.Yield:
+                        _script.SetYielded(YieldType.NextTick, F64.Zero);
+                        if (YieldEndsImport(ref fi, ref code, ref constants)) break;
                         _yielded = true;
                         _yieldType = YieldType.NextTick;
                         _yieldWaitDuration = F64.Zero;
-                        _script.SetYielded(YieldType.NextTick, F64.Zero);
                         return;
                     case OpCode.YieldWait:
                     {
                         var dur = Pop();
                         var d = dur.IsNumeric ? dur.Numeric : F64.Zero;
+                        if (YieldEndsImport(ref fi, ref code, ref constants))
+                        {
+                            _script.SetYielded(YieldType.Wait, d);
+                            break;
+                        }
                         _yielded = true;
                         _yieldType = YieldType.Wait;
                         _yieldWaitDuration = d;
@@ -2620,8 +2626,9 @@ namespace WarScript.Bytecode
                 return false;
             }
 
-            // Resolved and compiled by Compile() (T3.7); otherwise (an import
-            // of loaded bytecode) precompiled first: a host that ships
+            // Resolved and compiled by Compile() or LoadBytecode() (T3.7);
+            // otherwise (a path its file's module header does not list)
+            // precompiled first: a host that ships
             // bytecode for this path has already done the lex/parse/compile
             // work this would otherwise repeat at every load. Null means
             // there is none to use.
@@ -2691,6 +2698,35 @@ namespace WarScript.Bytecode
                 Definitions = importDefScope!
             };
             _frameCount++;
+            return true;
+        }
+
+        /// <summary>
+        /// A <c>yield</c> reached while an import's top-level code runs in
+        /// this VM ends that import's run instead of suspending the entry,
+        /// as it did when the import ran on a VM of its own (before T3.7's
+        /// fifth slice, where the yield ended that VM's run): the frames
+        /// above the innermost import frame and the import frame itself are
+        /// left without running their ensure blocks, the import counts as
+        /// run (cached, and a run-time import joins the namespace) and the
+        /// importer continues after its <c>import</c>. The script still
+        /// reports <see cref="WarScriptLanguage.IsYielded"/>, as before.
+        /// False (nothing done) when no import frame is on this VM.
+        /// Whether such a yield should be an error instead is Q-15.
+        /// </summary>
+        private bool YieldEndsImport(ref int fi, ref List<byte> code, ref List<WarValue> constants)
+        {
+            if (_runningImports == null || _runningImports.Count == 0) return false;
+            var import = fi;
+            while (import >= 0 && _frames[import].Kind != FrameKind.Import) import--;
+            if (import < 0) return false;
+
+            while (_handlerCount > 0 && _handlers[_handlerCount - 1].FrameIndex >= import)
+                _handlers[--_handlerCount] = default;
+            while (_frameCount - 1 > import) PopFrame(_frameCount - 1);
+            DoReturn(WarValue.Null, import, ref code, ref constants, out fi);
+            code = _frames[fi].Function.Chunk.Code;
+            constants = _frames[fi].Function.Chunk.Constants;
             return true;
         }
 

@@ -846,9 +846,14 @@ soon as it compiles, so the host can `GetFunction` and `Call` them before `Run`;
 files' top-level code waits for `Run`.
 
 Saving bytecode (`SaveBytecode`) also resolves the imports, so the build step needs a
-`fileResolver` too; the file holds only the script's own definitions. The imports of bytecode
-(loaded with `LoadBytecode` or through a `bytecodeResolver`) are resolved when they run, and a
-missing one is a runtime `NameError`, until the bytecode lists its imports.
+`fileResolver` too; the file holds only the script's own definitions and the list of the paths it
+imports. Bytecode is resolved like source: the imports of a file loaded through a
+`bytecodeResolver` are compile errors of the importing script when they cannot be resolved, and
+`LoadBytecode` resolves the loaded file's imports (through the same resolvers) before it installs
+anything — a missing, unreadable or broken import, an import cycle or a definition the script and
+an import both define makes it throw `InvalidDataException` (the compile error is its
+`InnerException`) and leaves the instance unchanged. After `LoadBytecode` the imported functions
+and classes can be called before `Run`, as after `Compile`.
 
 #### Importing precompiled bytecode
 
@@ -1356,7 +1361,7 @@ top-level statements.
 well, give the constructor a `bytecodeResolver` — see
 [Importing precompiled bytecode](#importing-precompiled-bytecode).
 
-> A `.wsbc` file starts with a format version (currently `9`) and a hash of the opcode table, and
+> A `.wsbc` file starts with a format version (currently `10`) and a hash of the opcode table, and
 > the loader accepts only an exact match, so bytecode written by another WarScript version must be
 > regenerated from source. The loader verifies everything it reads: a truncated, corrupt or
 > mismatched file makes `LoadBytecode` throw `InvalidDataException` and leaves the instance

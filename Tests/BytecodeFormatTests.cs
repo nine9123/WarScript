@@ -88,7 +88,7 @@ namespace Tests
         [Test]
         public void Load_RejectsAnotherVersion()
         {
-            foreach (byte version in new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 10 })
+            foreach (byte version in new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 11 })
             {
                 var bytes = SavedBytecode();
                 bytes[4] = version;
@@ -507,18 +507,53 @@ namespace Tests
         public void Loader_RejectsInvalidUtf8()
         {
             var bytes = File_(Function("<script>", 0, new[] { Null_, Ret }));
-            // The script body's name follows the 9-byte header: u16 length, then "<script>".
-            Assert.AreEqual((byte)'<', bytes[11]);
-            bytes[11] = 0xFF;
+            // The script body's name follows the 9-byte header and the empty
+            // import list (u16 count): u16 length, then "<script>".
+            Assert.AreEqual((byte)'<', bytes[13]);
+            bytes[13] = 0xFF;
             Rejected(bytes, "invalid UTF-8");
+        }
+
+        /// <summary>A bytecode file with an empty script body and <paramref name="imports"/> in its module header.</summary>
+        private static byte[] FileWithImports(params string[] imports)
+        {
+            var host = new WarScriptLanguage("t", "", null, null);
+            var ms = new MemoryStream();
+            using (var w = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
+                BytecodeSerializer.Save(w, Function("<script>", 0, new[] { Null_, Ret }), new DefinitionScope(host, null), imports);
+            return ms.ToArray();
+        }
+
+        [Test]
+        public void ModuleHeader_ListsTheImports_AfterTheFormatHash()
+        {
+            var bytes = FileWithImports("lib", "b");
+            Assert.AreEqual(2, BitConverter.ToUInt16(bytes, 9));
+            Assert.AreEqual(3, BitConverter.ToUInt16(bytes, 11));
+            Assert.AreEqual("lib", System.Text.Encoding.UTF8.GetString(bytes, 13, 3));
+            Assert.AreEqual(1, BitConverter.ToUInt16(bytes, 16));
+            Assert.AreEqual("b", System.Text.Encoding.UTF8.GetString(bytes, 18, 1));
+
+            using (var r = new BinaryReader(new MemoryStream(bytes)))
+            {
+                BytecodeSerializer.Load(r, new WarScriptLanguage("u", "", null, null), null, out var imports);
+                CollectionAssert.AreEqual(new[] { "lib", "b" }, imports);
+            }
+        }
+
+        [Test]
+        public void Loader_RejectsAnEmptyOrRepeatedImport()
+        {
+            Rejected(FileWithImports(""), "empty import path");
+            Rejected(FileWithImports("a", "a"), "import 'a' listed twice");
         }
 
         [Test]
         public void Loader_RejectsACountLargerThanTheBytesLeft()
         {
             var bytes = File_(Function("<script>", 0, new[] { Null_, Ret }));
-            // name (2 + 8 bytes), arity, local count, reserved locals, then the constant count.
-            int constCount = 9 + 10 + 2 + 2 + 2;
+            // import count, name (2 + 8 bytes), arity, local count, reserved locals, then the constant count.
+            int constCount = 9 + 2 + 10 + 2 + 2 + 2;
             bytes[constCount] = 0xFF;
             bytes[constCount + 1] = 0xFF;
             Rejected(bytes, "constant count");

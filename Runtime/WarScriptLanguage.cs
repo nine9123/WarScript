@@ -77,12 +77,13 @@ namespace WarScript
         internal readonly HashSet<string> ImportStack = new();
 
         /// <summary>
-        /// The imports <see cref="Compile"/> resolved and compiled (T3.7, 5.8,
-        /// DEC-7), by path: what the <c>Import</c> instruction runs instead of
-        /// resolving the path itself. A path missing here (an import of
-        /// bytecode loaded by <see cref="LoadBytecode"/> or by an import,
-        /// whose own imports are not listed until format v3) is still
-        /// resolved when the import runs. Cleared with the definitions.
+        /// The imports <see cref="Compile"/> or <see cref="LoadBytecode"/>
+        /// resolved and compiled (T3.7, 5.8, DEC-7), by path, a bytecode
+        /// file's from its module header (format 10): what the <c>Import</c>
+        /// instruction runs instead of resolving the path itself. A path
+        /// missing here (only an <c>Import</c> of a path its file does not
+        /// list) is still resolved when the import runs. Cleared with the
+        /// definitions.
         /// </summary>
         internal readonly Dictionary<string, ImportedModule> ResolvedImports = new();
 
@@ -93,6 +94,13 @@ namespace WarScript
         /// (<see cref="FindImportedFunction"/>). Null otherwise.
         /// </summary>
         private List<DefinitionScope>? _parsingImports;
+
+        /// <summary>
+        /// The paths the script imports, in order, each once (T3.7): read by
+        /// <see cref="Compile"/> or from a loaded module's header, and
+        /// written into the module header by <see cref="SaveBytecode"/>.
+        /// </summary>
+        private IReadOnlyList<string> _imports = System.Array.Empty<string>();
 
         /// <summary>An import resolved by <see cref="Compile"/>: its top-level code and its definitions.</summary>
         internal sealed class ImportedModule
@@ -532,7 +540,8 @@ namespace WarScript
                 // One namespace for the module set (5.8, PROP-12): every
                 // file's top-level definitions go into the same record.
                 _definitionScope.Declared = new Context.Definition.DeclaredDefinitions();
-                ResolveImports(tokens, ScriptName, _sourceCode, _definitionScope, new List<string>());
+                var imports = new List<string>();
+                ResolveImports(tokens, ScriptName, _sourceCode, _definitionScope, new List<string>(), imports);
                 ParsingFile = ScriptName;
                 var module = StatementParser.ParseModule(this, tokens, ScriptName);
                 _cachedCompiled = Compiler.CompileScript(this, module.TopLevel, _definitionScope);
@@ -550,6 +559,7 @@ namespace WarScript
                 // keeping the DefinitionScope tree (function names, class
                 // details, compiled bytecode) intact.
                 DiscardAST(_definitionScope);
+                _imports = imports;
                 _compileResult = CompileResult.Succeeded;
             }
             catch (Exception.SyntaxException e)
@@ -589,16 +599,21 @@ namespace WarScript
         /// gives the module set one namespace). <paramref name="chain"/> is
         /// the paths being resolved, outermost first, for the cycle check.
         /// The parser checks the imports' placement later; this reads only
-        /// the leading <c>import "path"</c> statements.
+        /// the leading <c>import "path"</c> statements. Each path is added
+        /// to <paramref name="paths"/> (when given) once, in order: the
+        /// file's import list (the module header, T3.7).
         /// </summary>
         private void ResolveImports(IReadOnlyList<Token.Token> tokens, string? importer, string importerSource,
-            DefinitionScope importerScope, List<string> chain)
+            DefinitionScope importerScope, List<string> chain, List<string>? paths = null)
         {
             int i = 0;
             while (NextSignificant(tokens, ref i, out var keyword)
                    && keyword.Type == Token.TokenType.Keyword && keyword.Value == "import"
                    && NextSignificant(tokens, ref i, out var path) && path.Type == Token.TokenType.Text)
-                ResolveImport(path.Value, keyword, importer, importerSource, importerScope, chain);
+            {
+                ResolveImport(path.Value, keyword.RowNumber, keyword.Column, importer, importerSource, importerScope, chain);
+                if (paths != null && !paths.Contains(path.Value)) paths.Add(path.Value);
+            }
 
             static bool NextSignificant(IReadOnlyList<Token.Token> list, ref int index, out Token.Token token)
             {
@@ -614,11 +629,16 @@ namespace WarScript
             }
         }
 
-        private void ResolveImport(string path, Token.Token at, string? importer, string importerSource,
+        /// <summary>
+        /// Resolves one import of <paramref name="importer"/> (its source
+        /// <paramref name="importerSource"/>, null for a loaded module, whose
+        /// errors have no position: <paramref name="line"/> 0).
+        /// </summary>
+        private void ResolveImport(string path, int line, int column, string? importer, string? importerSource,
             DefinitionScope importerScope, List<string> chain)
         {
             Exception.SyntaxException Error(string message) =>
-                new Exception.SyntaxException(message, at.RowNumber, at.Column).LocateIn(importer, importerSource);
+                new Exception.SyntaxException(message, line, column).LocateIn(importer, importerSource);
 
             var start = chain.IndexOf(path);
             if (start >= 0)
@@ -626,11 +646,17 @@ namespace WarScript
             if (ResolvedImports.ContainsKey(path)) return;
 
             // Precompiled first, as when the import ran. Its own imports are
-            // not known without parsing it (format v3 lists them, T3.11), so
-            // they are still resolved when they run.
-            var precompiled = LoadImportedBytecode(path, importerScope, out var loadedScope);
+            // in its module header (format 10, T3.7) and are resolved first,
+            // as a source file's are.
+            var precompiled = LoadImportedBytecode(path, importerScope, out var loadedScope, out var loadedImports);
             if (precompiled != null)
             {
+                loadedScope!.Declared = importerScope.Declared;
+                chain.Add(path);
+                foreach (var nested in loadedImports)
+                    ResolveImport(nested, 0, 0, path, null, loadedScope, chain);
+                chain.RemoveAt(chain.Count - 1);
+
                 // Its definitions join the namespace (PROP-12); a clash is
                 // reported here, as the file has no source to point into.
                 var declared = importerScope.Declared;
@@ -680,6 +706,46 @@ namespace WarScript
             }
             chain.RemoveAt(chain.Count - 1);
             _parsingImports?.Add(scope);
+        }
+
+        /// <summary>
+        /// Resolves and compiles the imports of a module
+        /// <see cref="LoadBytecode"/> read (T3.7), as <see cref="Compile"/>
+        /// does for source: <paramref name="imports"/> in order, each one's
+        /// own imports first, under <paramref name="scope"/>, the module's
+        /// definitions, which with every import share one namespace (5.8,
+        /// PROP-12). Fills <see cref="ResolvedImports"/> and returns the
+        /// definitions of every import resolved, in the order resolved.
+        /// Throws the compile error of the first that fails.
+        /// </summary>
+        private List<DefinitionScope> ResolveLoadedImports(IReadOnlyList<string> imports, DefinitionScope scope)
+        {
+            var resolved = new List<DefinitionScope>();
+            if (imports.Count == 0) return resolved;
+
+            var declared = new Context.Definition.DeclaredDefinitions();
+            foreach (var c in scope.ClassDefinitions)
+                declared.AddClass(c.ClassDetails.Name, ScriptName, 0);
+            foreach (var f in scope.Functions)
+                declared.AddFunction(f.Details.Name, f.Details.MinArity, f.Details.Arguments.Count, ScriptName, 0);
+
+            _parsingImports = resolved;
+            scope.Declared = declared;
+            DefinitionContext.PushScope(scope);
+            try
+            {
+                var chain = new List<string>();
+                foreach (var path in imports)
+                    ResolveImport(path, 0, 0, ScriptName, null, scope, chain);
+                return resolved;
+            }
+            finally
+            {
+                _parsingImports = null;
+                ParsingFile = null;
+                scope.Declared = null;
+                DefinitionContext.EndScope();
+            }
         }
 
         /// <summary>
@@ -987,7 +1053,7 @@ namespace WarScript
             CompileWithoutRunning();
 
             using var w = new System.IO.BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
-            BytecodeSerializer.Save(w, _cachedCompiled!, _definitionScope);
+            BytecodeSerializer.Save(w, _cachedCompiled!, _definitionScope, _imports);
         }
 
         /// <summary>
@@ -1010,6 +1076,16 @@ namespace WarScript
         /// Global variable state (_memoryScope) is preserved, just like Reload().
         /// Native functions (registered via WarScriptLibraryRegistry) are unaffected.
         ///
+        /// The module's imports (its header's import list, T3.7) are resolved
+        /// and compiled here, as <see cref="Compile"/> does for source, before
+        /// anything is installed: an import that cannot be found, read or
+        /// compiled, an import cycle and a definition the module set defines
+        /// twice throw <see cref="InvalidDataException"/> (the compile error
+        /// is its inner <see cref="Exception.SyntaxException"/>) and leave the
+        /// instance unchanged. The imports' functions and classes are the
+        /// script's once it loads; their top-level code runs when
+        /// <see cref="Run"/> reaches the import.
+        ///
         /// Typical runtime usage:
         /// <code>
         ///   using var fs = File.OpenRead("patrol.wsbc");
@@ -1024,8 +1100,31 @@ namespace WarScript
             // (InvalidDataException) leaves this instance unchanged (10.4).
             CompiledFunction topLevel;
             DefinitionScope scope;
+            IReadOnlyList<string> imports;
             using (var r = new System.IO.BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true))
-                (topLevel, scope) = BytecodeSerializer.Load(r, this, GlobalDefinitionScope);
+                (topLevel, scope) = BytecodeSerializer.Load(r, this, GlobalDefinitionScope, out imports);
+
+            // Resolve its imports (T3.7) under the loaded scope; a failure
+            // puts back what resolving changed.
+            var constantsBefore = new HashSet<string>(ConstantNames);
+            var resolvedBefore = new Dictionary<string, ImportedModule>(ResolvedImports);
+            ConstantNames.Clear();
+            ResolvedImports.Clear();
+            List<DefinitionScope> importScopes;
+            try
+            {
+                importScopes = ResolveLoadedImports(imports, scope);
+            }
+            catch (System.Exception e)
+            {
+                ConstantNames.Clear();
+                ConstantNames.UnionWith(constantsBefore);
+                ResolvedImports.Clear();
+                foreach (var entry in resolvedBefore) ResolvedImports[entry.Key] = entry.Value;
+                if (e is Exception.SyntaxException syntax)
+                    throw new InvalidDataException(syntax.Message, syntax);
+                throw;
+            }
 
             // Stop coroutines referencing old bytecode (a halted instance
             // stays halted: only Reload and ClearFault clear the fault)
@@ -1036,14 +1135,19 @@ namespace WarScript
             _cachedCompiled = null;
             _cachedVM = null;
             ImportCache.Clear();
-            ResolvedImports.Clear();
-            ConstantNames.Clear();
 
             if (ExceptionContext.IsRaised())
                 ExceptionContext.RescueException();
 
-            // Merge loaded definitions into _definitionScope
+            // Merge loaded definitions into _definitionScope, then the
+            // imports' (one namespace, 5.8); an import of the module now
+            // falls back to the instance's definitions.
             scope.CopyLocalDefinitionsTo(_definitionScope);
+            foreach (var imported in importScopes)
+                if (imported.Parent == scope) imported.Reparent(_definitionScope);
+            foreach (var imported in importScopes)
+                imported.CopyImportedDefinitionsTo(_definitionScope);
+            _imports = imports;
             _cachedCompiled = topLevel;
             _compileResult = CompileResult.Succeeded;
             _compileError = null;
@@ -1062,8 +1166,18 @@ namespace WarScript
         /// </summary>
         internal CompiledFunction? LoadImportedBytecode(
             string path, DefinitionScope parentScope, out DefinitionScope? scope)
+            => LoadImportedBytecode(path, parentScope, out scope, out _);
+
+        /// <summary>
+        /// <see cref="LoadImportedBytecode(string, DefinitionScope, out DefinitionScope?)"/>,
+        /// also returning the loaded file's import list (empty when nothing
+        /// was loaded).
+        /// </summary>
+        internal CompiledFunction? LoadImportedBytecode(
+            string path, DefinitionScope parentScope, out DefinitionScope? scope, out IReadOnlyList<string> imports)
         {
             scope = null;
+            imports = System.Array.Empty<string>();
             if (BytecodeResolver == null) return null;
 
             byte[]? bytes;
@@ -1088,8 +1202,9 @@ namespace WarScript
             {
                 using var stream = new MemoryStream(bytes, false);
                 using var r = new System.IO.BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
-                var (topLevel, loaded) = BytecodeSerializer.Load(r, this, parentScope);
+                var (topLevel, loaded) = BytecodeSerializer.Load(r, this, parentScope, out var loadedImports);
                 scope = loaded;
+                imports = loadedImports;
                 return topLevel;
             }
             catch (System.Exception e)

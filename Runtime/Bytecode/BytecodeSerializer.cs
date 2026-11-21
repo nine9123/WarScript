@@ -17,6 +17,8 @@ namespace WarScript.Bytecode
     /// Binary format (little-endian):
     ///   Header: "WSBC" magic (4 bytes) + version (u8) + format hash (u32);
     ///   both must equal <see cref="BytecodeFormat"/> exactly (T1.7, PROP-18)
+    ///   Module header (format 10, T3.7): u16 count, then the paths the
+    ///   script imports (u16 length + UTF-8 each), in the order it imports them
     ///   Top-level CompiledFunction (script body)
     ///   Function table (user-defined functions)
     ///   Class table (user-defined classes, recursive for nesting)
@@ -39,13 +41,26 @@ namespace WarScript.Bytecode
         //  Save
         // ────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Writes a module: the header, <paramref name="imports"/> (the paths
+        /// the script imports, in order; none when null), the script body and
+        /// the script's own functions and classes.
+        /// </summary>
         public static void Save(BinaryWriter w, CompiledFunction topLevel,
-            DefinitionScope definitionScope)
+            DefinitionScope definitionScope, IReadOnlyList<string>? imports = null)
         {
             // Header
             w.Write(Magic);
             w.Write(BytecodeFormat.Version);
             w.Write(BytecodeFormat.Hash);
+
+            // Module header: the import list (T3.7)
+            var importCount = imports?.Count ?? 0;
+            if (importCount > ushort.MaxValue)
+                throw new InvalidOperationException("Cannot serialize more than 65,535 imports");
+            w.Write((ushort)importCount);
+            for (int i = 0; i < importCount; i++)
+                WriteString(w, imports![i]);
 
             // Top-level script body
             WriteCompiledFunction(w, topLevel);
@@ -221,6 +236,16 @@ namespace WarScript.Bytecode
         /// </summary>
         public static (CompiledFunction topLevel, DefinitionScope scope) Load(
             BinaryReader r, WarScriptLanguage script, DefinitionScope parentScope)
+            => Load(r, script, parentScope, out _);
+
+        /// <summary>
+        /// <see cref="Load(BinaryReader, WarScriptLanguage, DefinitionScope)"/>,
+        /// also returning the module's import list (T3.7): the paths it
+        /// imports, in order, each once.
+        /// </summary>
+        public static (CompiledFunction topLevel, DefinitionScope scope) Load(
+            BinaryReader r, WarScriptLanguage script, DefinitionScope parentScope,
+            out IReadOnlyList<string> imports)
         {
             var reader = new BoundedReader(r) { Owner = script };
             try
@@ -230,6 +255,7 @@ namespace WarScript.Bytecode
                 if (magic.Length < 4 || magic[0] != 'W' || magic[1] != 'S' || magic[2] != 'B' || magic[3] != 'C')
                     throw new InvalidDataException("Not a WSBC file");
                 ReadHeader(reader);
+                imports = ReadImports(reader);
 
                 // Top-level script body
                 var topLevel = ReadCompiledFunction(reader, 0);
@@ -266,6 +292,25 @@ namespace WarScript.Bytecode
             if (hash != BytecodeFormat.Hash)
                 throw new InvalidDataException(System.FormattableString.Invariant(
                     $"Bytecode format hash {hash:X8} does not match {BytecodeFormat.Hash:X8}; recompile the script"));
+        }
+
+        /// <summary>
+        /// The module header's import list (T3.7): paths, each at least one
+        /// character and listed once.
+        /// </summary>
+        private static IReadOnlyList<string> ReadImports(BoundedReader r)
+        {
+            var count = r.Count(3, "import");
+            var imports = new List<string>(count);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < count; i++)
+            {
+                var path = r.String();
+                if (path.Length == 0) throw new InvalidDataException("empty import path in bytecode");
+                if (!seen.Add(path)) throw new InvalidDataException("import '" + path + "' listed twice in bytecode");
+                imports.Add(path);
+            }
+            return imports;
         }
 
         private static void ReadDefinitionScope(BoundedReader r,

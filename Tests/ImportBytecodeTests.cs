@@ -123,9 +123,9 @@ namespace Tests
         [Test]
         public void ImportedBytecode_NestedImport_IsInTheScriptsNamespace()
         {
-            // 'inner' is resolved when 'outer' runs (its imports are not known
-            // at compile time until format v3); its definitions still reach the
-            // script, not only 'outer'.
+            // 'inner' is listed in 'outer''s module header (format 10), so
+            // Compile resolves it; its definitions reach the script, not only
+            // 'outer'.
             var bytecode = new Dictionary<string, byte[]>
             {
                 ["outer"] = Compile("import \"inner\"\nfun outer_fn [] return 1 end"),
@@ -181,16 +181,18 @@ namespace Tests
         }
 
         [Test]
-        public void ImportedBytecode_Circular_IsScriptError()
+        public void ImportedBytecode_Circular_IsACompileError()
         {
+            // The files list their imports (format 10, T3.7), so the cycle is
+            // found before anything runs, in the file that closes it.
             var bytecode = new Dictionary<string, byte[]>
             {
                 ["a"] = Compile("import \"b\""),
                 ["b"] = Compile("import \"a\"")
             };
-            var (_, output) = Run("import \"a\"\nprint \"after\"", bytecode);
-            StringAssert.Contains("Circular import", output[0]);
-            Assert.IsFalse(output.Contains("after"));
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() => Run("import \"a\"\nprint \"after\"", bytecode));
+            StringAssert.Contains("Circular import: a -> b -> a", e.Message);
+            Assert.AreEqual("b", e.ScriptName);
         }
 
         // ── Falling back to the source ──
@@ -278,17 +280,51 @@ namespace Tests
         }
 
         [Test]
-        public void ImportOfLoadedBytecode_IsResolvedWhenItRuns()
+        public void ImportOfLoadedBytecode_IsResolvedAtCompileTime()
         {
-            // A loaded file does not list its imports until format v3
-            // (T3.11): its missing import is a runtime NameError.
+            // A loaded file lists its imports (format 10, T3.7): its missing
+            // import is a compile error of the importing script, in that file.
             var bytecode = new Dictionary<string, byte[]>
             {
                 ["outer"] = Compile("import \"inner\"\nfun outer_fn [] return 1 end")
             };
-            var (_, output) = Run("import \"outer\"\nprint \"after\"", bytecode, new Dictionary<string, string>());
-            StringAssert.Contains("Import 'inner' not found", output[0]);
-            Assert.IsFalse(output.Contains("after"));
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() =>
+                Run("import \"outer\"\nprint \"after\"", bytecode, new Dictionary<string, string>()));
+            StringAssert.Contains("Import 'inner' not found", e.Message);
+            Assert.AreEqual("outer", e.ScriptName);
+        }
+
+        [Test]
+        public void ImportOfLoadedBytecode_IsInTheNamespaceBeforeRun()
+        {
+            var bytecode = new Dictionary<string, byte[]>
+            {
+                ["outer"] = Compile("import \"inner\"\nprint \"outer\"\nfun outer_fn [] return inner_fn [] + 1 end")
+            };
+            var files = new Dictionary<string, string> { ["inner"] = "print \"inner\"\nfun inner_fn [] return 1 end" };
+            var output = new List<string>();
+            var script = new WarScriptLanguage("main", "import \"outer\"\nprint outer_fn []",
+                path => files.TryGetValue(path, out var src) ? src : null, (_, m) => output.Add(m),
+                path => bytecode.TryGetValue(path, out var bytes) ? bytes : null);
+
+            Assert.IsTrue(script.Compile().Success);
+            Assert.IsNotNull(script.GetFunction("inner_fn", 0), "the bytecode import's import is resolved by Compile");
+            var result = script.Run();
+            Assert.IsTrue(result.IsOk, result.Error?.ToString());
+            Assert.AreEqual(new[] { "inner", "outer", "2" }, output);
+        }
+
+        [Test]
+        public void ImportOfLoadedBytecode_DefiningAFunctionTheScriptDefines_IsACompileError()
+        {
+            var bytecode = new Dictionary<string, byte[]>
+            {
+                ["outer"] = Compile("import \"inner\"")
+            };
+            var files = new Dictionary<string, string> { ["inner"] = "fun f [] return 1 end" };
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() =>
+                Run("import \"outer\"\nfun f [] return 2 end", bytecode, files));
+            StringAssert.Contains("Function 'f' with 0 arguments is already defined in 'inner'", e.Message);
         }
 
         [Test]
