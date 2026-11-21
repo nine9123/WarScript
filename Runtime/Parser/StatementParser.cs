@@ -640,7 +640,7 @@ namespace WarScript
 
                 if (Tokens.Peek(TokenType.GroupDivider, ".."))
                 {
-                    Tokens.Next(TokenType.GroupDivider, "..");
+                    var range = Tokens.Next(TokenType.GroupDivider, "..");
                     var upperBound = RequireExpression(ExpressionReader.ReadExpression(_script, Tokens), rowToken, "an upper bound after '..'");
 
                     if (Tokens.Peek(TokenType.Keyword, "by"))
@@ -648,12 +648,12 @@ namespace WarScript
                         // loop <variable> in <lower_bound>..<upper_bound> by <step>
                         Tokens.Next(TokenType.Keyword, "by");
                         var step = RequireExpression(ExpressionReader.ReadExpression(_script, Tokens), rowToken, "a step after 'by'");
-                        loopStatement = new ForLoopStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName, variable, bounds, upperBound, step);
+                        loopStatement = new ForLoopStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName, variable, bounds, upperBound, step) { RangeColumn = range.Column };
                     }
                     else
                     {
                         // loop <variable> in <lower_bound>..<upper_bound>
-                        loopStatement = new ForLoopStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName, variable, bounds, upperBound);
+                        loopStatement = new ForLoopStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName, variable, bounds, upperBound) { RangeColumn = range.Column };
                     }
                 }
                 else

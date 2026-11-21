@@ -1398,7 +1398,9 @@ namespace WarScript
                         var member = key.Substring(separator + 2);
                         if (member == "name[]") type = Compiler.StaticType.Text;
                         else if (member == "values" || member == "names") type = Compiler.StaticType.Array;
-                        else if (members.Contains(member)) type = Compiler.StaticType.Number;
+                        // `E :: name` without a call reads the method `name`
+                        // as a field: a NameError, unless a member is named so.
+                        else if (member == "count" || (member != "name" && members.Contains(member))) type = Compiler.StaticType.Number;
                     }
                 }
                 known[key] = type;

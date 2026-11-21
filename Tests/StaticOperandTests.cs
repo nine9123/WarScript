@@ -102,7 +102,7 @@ namespace Tests
             Assert.IsTrue(script.Run().IsOk);
             Assert.AreEqual(new[] { "21", "abab!", "[1, 2, 3]", "false", "true" }, output);
         }
-    
+
         [Test]
         public void AnImportReadingItsImportersConstant_IsCheckedAgainstItsValue()
         {
@@ -164,5 +164,57 @@ namespace Tests
                 "end\n");
             Assert.IsTrue(script.Compile().Success);
         }
-}
+
+        [Test]
+        public void ARangeLoopsBounds_AreCheckedAtTheDots_IncludingAConstant()
+        {
+            var (script, _) = Script("const N = \"3\"\nloop i in 0..N\n    print i\nend\n");
+
+            var result = script.Compile();
+
+            Assert.IsFalse(result.Success);
+            Assert.AreEqual(1, result.Diagnostics.Count);
+            Assert.AreEqual("Cannot apply '<' to number and text", result.Diagnostics[0].Message);
+            Assert.AreEqual(2, result.Diagnostics[0].Line);
+            Assert.AreEqual(12, result.Diagnostics[0].Column, "at the '..'");
+        }
+
+        [Test]
+        public void ARangeLoopsRuntimeBoundError_IsAtTheDots()
+        {
+            var (script, _) = Script("fun same [v]\n    return v\nend\nloop i in 0..same [true]\n    print i\nend\n");
+
+            var result = script.Run();
+
+            Assert.AreEqual(ScriptErrorKind.TypeError, result.Error.Kind);
+            Assert.AreEqual(4, result.Error.Line);
+            Assert.AreEqual(12, result.Error.Column);
+        }
+
+        [Test]
+        public void AnEnumsNameMethodReadAsAField_OrCalledWithAnotherCount_IsNotTyped()
+        {
+            // `E :: name` is a NameError at runtime, not a number.
+            var (script, output) = Script(
+                "enum Rank\n" +
+                "    LOW\n" +
+                "end\n" +
+                "begin\n" +
+                "    print Rank :: name < \"a\"\n" +
+                "rescue e\n" +
+                "    print e\n" +
+                "end\n" +
+                "begin\n" +
+                "    print Rank :: name [] - 1\n" +
+                "rescue e\n" +
+                "    print e\n" +
+                "end\n");
+
+            Assert.IsTrue(script.Compile().Success);
+            Assert.IsTrue(script.Run().IsOk);
+            Assert.AreEqual(2, output.Count);
+            StringAssert.Contains("'name' is not a field of class 'Rank'", output[0]);
+            StringAssert.DoesNotContain("Cannot apply", output[1]);
+        }
+    }
 }

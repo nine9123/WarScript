@@ -1131,6 +1131,13 @@ namespace WarScript.Bytecode
             CompileExpression(stmt.Step);
             var stepSlot = AddLocal("$step");
 
+            // The first `i < limit` always runs (PROP-28, T3.8): bounds of
+            // known types it rejects are a compile error, at the `..` (where
+            // the VM reports it too). The step is only added once an
+            // iteration completes, so it is never checked.
+            if (stmt.RangeColumn > 0) SetColumn(stmt.RangeColumn);
+            CheckOperands("<", stmt.LowerBound, stmt.UpperBound);
+
             var loopStart = Chunk.Count;
 
             _loops.Add(new LoopCtx
@@ -2090,7 +2097,7 @@ namespace WarScript.Bytecode
 
         /// <summary>
         /// <c>X</c> for a bare global read of <c>X</c>, <c>E::x</c> for
-        /// <c>E :: x</c> and <c>E::m[]</c> for <c>E :: m [...]</c> where
+        /// <c>E :: x</c> and <c>E::m[]</c> for <c>E :: m [a]</c> where
         /// <c>E</c> is a bare global read; else null. Not in a class body,
         /// where a bare read may find a field of the instance first (of any
         /// class part, Q-16).
@@ -2104,7 +2111,10 @@ namespace WarScript.Bytecode
                     return ResolveLocal(v.Name) == -1 ? v.Name : null;
                 case ClassPropertyOperator cp when cp.Left is VariableExpression enumName && ResolveLocal(enumName.Name) == -1:
                     if (cp.Right is VariableExpression member) return enumName.Name + "::" + member.Name;
-                    if (cp.Right is FunctionExpression method) return enumName.Name + "::" + method.Name + "[]";
+                    // Only a call with the one argument `name` takes (another
+                    // count is an error of its own at runtime).
+                    if (cp.Right is FunctionExpression method && method.ArgumentExpression.Count == 1)
+                        return enumName.Name + "::" + method.Name + "[]";
                     return null;
                 default:
                     return null;

@@ -223,8 +223,8 @@ operand types are visible in the source (literals, interpolated text, array lite
 `true`/`false`, a `const` with such a value, a member, `count`, `values`, `names` or `name [...]`
 of an enum declared at the top level, or another operator's result: `"Sir {name}" - "Sir "`,
 `-"x"`, `1 < 2 < 3`, `5 :: hp`, `TITLE - "Sir "` after `const TITLE = "Sir Bob"`), the same
-message is a compile error instead; a value from a variable or a call is not inferred and raises
-at runtime. `==` and `!=`
+message is a compile error instead (so are range-loop bounds `<` rejects, `loop i in 0.."3"`); a
+value from a variable or a call is not inferred and raises at runtime. `==` and `!=`
 never raise: values of different types are simply not equal, so `1 == "1"` is `false`,
 `null == null` is `true` and `null == 0` is `false`. Arrays compare element by element; class
 instances compare by identity, so two instances with the same fields are not equal, while an
