@@ -605,6 +605,11 @@ p :: x = 10                # properties are assignable
 print p :: x               # → 10
 ```
 
+`new` passes exactly one argument per constructor parameter (pass `null` for one you leave
+empty): `new Point [3]` is a compile error, `Class 'Point' takes 2 arguments, not 1`, and so is `new`
+of a class that is not defined. Where the compiler cannot tell which class `obj :: new Part [...]`
+makes, the wrong number of arguments is an `ArgumentError` when it runs.
+
 Inside a class, `@x` is shorthand for `this :: x`: `return sqrt [@x * @x + @y * @y]`. A lambda has
 no `this`, so `this` and `@x` cannot be used in one, and a class body cannot `yield` (it runs as the
 constructor; a function it calls still can).

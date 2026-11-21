@@ -338,11 +338,6 @@ namespace WarScript
         }
 
         /// <summary>
-        /// Reads <c>Name [a, b]</c>: a class's name and constructor
-        /// parameters (<paramref name="declaration"/>: each named once), or a
-        /// base type and the parameters passed on to it.
-        /// </summary>
-        /// <summary>
         /// A parameter list names each parameter once (T3.8, PROP-29):
         /// throws at <paramref name="parameter"/> when
         /// <paramref name="parameters"/> already has it. Not for v1 scripts.
@@ -354,6 +349,11 @@ namespace WarScript
                     parameter.RowNumber, parameter.Column);
         }
 
+        /// <summary>
+        /// Reads <c>Name [a, b]</c>: a class's name and constructor
+        /// parameters (<paramref name="declaration"/>: each named once), or a
+        /// base type and the parameters passed on to it.
+        /// </summary>
         private ClassDetails ReadClassDetails(bool declaration)
         {
             var className = Tokens.Next(TokenType.Variable);

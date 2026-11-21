@@ -1715,6 +1715,7 @@ namespace WarScript.Bytecode
                     CompileExpression(nci.Left); // parent instance
                     if (nci.Right is ClassExpression nestedCe)
                     {
+                        CheckInstantiation(nestedCe, nested: true);
                         foreach (var arg in nestedCe.PropertiesExpressions)
                             CompileExpression(arg);
                         var nameIdx = Chunk.AddConstant(WarValue.FromText(nestedCe.ClassName));
@@ -1764,6 +1765,7 @@ namespace WarScript.Bytecode
         // ── Class instantiation: new ClassName[args] ──
         private void CompileClassInstantiation(ClassExpression ce)
         {
+            CheckInstantiation(ce, nested: false);
             foreach (var arg in ce.PropertiesExpressions)
                 CompileExpression(arg);
 
@@ -1771,6 +1773,18 @@ namespace WarScript.Bytecode
             Chunk.EmitOp(OpCode.NewInstance, _line);
             Chunk.EmitU16(nameIdx, _line);
             EmitArgCount(ce.PropertiesExpressions.Count, _line);
+        }
+
+        /// <summary>
+        /// <c>new C [...]</c> must name a class taking that many arguments
+        /// (T3.8, PROP-29): checked once the module set is compiled, at the
+        /// class name.
+        /// </summary>
+        private void CheckInstantiation(ClassExpression ce, bool nested)
+        {
+            var onThisLine = ce.Line == _line && ce.Column > 0;
+            _script.CheckInstantiation(ce.ClassName, ce.PropertiesExpressions.Count, nested, _source,
+                _line, onThisLine ? ce.Column : _column);
         }
 
         /// <summary>

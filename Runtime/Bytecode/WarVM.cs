@@ -2326,8 +2326,9 @@ namespace WarScript.Bytecode
         /// Allocation step for <c>new className [args]</c>: the class and its
         /// base classes are looked up from <paramref name="scope"/> (the
         /// definitions of the frame executing <c>new</c>, or the parent
-        /// instance's class for a nested class). Returns the instance, or
-        /// default with an error raised (and nothing queued).
+        /// instance's class for a nested class), and must take
+        /// <paramref name="argCount"/> arguments (ArgumentError). Returns the
+        /// instance, or default with an error raised (and nothing queued).
         /// </summary>
         private WarValue InstantiateClass(string className, int argCount, DefinitionScope scope)
         {
@@ -2336,6 +2337,16 @@ namespace WarScript.Bytecode
             if (definition == null)
             {
                 RuntimeError(ScriptErrorKind.NameError, $"Class '{className}' is not defined");
+                return default;
+            }
+            // One constructor arity: no argument is dropped or made up
+            // (PROP-29; the compiler reports what it can prove, T3.8).
+            var parameters = definition.ClassDetails.Properties.Count;
+            if (argCount != parameters)
+            {
+                RuntimeError(ScriptErrorKind.ArgumentError, WarScriptLanguage.ConstructorArityMessage(className,
+                    parameters.ToString(System.Globalization.CultureInfo.InvariantCulture) + (parameters == 1 ? " argument" : " arguments"),
+                    argCount));
                 return default;
             }
             _constructors.Clear();

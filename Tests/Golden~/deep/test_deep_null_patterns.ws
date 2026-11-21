@@ -103,8 +103,8 @@ assert step1 [step2 [null]] == null
 class Person [name, age, email]
 end
 
-# Only pass 2 args — email will be null
-p = new Person ["Alice", 30]
+# Pass null for email: every argument is given (PROP-29)
+p = new Person ["Alice", 30, null]
 assert p :: name == "Alice"
 assert p :: age == 30
 assert p :: email == null

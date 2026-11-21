@@ -181,6 +181,11 @@ namespace WarScript
         // While Compile() runs: the warnings the compiler reports (T3.8,
         // through Warn); null otherwise.
         private List<CompileDiagnostic>? _compileWarnings;
+
+        // While Compile() runs: every `new` the compiler emitted (T3.8,
+        // PROP-29), checked once the whole module set is compiled
+        // (CheckInstantiations); null otherwise.
+        private List<(string Class, int Arguments, bool Nested, string? File, string? Source, int Line, int Column)>? _instantiations;
         private WarVM? _cachedVM;
 
         public readonly DefinitionScope GlobalDefinitionScope;
@@ -592,6 +597,7 @@ namespace WarScript
             var constantsBefore = new HashSet<string>(ConstantNames);
             var warnings = new List<CompileDiagnostic>();
             _compileWarnings = warnings;
+            _instantiations = new List<(string, int, bool, string?, string?, int, int)>();
             DefinitionContext.PushScope(_definitionScope);
             try
             {
@@ -603,8 +609,10 @@ namespace WarScript
                 var imports = new List<string>();
                 ResolveImports(tokens, ScriptName, _sourceCode, _definitionScope, new List<string>(), imports);
                 ParsingFile = ScriptName;
+                ParsingSource = _sourceCode;
                 var module = StatementParser.ParseModule(this, tokens, ScriptName);
                 _cachedCompiled = Compiler.CompileScript(this, module.TopLevel, _definitionScope);
+                CheckInstantiations();
 
                 // Warnings as errors (PROP-31): the script does not compile,
                 // and every warning is reported as an error.
@@ -666,8 +674,10 @@ namespace WarScript
             finally
             {
                 _compileWarnings = null;
+                _instantiations = null;
                 _parsingImports = null;
                 ParsingFile = null;
+                ParsingSource = null;
                 _definitionScope.Declared = null;
                 DefinitionContext.EndScope();
             }
@@ -773,6 +783,7 @@ namespace WarScript
                 ResolveImports(tokens, path, source, scope, chain);
                 DefinitionContext.PushScope(scope);
                 ParsingFile = path;
+                ParsingSource = source;
                 try
                 {
                     var module = StatementParser.ParseModule(this, tokens, path);
@@ -828,6 +839,7 @@ namespace WarScript
             {
                 _parsingImports = null;
                 ParsingFile = null;
+                ParsingSource = null;
                 scope.Declared = null;
                 DefinitionContext.EndScope();
             }
@@ -893,6 +905,92 @@ namespace WarScript
         /// definition in another file (PROP-12). Null otherwise.
         /// </summary>
         internal string? ParsingFile;
+
+        /// <summary>The source text of <see cref="ParsingFile"/>, for the position of a deferred compile error. Null otherwise.</summary>
+        internal string? ParsingSource;
+
+        /// <summary>
+        /// Records a <c>new <paramref name="className"/></c> with
+        /// <paramref name="arguments"/> arguments (<paramref name="nested"/>:
+        /// <c>obj :: new C [...]</c>) at <paramref name="line"/>,
+        /// <paramref name="column"/> of <paramref name="file"/> (T3.8,
+        /// PROP-29), checked by <see cref="CheckInstantiations"/> once every
+        /// class of the module set is known. Ignored outside
+        /// <see cref="Compile"/>.
+        /// </summary>
+        internal void CheckInstantiation(string className, int arguments, bool nested, string? file, int line, int column) =>
+            _instantiations?.Add((className, arguments, nested, file, ParsingSource, line, column));
+
+        /// <summary>
+        /// The compile error for the first recorded <c>new C [...]</c> (T3.8,
+        /// PROP-29) whose class is no class of the module set or the host
+        /// (<c>Class 'C' is not defined</c>, as the VM would raise), or that
+        /// takes another number of arguments than every class named
+        /// <c>C</c> (<c>Class 'C' takes 2 arguments, not 3</c>). A class may
+        /// be defined in a file compiled after the <c>new</c> (an import can
+        /// instantiate a class of its importer), hence the deferral. Classes
+        /// are those of the top level of each file, nested in them, and in
+        /// the host's definition scopes; a class defined inside a function or
+        /// a block is never found by <c>new</c> at runtime, so it does not
+        /// count. A nested <c>obj :: new C [...]</c> naming no such class is
+        /// left to the VM, which reports a foreign <c>obj</c> as such (6.7).
+        /// </summary>
+        private void CheckInstantiations()
+        {
+            if (_instantiations == null || _instantiations.Count == 0) return;
+            var arities = new Dictionary<string, SortedSet<int>>(System.StringComparer.Ordinal);
+            void Add(DefinitionScope scope)
+            {
+                foreach (var c in scope.ClassDefinitions)
+                {
+                    if (!arities.TryGetValue(c.ClassDetails.Name, out var set))
+                        arities[c.ClassDetails.Name] = set = new SortedSet<int>();
+                    set.Add(c.ClassDetails.Properties.Count);
+                    Add(c.GetDefinitionScope());
+                }
+            }
+            Add(_definitionScope);
+            if (_parsingImports != null)
+                foreach (var imported in _parsingImports) Add(imported);
+            for (var host = _definitionScope.Parent; host != null; host = host.Parent) Add(host);
+
+            foreach (var (name, arguments, nested, file, source, line, column) in _instantiations)
+            {
+                string message;
+                if (!arities.TryGetValue(name, out var set))
+                {
+                    if (nested) continue;
+                    message = $"Class '{name}' is not defined";
+                }
+                else if (!set.Contains(arguments))
+                    message = ConstructorArityMessage(name, ArityList(set), arguments);
+                else continue;
+                throw new Exception.CompileError(message, file, line, column).LocateIn(file, source);
+            }
+        }
+
+        /// <summary><c>1 argument</c>, <c>0 or 2 arguments</c>, <c>0, 1 or 2 arguments</c>.</summary>
+        private static string ArityList(SortedSet<int> arities)
+        {
+            var text = "";
+            int i = 0, last = 0;
+            foreach (var a in arities)
+            {
+                if (i > 0) text += i == arities.Count - 1 ? " or " : ", ";
+                text += a.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                last = a;
+                i++;
+            }
+            return text + (arities.Count == 1 && last == 1 ? " argument" : " arguments");
+        }
+
+        /// <summary>
+        /// <c>Class 'C' takes 2 arguments, not 3</c>: a <c>new</c> with the
+        /// wrong number of arguments, at compile time (T3.8, PROP-29) or, as
+        /// an ArgumentError, at runtime.
+        /// </summary>
+        internal static string ConstructorArityMessage(string className, string takes, int given) =>
+            $"Class '{className}' takes {takes}, not {given.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
 
         /// <summary>
         /// True only during <see cref="ParseForMigration"/>: the parser

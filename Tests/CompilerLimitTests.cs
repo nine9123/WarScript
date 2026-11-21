@@ -121,10 +121,13 @@ namespace Tests
         [TestCase("fun g []\n    return f [{0}]\nend")]                                    // TailCall
         [TestCase("fun g [h]\n    return h [{0}]\nend")]                                   // CallValue
         [TestCase("class C\n    fun m []\n    end\nend\nc = new C\nprint c :: m [{0}]")]   // CallMethod
-        [TestCase("class C\nend\nc = new C [{0}]")]                                         // NewInstance
-        [TestCase("class C\n    class D\n    end\nend\nc = new C\nd = c :: new D [{0}]")]  // NewNestedInstance
+        [TestCase("class C [{1}]\nend\nc = new C [{0}]")]                                         // NewInstance
+        [TestCase("class C\n    class D [{1}]\n    end\nend\nc = new C\nd = c :: new D [{0}]")]  // NewNestedInstance
         public void ArgumentCount_PastTheLimitIsACompileError(string template)
         {
+            // {1}: a constructor taking 255 arguments (T3.8: 'new' must pass
+            // as many as the class takes).
+            template = template.Replace("{1}", Repeat(255, i => "p" + i, ", "));
             Compile(template.Replace("{0}", Args(255)));
             LexicalParser.ClearCache();
             var source = template.Replace("{0}", Args(256));

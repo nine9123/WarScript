@@ -7,7 +7,7 @@ end
 class Student [user_email, person_name]: User [user_email], Person [person_name]
 end
 
-student = new Student ["test@email"]
+student = new Student ["test@email", null]
 
 # check email property
 assert student :: user_email == "test@email"

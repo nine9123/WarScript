@@ -29,16 +29,16 @@ end
 
 # tree1 nodes
 tree1_node9 = new TreeNode [ 9, null, null ]
-tree1_node8 = new TreeNode [ 8, null ]
-tree1_node7 = new TreeNode [ 7 ]
-tree1_node6 = new TreeNode [ 6 ]
+tree1_node8 = new TreeNode [ 8, null, null ]
+tree1_node7 = new TreeNode [ 7, null, null ]
+tree1_node6 = new TreeNode [ 6, null, null ]
 tree1_node5 = new TreeNode [ 5, tree1_node8, tree1_node9 ]
 tree1_node4 = new TreeNode [ 4, tree1_node6, tree1_node7 ]
 tree1 = new TreeNode [ 3, tree1_node4, tree1_node5 ]
 
-tree2 = new TreeNode [ 3, new TreeNode [ 4, new TreeNode [ 6 ], new TreeNode [ 7 ] ], new TreeNode [ 5, new TreeNode [ 8 ], new TreeNode [ 9 ] ] ]
-tree3 = new TreeNode [ 3, new TreeNode [ 4, new TreeNode [ 6 ], new TreeNode [ 7 ] ], new TreeNode [ 5, new TreeNode [ 9 ], new TreeNode [ 8 ] ] ]
-tree4 = new TreeNode [ 3, new TreeNode [ 4, new TreeNode [ 6 ], new TreeNode [ 7 ] ], new TreeNode [ 5, null, new TreeNode [ 9 ] ] ]
+tree2 = new TreeNode [ 3, new TreeNode [ 4, new TreeNode [ 6, null, null ], new TreeNode [ 7, null, null ] ], new TreeNode [ 5, new TreeNode [ 8, null, null ], new TreeNode [ 9, null, null ] ] ]
+tree3 = new TreeNode [ 3, new TreeNode [ 4, new TreeNode [ 6, null, null ], new TreeNode [ 7, null, null ] ], new TreeNode [ 5, new TreeNode [ 9, null, null ], new TreeNode [ 8, null, null ] ] ]
+tree4 = new TreeNode [ 3, new TreeNode [ 4, new TreeNode [ 6, null, null ], new TreeNode [ 7, null, null ] ], new TreeNode [ 5, null, new TreeNode [ 9, null, null ] ] ]
 
 assert is_same_tree [ tree1, tree2 ]
 assert !is_same_tree [ tree1, tree3 ]

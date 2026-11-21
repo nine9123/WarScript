@@ -168,12 +168,13 @@ print f []
         }
 
         [Test]
-        public void EnumInsideFunctionBody_IsNotSupported_RuntimeError()
+        public void EnumInsideFunctionBody_IsNotSupported_CompileError()
         {
             // The enum desugars to a class definition + singleton instantiation;
             // inside a function body the class never gets registered, so the
-            // singleton assignment fails at call time.
-            var output = Run(@"
+            // singleton's 'new' names no class 'new' can find: a compile
+            // error since T3.8 (PROP-29), a NameError at call time before.
+            var e = Assert.Catch<WarScript.Exception.SyntaxException>(() => Run(@"
 fun f []
     enum E
         A
@@ -181,8 +182,9 @@ fun f []
     return E :: A
 end
 print f []
-");
-            Assert.IsTrue(output.Count > 0 && output[0].Contains("Class 'E' is not defined"));
+"));
+            StringAssert.Contains("Class 'E' is not defined", e.Message);
+            Assert.AreEqual(3, e.Line);
         }
 
         [Test]
