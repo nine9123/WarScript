@@ -1,6 +1,5 @@
 #nullable enable
 
-using WarScript.Expression;
 using WarScript.Expression.Value;
 
 namespace WarScript.Context
@@ -10,7 +9,7 @@ namespace WarScript.Context
     /// When class B[b_val] : A[b_val], both scopes share the same ValueReference.
     /// Mutating one updates the other.
     /// </summary>
-    public class ValueReference : IExpression
+    public class ValueReference
     {
         public WarValue Value;
 
@@ -22,23 +21,6 @@ namespace WarScript.Context
         public static ValueReference InstanceOf(in WarValue value)
         {
             return new ValueReference(value);
-        }
-
-        public static ValueReference? InstanceOf(IExpression? expression)
-        {
-            if (expression == null)
-                return null;
-
-            if (expression is ValueReference valueReference)
-                return valueReference;
-
-            var value = expression.Evaluate();
-            return new ValueReference(value);
-        }
-
-        public WarValue Evaluate()
-        {
-            return Value;
         }
     }
 }

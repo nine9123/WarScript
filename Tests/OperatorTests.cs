@@ -49,7 +49,7 @@ namespace Tests
         [Test]
         public void ToOperator_InvalidInput_Throws()
         {
-            Assert.Throws<System.Exception>(() => "???".ToOperator());
+            Assert.Throws<WarScript.Exception.SyntaxException>(() => "???".ToOperator());
         }
     }
 }

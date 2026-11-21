@@ -127,7 +127,7 @@ namespace Tests
             // A value injected from the host as a call argument is observed in-script
             // with its exact raw (no re-quantization on the boundary).
             var (script, output) = TestHelper.Run("t",
-                "received = 0\nfun take [v]\n  received = v\nend\n",
+                "received = 0\nfun take [v]\n  global received\n  received = v\nend\n",
                 (s, scope) => MathLibrary.Register(s, scope));
             script.Call(script.GetFunction("take", 1), WarValue.FromNumeric(F64.FromDouble(0.1)));
             Assert.AreEqual(F64.FromDouble(0.1), script.UserMemoryScope.Get("received").Numeric);
@@ -147,6 +147,7 @@ namespace Tests
                 fired = 0
                 fun waiter []
                     yield wait 1.0
+                    global fired
                     fired = 1
                 end
             ");
@@ -179,6 +180,7 @@ namespace Tests
                 fired = 0
                 fun waiter []
                     yield wait 1.0
+                    global fired
                     fired = 1
                 end
             ");
@@ -201,6 +203,7 @@ namespace Tests
                 fired = 0
                 fun waiter []
                     yield wait 0.5
+                    global fired
                     fired = 1
                 end
             ");
@@ -221,7 +224,7 @@ namespace Tests
             // exact same reference — scripts treat it as an opaque box (D5: F64Vec3).
             var handle = new object();
             var (script, output) = TestHelper.Run("t",
-                "stored = null\nfun keep [h]\n  stored = h\nend\n");
+                "stored = null\nfun keep [h]\n  global stored\n  stored = h\nend\n");
             script.Call(script.GetFunction("keep", 1), WarValue.FromNativeObject(handle));
 
             var stored = script.UserMemoryScope.Get("stored");

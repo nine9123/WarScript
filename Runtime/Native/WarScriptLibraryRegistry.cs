@@ -23,8 +23,10 @@ public static class WarScriptLibraryRegistry
 
     /// <summary>
     /// All built-in libraries. Order here = order in docs.
+    /// Read-only (R1, T1.9): every instance registers from this one table, so
+    /// a host must not be able to replace an entry.
     /// </summary>
-    public static readonly LibraryInfo[] Libraries = new[]
+    public static readonly IReadOnlyList<LibraryInfo> Libraries = Array.AsReadOnly(new[]
     {
         new LibraryInfo
         {
@@ -40,6 +42,12 @@ public static class WarScriptLibraryRegistry
         },
         new LibraryInfo
         {
+            Name = "Text",
+            Description = "Text helpers: removing a part of a text.",
+            Register = TextLibrary.Register
+        },
+        new LibraryInfo
+        {
             Name = "Coroutine",
             Description = "Coroutine lifecycle management: start, stop, loop.",
             Register = CoroutineLibrary.Register
@@ -50,7 +58,7 @@ public static class WarScriptLibraryRegistry
             Description = "General-purpose helper functions.",
             Register = UtilityLibrary.Register
         },
-    };
+    });
 
     /// <summary>
     /// Registers all built-in libraries into a scope.

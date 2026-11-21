@@ -25,7 +25,7 @@ assert b :: x == 3
 # ── 3. Multiple instances of a class with methods ──
 class Counter [n]
     fun increment []
-        n = n + 1
+        @n = @n + 1
     end
     fun get []
         return this :: n

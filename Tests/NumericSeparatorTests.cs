@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Collections.Generic;
 using NUnit.Framework;
 using WarScript;
@@ -28,7 +29,7 @@ namespace Tests
         {
             var tokens = LexicalParser.Parse(src);
             // Strip any LineBreak/Comment tokens
-            var numeric = tokens.FindAll(t => t.Type == TokenType.Numeric);
+            var numeric = tokens.Where(t => t.Type == TokenType.Numeric).ToList();
             Assert.AreEqual(1, numeric.Count, $"Expected exactly one Numeric token in: {src}");
             return numeric[0];
         }
@@ -120,7 +121,7 @@ namespace Tests
             // Negative numbers are lexed as a single token when preceded by operator context
             // Test via expression where - is unambiguously a negative sign
             var tokens = LexicalParser.Parse("a = -1_000");
-            var num = tokens.Find(t => t.Type == TokenType.Numeric);
+            var num = tokens.FirstOrDefault(t => t.Type == TokenType.Numeric);
             Assert.IsNotNull(num);
             Assert.AreEqual("-1000", num.Value);
         }

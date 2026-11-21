@@ -20,16 +20,25 @@ namespace WarScript.Token
         /// </summary>
         public readonly int RowNumber;
 
-        public Token(TokenType type, string value, int rowNumber)
+        /// <summary>
+        /// Column of the token's first character, from 1 (T3.1). A column is
+        /// one UTF-16 code unit of the line, so a tab counts as one column.
+        /// Tokens desugared from an interpolation carry the column of the
+        /// interpolation's <c>{</c>; 0 means unknown.
+        /// </summary>
+        public readonly int Column;
+
+        public Token(TokenType type, string value, int rowNumber, int column = 0)
         {
             Type = type;
             Value = value;
             RowNumber = rowNumber;
+            Column = column;
         }
 
         public override string ToString()
         {
-            return $"[{RowNumber}] {Type}:\t{Value}";
+            return System.FormattableString.Invariant($"[{RowNumber}] {Type}:\t{Value}");
         }
     }
 }

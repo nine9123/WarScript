@@ -26,10 +26,13 @@ namespace Tests
         /// same reason a mod build registers its natives: a named-argument
         /// call is resolved against the callee's declared parameters while
         /// parsing, so the signatures have to be in scope at compile time.
+        /// Imports are resolved when compiling (T3.7), so the build has to
+        /// find them: here every imported path is an empty file. The saved
+        /// bytecode holds only this file's definitions.
         /// </summary>
         private static byte[] Compile(string source)
         {
-            var script = new WarScriptLanguage("precompiled", source, null, null);
+            var script = new WarScriptLanguage("precompiled", source, _ => "", null);
             WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
 
             var stream = new MemoryStream();
@@ -102,7 +105,7 @@ namespace Tests
             // in-script rather than by parsing the printed text
             var (_, output) = Run(
                 "import \"mathy\"\nprint abs [hypot [3, 4] - 5] < 0.001", bytecode);
-            Assert.AreEqual("True", output[0]);
+            Assert.AreEqual("true", output[0]);
         }
 
         [Test]
@@ -115,6 +118,22 @@ namespace Tests
             };
             var (_, output) = Run("import \"outer\"\nprint outer_fn []", bytecode);
             Assert.AreEqual("42", output[0]);
+        }
+
+        [Test]
+        public void ImportedBytecode_NestedImport_IsInTheScriptsNamespace()
+        {
+            // 'inner' is listed in 'outer''s module header (format 10), so
+            // Compile resolves it; its definitions reach the script, not only
+            // 'outer'.
+            var bytecode = new Dictionary<string, byte[]>
+            {
+                ["outer"] = Compile("import \"inner\"\nfun outer_fn [] return 1 end"),
+                ["inner"] = Compile("fun inner_fn [] return 41 end")
+            };
+            var (script, output) = Run("import \"outer\"\nprint inner_fn [] + outer_fn []", bytecode);
+            Assert.AreEqual("42", output[0]);
+            Assert.IsNotNull(script.GetFunction("inner_fn", 0));
         }
 
         [Test]
@@ -162,16 +181,18 @@ namespace Tests
         }
 
         [Test]
-        public void ImportedBytecode_Circular_IsScriptError()
+        public void ImportedBytecode_Circular_IsACompileError()
         {
+            // The files list their imports (format 10, T3.7), so the cycle is
+            // found before anything runs, in the file that closes it.
             var bytecode = new Dictionary<string, byte[]>
             {
                 ["a"] = Compile("import \"b\""),
                 ["b"] = Compile("import \"a\"")
             };
-            var (_, output) = Run("import \"a\"\nprint \"after\"", bytecode);
-            StringAssert.Contains("Circular import", output[0]);
-            Assert.IsFalse(output.Contains("after"));
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() => Run("import \"a\"\nprint \"after\"", bytecode));
+            StringAssert.Contains("Circular import: a -> b -> a", e.Message);
+            Assert.AreEqual("b", e.ScriptName);
         }
 
         // ── Falling back to the source ──
@@ -207,17 +228,20 @@ namespace Tests
         }
 
         [Test]
-        public void UnusableBytecode_WithoutSource_IsScriptError()
+        public void UnusableBytecode_WithoutSource_IsACompileError()
         {
             var bytecode = new Dictionary<string, byte[]>
             {
                 ["lib"] = new byte[] { 1, 2, 3, 4, 5 }
             };
-            var (_, output) = Run("import \"lib\"\nprint \"after\"", bytecode);
+            var output = new List<string>();
+            var script = new WarScriptLanguage("import_bytecode_test", "import \"lib\"\nprint \"after\"", null,
+                (_, msg) => output.Add(msg), path => bytecode.TryGetValue(path, out var bytes) ? bytes : null);
+            var result = script.Compile();
 
             StringAssert.Contains("could not be loaded", output[0]);
-            StringAssert.Contains("no file resolver", output[1]);
-            Assert.IsFalse(output.Contains("after"));
+            Assert.IsFalse(result.Success);
+            StringAssert.Contains("Cannot import 'lib': no file resolver", result.Diagnostics[0].Message);
         }
 
         [Test]
@@ -247,75 +271,98 @@ namespace Tests
             Assert.AreEqual("20", output[0]);
         }
 
-        // ── The tree-walk statement, which predates the VM ──
-
-        /// <summary>
-        /// <see cref="WarScript.Statement.ImportStatement"/> is what the AST
-        /// interpreter runs; the compiler turns an import into an opcode, so
-        /// nothing in a normal Run() reaches it. It resolves bytecode the same
-        /// way, and runs it on a VM because only a VM can.
-        /// </summary>
-        private static List<string> RunTreeWalkImport(
-            string path,
-            Dictionary<string, byte[]> bytecode,
-            Dictionary<string, string> files = null)
+        [Test]
+        public void MissingFromBothResolvers_IsACompileError()
         {
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() => Run("import \"nope\"\nprint \"after\"",
+                new Dictionary<string, byte[]>(), new Dictionary<string, string>()));
+            StringAssert.Contains("Import 'nope' not found", e.Message);
+        }
+
+        [Test]
+        public void ImportOfLoadedBytecode_IsResolvedAtCompileTime()
+        {
+            // A loaded file lists its imports (format 10, T3.7): its missing
+            // import is a compile error of the importing script, in that file.
+            var bytecode = new Dictionary<string, byte[]>
+            {
+                ["outer"] = Compile("import \"inner\"\nfun outer_fn [] return 1 end")
+            };
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() =>
+                Run("import \"outer\"\nprint \"after\"", bytecode, new Dictionary<string, string>()));
+            StringAssert.Contains("Import 'inner' not found", e.Message);
+            Assert.AreEqual("outer", e.ScriptName);
+        }
+
+        [Test]
+        public void ImportOfLoadedBytecode_IsInTheNamespaceBeforeRun()
+        {
+            var bytecode = new Dictionary<string, byte[]>
+            {
+                ["outer"] = Compile("import \"inner\"\nprint \"outer\"\nfun outer_fn [] return inner_fn [] + 1 end")
+            };
+            var files = new Dictionary<string, string> { ["inner"] = "print \"inner\"\nfun inner_fn [] return 1 end" };
             var output = new List<string>();
-            var script = new WarScriptLanguage("tree_walk", "",
-                files == null ? (System.Func<string, string>)null
-                    : p => files.TryGetValue(p, out var src) ? src : null,
-                (s, msg) => output.Add(msg),
-                p => bytecode.TryGetValue(p, out var bytes) ? bytes : null);
-            WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
+            var script = new WarScriptLanguage("main", "import \"outer\"\nprint outer_fn []",
+                path => files.TryGetValue(path, out var src) ? src : null, (_, m) => output.Add(m),
+                path => bytecode.TryGetValue(path, out var bytes) ? bytes : null);
 
-            script.DefinitionContext.PushScope(script.GlobalDefinitionScope);
-            script.MemoryContext.PushScope(script.GlobalMemoryScope);
-            try
-            {
-                new WarScript.Statement.ImportStatement(script, 1, "tree_walk", path).Execute();
-            }
-            finally
-            {
-                script.DefinitionContext.EndScope();
-                script.MemoryContext.EndScope();
-            }
-
-            return output;
+            Assert.IsTrue(script.Compile().Success);
+            Assert.IsNotNull(script.GetFunction("inner_fn", 0), "the bytecode import's import is resolved by Compile");
+            var result = script.Run();
+            Assert.IsTrue(result.IsOk, result.Error?.ToString());
+            Assert.AreEqual(new[] { "inner", "outer", "2" }, output);
         }
 
         [Test]
-        public void TreeWalkImport_LoadsBytecode()
+        public void ImportOfLoadedBytecode_DefiningAFunctionTheScriptDefines_IsACompileError()
         {
             var bytecode = new Dictionary<string, byte[]>
             {
-                ["lib"] = Compile("print \"loaded from bytecode\"")
+                ["outer"] = Compile("import \"inner\"")
             };
-            Assert.AreEqual(new[] { "loaded from bytecode" }, RunTreeWalkImport("lib", bytecode));
+            var files = new Dictionary<string, string> { ["inner"] = "fun f [] return 1 end" };
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() =>
+                Run("import \"outer\"\nfun f [] return 2 end", bytecode, files));
+            StringAssert.Contains("Function 'f' with 0 arguments is already defined in 'inner'", e.Message);
         }
 
         [Test]
-        public void TreeWalkImport_UnusableBytecode_WarnsAndCompilesSource()
+        public void TwoBytecodeImports_DefiningTheSameFunction_IsACompileErrorAtTheSecondImport()
         {
             var bytecode = new Dictionary<string, byte[]>
             {
-                ["lib"] = new byte[] { 1, 2, 3, 4, 5 }
+                ["a"] = Compile("fun helper [x] return 1 end"),
+                ["b"] = Compile("fun helper [y] return 2 end")
             };
-            var files = new Dictionary<string, string>
-            {
-                ["lib"] = "print \"loaded from source\""
-            };
-            var output = RunTreeWalkImport("lib", bytecode, files);
-
-            StringAssert.Contains("could not be loaded", output[0]);
-            Assert.AreEqual("loaded from source", output[1]);
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(
+                () => Run("import \"a\"\nimport \"b\"", bytecode));
+            StringAssert.Contains("Cannot import 'b': Function 'helper' with 1 argument is already defined in 'a'", e.Message);
+            Assert.AreEqual(2, e.Line);
         }
 
         [Test]
-        public void MissingFromBothResolvers_IsScriptError()
+        public void FunctionOfABytecodeImport_DefinedAgain_IsACompileError()
         {
-            var (_, output) = Run("import \"nope\"\nprint \"after\"",
-                new Dictionary<string, byte[]>(), new Dictionary<string, string>());
-            StringAssert.Contains("Import 'nope' not found", output[0]);
+            var bytecode = new Dictionary<string, byte[]> { ["lib"] = Compile("class Unit end") };
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(
+                () => Run("import \"lib\"\nclass Unit [hp] end", bytecode));
+            StringAssert.Contains("Class 'Unit' is already defined in 'lib'", e.Message);
+            Assert.AreEqual(2, e.Line);
+        }
+
+        [Test]
+        public void BaseParameterBoundTwice_ThroughABytecodeImport_IsARescuableTypeErrorAtNew()
+        {
+            // Q-16: a bytecode import's classes have no source, so the
+            // compiler cannot check the bindings; 'new' raises the error.
+            var bytecode = new Dictionary<string, byte[]> { ["ops"] = Compile("class Sub [a, b]\nend\nclass Mul [a, b]\nend") };
+            var (_, output) = Run(
+                "import \"ops\"\n" +
+                "class Calculator [p, q] : Sub [q, p], Mul [p, q]\nend\n" +
+                "begin\n    c = new Calculator [2, 10]\nrescue e\n    print e\nend",
+                bytecode);
+            Assert.AreEqual(new[] { "'a' is bound twice in class 'Calculator': base class 'Mul' binds its parameter 'a' to a different argument" }, output);
         }
     }
 }

@@ -36,7 +36,7 @@ namespace WarScript
         {
             IntegerStrings = new string[IntegerRangeMax];
             for (int i = 0; i < IntegerRangeMax; i++)
-                IntegerStrings[i] = i.ToString();
+                IntegerStrings[i] = i.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         // ── Tier 2: runtime cache ──

@@ -55,7 +55,7 @@ namespace Tests
 
             var (script2, output2) = RoundTrip(script1);
             script2.Call(script2.GetFunction("test_constants", 0));
-            Assert.AreEqual(new[] { "3.14", "pi", "True", "null" }, output2);
+            Assert.AreEqual(new[] { "3.14", "pi", "true", "null" }, output2);
         }
 
         [Test]
@@ -151,6 +151,7 @@ namespace Tests
             var script = new WarScriptLanguage("test", @"
                 hp = 100
                 fun damage [n]
+                    global hp
                     hp -= n
                 end
                 fun get_hp []

@@ -58,7 +58,7 @@ namespace Tests
             var (_, output) = TestHelper.Run("test", @"
                 class Vec2 [x, y]
                     fun length []
-                        return pow[(pow[x, 2] + pow[y, 2]), 0.5]
+                        return pow[(pow[@x, 2] + pow[@y, 2]), 0.5]
                     end
                 end
                 v = new Vec2 [3, 4]

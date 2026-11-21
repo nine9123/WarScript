@@ -36,9 +36,28 @@ namespace WarScript.Context.Definition
         /// <summary>
         /// Parent DefinitionScope to access the structures defined in outer blocks of code
         /// </summary>
-        private readonly DefinitionScope? _parent;
+        private DefinitionScope? _parent;
+
+        /// <summary>The scope this one falls back to, or null.</summary>
+        internal DefinitionScope? Parent => _parent;
+
+        /// <summary>
+        /// Gives this scope another parent: an import resolved for a module
+        /// that is not installed yet (T3.7, <c>LoadBytecode</c>) is resolved
+        /// under the loaded module's scope and moved under the instance's
+        /// once the load succeeds.
+        /// </summary>
+        internal void Reparent(DefinitionScope? parent) => _parent = parent;
 
         private readonly WarScriptLanguage _script;
+
+        /// <summary>
+        /// What the parser has defined in this scope, for the duplicate
+        /// check (PROP-12): created on the first definition, or shared by
+        /// every top-level scope of a module set while <c>Compile</c> parses
+        /// it (one namespace, 5.8). Null after <see cref="Clear"/>.
+        /// </summary>
+        internal DeclaredDefinitions? Declared;
         
         public DefinitionScope(WarScriptLanguage script, DefinitionScope? parent)
         {
@@ -60,6 +79,10 @@ namespace WarScript.Context.Definition
 
             return _parent?.GetClass(name);
         }
+
+        /// <summary>The class of that name defined in this scope itself (not its parents), or null.</summary>
+        internal ClassDefinition? GetOwnClass(string name)
+            => _classes.TryGetValue(name, out var classDefinition) ? classDefinition : null;
 
         /// <summary>
         /// Add ClassDefinition to the current block
@@ -97,17 +120,28 @@ namespace WarScript.Context.Definition
         /// <summary>
         /// Add FunctionDefinition to the current block
         /// </summary>
-        public void AddFunction(FunctionDefinition functionDefinition)
+        public void AddFunction(FunctionDefinition functionDefinition) => AddFunction(functionDefinition, true);
+
+        /// <param name="reportShadowing">
+        /// False for a definition copied in from an import
+        /// (<see cref="CopyImportedDefinitionsTo"/>): its own file already
+        /// reported shadowing a native when it was defined there.
+        /// </param>
+        private void AddFunction(FunctionDefinition functionDefinition, bool reportShadowing)
         {
             // Check if a native/parent function with the same signature already exists
-            var existing = _parent?.GetFunction(
-                functionDefinition.Details.Name,
-                functionDefinition.Details.Arguments.Count);
-    
-            if (existing is NativeFunctionDefinition)
-                _script.Logger?.Invoke(_script, $"Shadowing native function '{functionDefinition.Details.Name}'");
-            
+            if (reportShadowing)
+            {
+                var existing = _parent?.GetFunction(
+                    functionDefinition.Details.Name,
+                    functionDefinition.Details.Arguments.Count);
+
+                if (existing is NativeFunctionDefinition)
+                    _script.Log($"Shadowing native function '{functionDefinition.Details.Name}'");
+            }
+
             Functions.Add(functionDefinition);
+            _script.DefinitionsChanged();
             _functionIndex[(functionDefinition.Details.Name, functionDefinition.Details.Arguments.Count)] = functionDefinition;
 
             // Register at reduced arities for default parameters.
@@ -136,6 +170,37 @@ namespace WarScript.Context.Definition
         }
 
         /// <summary>
+        /// The definitions copied in from imported files (T3.7, 5.8: the
+        /// module set has one namespace): reachable here like this scope's
+        /// own, but not part of the file it holds, so
+        /// <see cref="Bytecode.BytecodeSerializer"/> leaves them out and
+        /// <see cref="CopyImportedDefinitionsTo"/> does not copy them on.
+        /// Null until the first import.
+        /// </summary>
+        private HashSet<object>? _imported;
+
+        /// <summary>Whether <paramref name="definition"/> was copied in from an imported file.</summary>
+        internal bool IsImported(object definition) => _imported != null && _imported.Contains(definition);
+
+        /// <summary>
+        /// Copies this scope's own functions and classes (not those it
+        /// imported itself) into <paramref name="target"/>, marked there as
+        /// imported; one already imported there is not added again. How an
+        /// import's definitions join the module set's namespace (T3.7).
+        /// </summary>
+        internal void CopyImportedDefinitionsTo(DefinitionScope target)
+        {
+            target._imported ??= new HashSet<object>(StateHash.ReferenceComparer.Instance);
+            foreach (var classDefinition in _classes.Values)
+                if (!IsImported(classDefinition) && target._imported.Add(classDefinition))
+                    target.AddClass(classDefinition);
+
+            foreach (var functionDefinition in Functions)
+                if (!IsImported(functionDefinition) && target._imported.Add(functionDefinition))
+                    target.AddFunction(functionDefinition, false);
+        }
+
+        /// <summary>
         /// Remove all locally defined functions and classes.
         /// Used by hot reload to clear old definitions before re-parsing.
         /// Native functions (in the parent scope) are unaffected.
@@ -145,6 +210,58 @@ namespace WarScript.Context.Definition
             _classes.Clear();
             Functions.Clear();
             _functionIndex.Clear();
+            _imported = null;
+            Declared = null;
+            _script.DefinitionsChanged();
+        }
+    }
+
+    /// <summary>
+    /// The functions and classes the parser has defined in a namespace
+    /// (a definition scope, or the top level of a module set), with where,
+    /// so that a second definition of the same function name and arity, or
+    /// of the same class name, is a compile error naming the first (PROP-12).
+    /// </summary>
+    internal sealed class DeclaredDefinitions
+    {
+        private readonly Dictionary<string, List<(int MinArity, int MaxArity, string? File, int Line)>> _functions = new();
+        private readonly Dictionary<string, (string? File, int Line)> _classes = new();
+
+        /// <summary>
+        /// Records a function of <paramref name="name"/> reachable with
+        /// <paramref name="minArity"/> to <paramref name="maxArity"/>
+        /// arguments, or returns the message for the first definition it
+        /// overlaps (and records nothing). <paramref name="file"/> is the file
+        /// being parsed, left out of the message when the first is there too.
+        /// </summary>
+        public string? AddFunction(string name, int minArity, int maxArity, string? file, int line)
+        {
+            if (!_functions.TryGetValue(name, out var defined))
+                _functions[name] = defined = new List<(int, int, string?, int)>();
+            foreach (var d in defined)
+            {
+                if (d.MinArity > maxArity || minArity > d.MaxArity) continue;
+                var arity = System.Math.Max(d.MinArity, minArity);
+                return System.FormattableString.Invariant(
+                    $"Function '{name}' with {arity} argument{(arity == 1 ? "" : "s")} is already defined{Where(d.File, d.Line, file)}");
+            }
+            defined.Add((minArity, maxArity, file, line));
+            return null;
+        }
+
+        /// <summary>Records a class, or returns the message for the first definition of its name.</summary>
+        public string? AddClass(string name, string? file, int line)
+        {
+            if (_classes.TryGetValue(name, out var d))
+                return $"Class '{name}' is already defined{Where(d.File, d.Line, file)}";
+            _classes[name] = (file, line);
+            return null;
+        }
+
+        private static string Where(string? definedIn, int line, string? parsing)
+        {
+            var at = line > 0 ? " at line " + line.ToString(System.Globalization.CultureInfo.InvariantCulture) : "";
+            return definedIn == parsing ? at : $" in '{definedIn}'{at}";
         }
     }
 }

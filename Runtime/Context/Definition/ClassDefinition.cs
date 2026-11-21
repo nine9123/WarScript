@@ -37,6 +37,17 @@ namespace WarScript.Context.Definition
         /// </summary>
         public CompiledFunction CompiledConstructor { get; set; }
 
+        /// <summary>
+        /// The fields this class declares itself (5.7): its constructor
+        /// parameters and the names its class body assigns (bare, or as
+        /// <c>@x</c> / <c>this :: x</c>) without declaring them <c>global</c>.
+        /// An instance's fields are those of every class part it has (5.5).
+        /// Set by the compiler, and by the loader from the file; null for a
+        /// class the host registered, whose fields are not known, so that
+        /// accessing any property of its instances is allowed (PROP-15, T3.6).
+        /// </summary>
+        internal HashSet<string>? Fields { get; set; }
+
         public ClassDefinition(
             ClassDetails classDetails,
             List<ClassDetails> baseTypes,

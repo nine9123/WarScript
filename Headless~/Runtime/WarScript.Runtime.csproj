@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Unity constraints (plan R2): netstandard2.1 and C# 9.0. Never raise LangVersion here. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>WarScript.Runtime</AssemblyName>
+    <NoWarn>CS8632</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(WarScriptRoot)/Runtime/**/*.cs" />
+    <Compile Include="$(WarScriptRoot)/Attributes/*.cs" />
+    <Compile Include="$(FixPointCSDir)/FixPointCS/*.cs" />
+    <Compile Include="$(FixPointCSDir)/Examples/FixMath/*.cs" />
+  </ItemGroup>
+</Project>

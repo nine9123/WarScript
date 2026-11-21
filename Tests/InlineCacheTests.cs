@@ -149,7 +149,7 @@ namespace Tests
                 print i :: value
                 print i :: stackable
             ");
-            Assert.AreEqual(new[] { "Sword", "5", "100", "False" }, output);
+            Assert.AreEqual(new[] { "Sword", "5", "100", "false" }, output);
         }
 
         [Test]

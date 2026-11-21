@@ -42,51 +42,51 @@ namespace Tests
         [Test]
         public void Tan_OfQuarterPi_IsAboutOne()
         {
-            Assert.AreEqual("True", Output("r = tan [pi [] / 4]\nprint abs [r - 1] < 0.001")[0]);
+            Assert.AreEqual("true", Output("r = tan [pi [] / 4]\nprint abs [r - 1] < 0.001")[0]);
         }
 
         [Test]
         public void Asin_OfOne_IsAboutHalfPi()
         {
-            Assert.AreEqual("True", Output("r = asin [1]\nprint abs [r - pi [] / 2] < 0.001")[0]);
+            Assert.AreEqual("true", Output("r = asin [1]\nprint abs [r - pi [] / 2] < 0.001")[0]);
         }
 
         [Test]
         public void Acos_OfOne_IsAboutZero()
         {
-            Assert.AreEqual("True", Output("print abs [acos [1]] < 0.001")[0]);
+            Assert.AreEqual("true", Output("print abs [acos [1]] < 0.001")[0]);
         }
 
         [Test]
         public void Atan2_OneOne_IsAboutQuarterPi()
         {
-            Assert.AreEqual("True", Output("r = atan2 [1, 1]\nprint abs [r - pi [] / 4] < 0.001")[0]);
+            Assert.AreEqual("true", Output("r = atan2 [1, 1]\nprint abs [r - pi [] / 4] < 0.001")[0]);
         }
 
         [Test]
         public void Atan2_NegativeQuadrant()
         {
             // atan2(-1, -1) = -3π/4
-            Assert.AreEqual("True",
+            Assert.AreEqual("true",
                 Output("r = atan2 [-1, -1]\nprint abs [r + 3 * pi [] / 4] < 0.001")[0]);
         }
 
         [Test]
         public void DegToRad_180_IsAboutPi()
         {
-            Assert.AreEqual("True", Output("r = deg_to_rad [180]\nprint abs [r - pi []] < 0.001")[0]);
+            Assert.AreEqual("true", Output("r = deg_to_rad [180]\nprint abs [r - pi []] < 0.001")[0]);
         }
 
         [Test]
         public void RadToDeg_Pi_IsAbout180()
         {
-            Assert.AreEqual("True", Output("r = rad_to_deg [pi []]\nprint abs [r - 180] < 0.01")[0]);
+            Assert.AreEqual("true", Output("r = rad_to_deg [pi []]\nprint abs [r - 180] < 0.01")[0]);
         }
 
         [Test]
         public void DegToRad_RadToDeg_RoundTrips()
         {
-            Assert.AreEqual("True",
+            Assert.AreEqual("true",
                 Output("r = rad_to_deg [deg_to_rad [90]]\nprint abs [r - 90] < 0.01")[0]);
         }
 
@@ -172,7 +172,7 @@ namespace Tests
         public void IsNull_OnNullAndNonNull()
         {
             var output = Output("print is_null [null]\nprint is_null [0]");
-            Assert.AreEqual(new[] { "True", "False" }, output);
+            Assert.AreEqual(new[] { "true", "false" }, output);
         }
 
         // ────────────────────────────────────────────────

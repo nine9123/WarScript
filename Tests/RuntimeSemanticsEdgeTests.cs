@@ -75,17 +75,19 @@ end
         }
 
         [Test]
-        public void Lambda_DoesNotCaptureOuterLocal_ReadsAsNull()
+        public void Lambda_ReadingAnOuterLocal_IsACompileError()
         {
-            var output = Run(@"
+            // v1 read null here; v2 has no closures and says so (T3.4, PROP-16).
+            var e = Assert.Throws<WarScript.Exception.CompileError>(() => Run(@"
 fun make []
     local = 42
     return fun [] return local end
 end
 f = make []
 print f []
-");
-            Assert.AreEqual("null", output[0]);
+"));
+            StringAssert.Contains("closures are not supported", e.Message);
+            Assert.AreEqual(4, e.Line);
         }
 
         [Test]
@@ -184,19 +186,18 @@ print f []
         }
 
         [Test]
-        public void ImportedConst_IsNotProtectedInImportingScript()
+        public void ImportedConst_IsProtectedInImportingScript()
         {
-            // Const protection is parse-time, but the importing script is fully
-            // parsed before the import executes — so a const defined in an
-            // imported file can be reassigned by the importer. Pinned as a
-            // documented limitation.
-            var (_, output) = TestHelper.Run("import_const", @"
+            // Imports are compiled before the importer (T3.7, DEC-7), so a
+            // const defined in an imported file is known when the importer
+            // is parsed (v1 parsed the importer first and let it reassign).
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() => TestHelper.Run("import_const", @"
 import ""lib""
 LIMIT = 3
 print LIMIT
-", fileResolver: name => name == "lib" ? "const LIMIT = 7\n" : null);
+", fileResolver: name => name == "lib" ? "const LIMIT = 7\n" : null));
 
-            Assert.AreEqual("3", output[0]);
+            StringAssert.Contains("Cannot reassign constant 'LIMIT'", e.Message);
         }
 
         // ────────────────────────────────────────────────
@@ -206,9 +207,10 @@ print LIMIT
         [Test]
         public void ChainedComparison_EvaluatesLeftToRight_NotMathematically()
         {
-            // (1 < 2) → true, then true < 3 falls back to ToString comparison
-            // ("True" < "3" is false). There is no Python-style chaining.
-            Assert.AreEqual("False", Run("print 1 < 2 < 3")[0]);
+            // (1 < 2) → true, then true < 3 is a TypeError (DEC-8, T3.6).
+            // There is no Python-style chaining.
+            Assert.AreEqual("Cannot apply '<' to logical and number",
+                Run("begin\nprint 1 < 2 < 3\nrescue e\nprint e\nend")[0]);
         }
 
         [Test]
@@ -275,7 +277,11 @@ end
             script.InstructionBudget = 100000;
             script.Run();
 
-            Assert.AreEqual("caught: Instruction budget exceeded", output[0]);
+            // The exhausted budget cannot be rescued (BUDGET-2): neither
+            // "finished" nor "caught" is printed.
+            Assert.AreEqual("Instruction budget exceeded", script.ExceptionContext.LastUnhandled?.Value.ToString());
+            CollectionAssert.DoesNotContain(output, "finished");
+            Assert.IsFalse(output.Exists(o => o.StartsWith("caught")));
         }
 
         // ────────────────────────────────────────────────

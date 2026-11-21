@@ -1,27 +1,24 @@
-using WarScript.Expression.Value;
-
 namespace WarScript.Expression
 {
-    public sealed class VariableExpression : IExpression, IAssignExpression
+    public sealed class VariableExpression : IExpression
     {
         public readonly string Name;
-        private readonly WarScriptLanguage _script;
+
+        /// <summary>
+        /// The line and column of the name's token (T3.1), 0 when the
+        /// parser made the expression up (a desugared default, const or
+        /// enum). Not an <see cref="IPositionedExpression"/>: an error about
+        /// a variable is reported at its statement or operator. Read by the
+        /// migration tool (T3.2).
+        /// </summary>
+        public int Line { get; internal set; }
+
+        /// <inheritdoc cref="Line"/>
+        public int Column { get; internal set; }
 
         public VariableExpression(WarScriptLanguage script, string name)
         {
-            _script = script;
             Name = name;
-        }
-
-        public WarValue Evaluate()
-        {
-            return _script.MemoryContext.GetScope().Get(Name);
-        }
-
-        public WarValue Assign(WarValue value)
-        {
-            _script.MemoryContext.GetScope().Set(Name, value);
-            return value;
         }
     }
 }

@@ -56,9 +56,11 @@ namespace Tests
         }
 
         [Test]
-        public void StringSubtraction()
+        public void TextRemove()
         {
-            var (_, output) = TestHelper.Run("test", "print \"hello world\" - \"world\"");
+            // Text subtraction is gone (PROP-7, T3.6); Text_remove replaces it.
+            var (_, output) = TestHelper.Run("test", "print Text_remove [\"hello world\", \"world\"]",
+                (script, scope) => WarScript.Native.TextLibrary.Register(script, scope));
             Assert.AreEqual(new[] { "hello " }, output);
         }
 
@@ -88,10 +90,19 @@ namespace Tests
         }
 
         [Test]
-        public void NullDefault()
+        public void UndefinedVariable_RaisesNameError()
         {
-            var (_, output) = TestHelper.Run("test", "print x");
-            Assert.AreEqual(new[] { "null" }, output);
+            // DEC-5, 5.6: a name that was never assigned is not null.
+            var (_, output) = TestHelper.Run("test", @"
+                begin
+                    print x
+                rescue e
+                    print e
+                end
+                x = null
+                print x
+            ");
+            Assert.AreEqual(new[] { "undefined variable 'x'", "null" }, output);
         }
 
         // Conditions
@@ -265,7 +276,7 @@ namespace Tests
             var (_, output) = TestHelper.Run("test", @"
                 class Vec2 [x, y]
                     fun length []
-                        return pow[pow[x, 2] + pow[y, 2], 0.5]
+                        return pow[pow[@x, 2] + pow[@y, 2], 0.5]
                     end
                 end
                 v = new Vec2 [3, 4]
@@ -296,7 +307,7 @@ namespace Tests
             var (_, output) = TestHelper.Run("test", @"
                 class Animal [name]
                     fun speak []
-                        return name + "" speaks""
+                        return @name + "" speaks""
                     end
                 end
                 class Dog [name] : Animal [name]
@@ -348,21 +359,21 @@ namespace Tests
         public void LogicalAnd()
         {
             var (_, output) = TestHelper.Run("test", "print true and false");
-            Assert.AreEqual(new[] { "False" }, output);
+            Assert.AreEqual(new[] { "false" }, output);
         }
 
         [Test]
         public void LogicalOr()
         {
             var (_, output) = TestHelper.Run("test", "print false or true");
-            Assert.AreEqual(new[] { "True" }, output);
+            Assert.AreEqual(new[] { "true" }, output);
         }
 
         [Test]
         public void LogicalNot()
         {
             var (_, output) = TestHelper.Run("test", "print !true");
-            Assert.AreEqual(new[] { "False" }, output);
+            Assert.AreEqual(new[] { "false" }, output);
         }
 
         [Test]
@@ -405,7 +416,7 @@ namespace Tests
                 print 5 != 3
                 print ""a"" == ""a""
             ");
-            Assert.AreEqual(new[] { "True", "True", "True" }, output);
+            Assert.AreEqual(new[] { "true", "true", "true" }, output);
         }
 
         [Test]
@@ -415,7 +426,7 @@ namespace Tests
                 print null == null
                 print null != 5
             ");
-            Assert.AreEqual(new[] { "True", "True" }, output);
+            Assert.AreEqual(new[] { "true", "true" }, output);
         }
 
         // String Concatenation
@@ -495,6 +506,7 @@ namespace Tests
             var (script, output) = TestHelper.Run("test", @"
                 counter = 0
                 fun tick []
+                    global counter
                     counter = counter + 1
                     print counter
                 end
@@ -531,6 +543,7 @@ namespace Tests
             var (script, output) = TestHelper.Run("test", @"
                 sum = 0
                 fun add [n]
+                    global sum
                     sum = sum + n
                 end
                 fun get_sum []
@@ -546,7 +559,7 @@ namespace Tests
             var getSum = script.GetFunction("get_sum", 0);
             script.Call(getSum);
 
-            // get_sum returns via ReturnContext, not print — 
+            // get_sum returns its value, which Call() does not hand back (until T2.3) —
             // check that no exceptions were raised and the script is healthy
             Assert.IsFalse(script.ExceptionContext.IsRaised());
         }
@@ -1057,6 +1070,7 @@ namespace Tests
             var (script, output) = TestHelper.Run("test", @"
                 counter = 0
                 fun increment []
+                    global counter
                     counter += 1
                 end
                 fun wait_for_five []

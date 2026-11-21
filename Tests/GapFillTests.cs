@@ -21,97 +21,15 @@ namespace Tests
     public class GapFillTests
     {
         // ────────────────────────────────────────────────
-        //  Helpers
-        // ────────────────────────────────────────────────
-
-        private static void RunAssertOnly(string resourceName)
-        {
-            var (script, output) = TestHelper.RunFile(resourceName);
-            Assert.IsFalse(script.ExceptionContext.IsRaised(),
-                $"'{resourceName}' raised exception. Output:\n{string.Join("\n", output)}");
-            Assert.IsEmpty(output,
-                $"'{resourceName}' produced unexpected output:\n{string.Join("\n", output)}");
-        }
-
-        private static void RunAssertOnlyWithAllLibs(string resourceName)
-        {
-            var (script, output) = TestHelper.RunFile(resourceName,
-                delegate(WarScriptLanguage s, DefinitionScope scope)
-                {
-                    WarScriptLibraryRegistry.RegisterAll(s, scope);
-                });
-            Assert.IsFalse(script.ExceptionContext.IsRaised(),
-                $"'{resourceName}' raised exception. Output:\n{string.Join("\n", output)}");
-            Assert.IsEmpty(output,
-                $"'{resourceName}' produced unexpected output:\n{string.Join("\n", output)}");
-        }
-
-        // ────────────────────────────────────────────────
-        //  String mutation (completely untested before)
-        // ────────────────────────────────────────────────
-
-        [Test]
-        public void GapFill_StringMutation()
-        {
-            RunAssertOnly("test_gapfill_string_mutation.ws");
-        }
-
-        // ────────────────────────────────────────────────
-        //  Native function coverage (is_null was untested)
-        // ────────────────────────────────────────────────
-
-        [Test]
-        public void GapFill_NativeFunctions()
-        {
-            RunAssertOnlyWithAllLibs("test_gapfill_native_functions.ws");
-        }
-
-        // ────────────────────────────────────────────────
-        //  Scope isolation (same-name conflict was untested)
-        // ────────────────────────────────────────────────
-
-        [Test]
-        public void GapFill_ScopeIsolation()
-        {
-            RunAssertOnly("test_gapfill_scope_isolation.ws");
-        }
-
-        // ────────────────────────────────────────────────
-        //  Equality symmetry (!=  on equal values was untested)
-        // ────────────────────────────────────────────────
-
-        [Test]
-        public void GapFill_EqualitySymmetry()
-        {
-            RunAssertOnlyWithAllLibs("test_gapfill_equality_symmetry.ws");
-        }
-
-        // ────────────────────────────────────────────────
-        //  Cross-feature interactions
-        // ────────────────────────────────────────────────
-
-        [Test]
-        public void GapFill_CrossFeature()
-        {
-            RunAssertOnlyWithAllLibs("test_gapfill_cross_feature.ws");
-        }
-
-        // ────────────────────────────────────────────────
         //  AST caching — run same script multiple times
         // ────────────────────────────────────────────────
-
-        [Test]
-        public void GapFill_ASTCaching_SingleScript()
-        {
-            RunAssertOnly("test_gapfill_ast_caching.ws");
-        }
 
         [Test]
         public void GapFill_ASTCaching_MultipleRuns()
         {
             // Run the same script 5 times, each should produce identical results
             var source = System.IO.File.ReadAllText(
-                GetResourcePath("test_gapfill_ast_caching.ws"));
+                System.IO.Path.Combine(Golden.GoldenRunner.GoldenRoot(), "gapfill", "test_gapfill_ast_caching.ws"));
 
             var output = new List<string>();
             var script = new WarScriptLanguage("ast_cache_test", source, null,
@@ -206,21 +124,23 @@ assert v :: y == 4
         // ────────────────────────────────────────────────
 
         [Test]
-        public void GapFill_StringIndexReplace_DoesNotChangeLength()
+        public void GapFill_StringIndexReplace_IsTypeError_TextUnchanged()
         {
+            // Text is immutable since T3.6 (DEC-10).
             var (script, output) = TestHelper.Run("inline",
                 "s = \"abcde\"\n" +
+                "begin\n" +
                 "s{2} = \"X\"\n" +
+                "rescue e\n" +
+                "print e\n" +
+                "end\n" +
                 "print s\n" +
                 "print s{0}\n" +
                 "print s{2}\n" +
                 "print s{4}");
 
-            Assert.AreEqual(4, output.Count);
-            Assert.AreEqual("abXde", output[0], "String should be 'abXde' after replace at index 2");
-            Assert.AreEqual("a", output[1]);
-            Assert.AreEqual("X", output[2]);
-            Assert.AreEqual("e", output[3]);
+            CollectionAssert.AreEqual(
+                new[] { "Cannot assign to an index of text: text is immutable", "abcde", "a", "c", "e" }, output);
         }
 
         [Test]
@@ -259,12 +179,12 @@ assert v :: y == 4
                 "print a != b");
 
             Assert.AreEqual(2, output.Count);
-            Assert.AreEqual("True", output[0], "== on equal arrays should be True");
-            Assert.AreEqual("False", output[1], "!= on equal arrays should be False");
+            Assert.AreEqual("true", output[0], "== on equal arrays should be True");
+            Assert.AreEqual("false", output[1], "!= on equal arrays should be False");
         }
 
         [Test]
-        public void GapFill_NotEquals_EqualClasses_ReturnsFalse()
+        public void GapFill_EqualClasses_CompareByIdentity()
         {
             var (script, output) = TestHelper.Run("inline",
                 "class P[x, y]\n" +
@@ -274,9 +194,11 @@ assert v :: y == 4
                 "print a == b\n" +
                 "print a != b");
 
+            // Plan 5.4 (DEC-9, T3.6): two instances are never equal, however
+            // equal their fields.
             Assert.AreEqual(2, output.Count);
-            Assert.AreEqual("True", output[0], "== on equal class instances should be True");
-            Assert.AreEqual("False", output[1], "!= on equal class instances should be False");
+            Assert.AreEqual("false", output[0], "== on two instances with equal fields");
+            Assert.AreEqual("true", output[1], "!= on two instances with equal fields");
         }
 
         [Test]
@@ -291,25 +213,10 @@ assert v :: y == 4
                 (s, scope) => WarScript.Native.UtilityLibrary.Register(s, scope));
 
             Assert.AreEqual(4, output.Count);
-            Assert.AreEqual("True", output[0], "is_null[null] should be True");
-            Assert.AreEqual("False", output[1], "is_null[0] should be False");
-            Assert.AreEqual("False", output[2], "is_null[\"\"] should be False");
-            Assert.AreEqual("True", output[3], "is_null[x] where x=null should be True");
-        }
-
-        // ────────────────────────────────────────────────
-        //  Helpers
-        // ────────────────────────────────────────────────
-
-        private static string GetResourcePath(string name,
-            [System.Runtime.CompilerServices.CallerFilePath] string sourceFilePath = "")
-        {
-            var testDir = System.IO.Path.GetDirectoryName(sourceFilePath)!;
-            var path = System.IO.Path.Combine(testDir, "resources", name);
-            if (System.IO.File.Exists(path)) return path;
-            path = System.IO.Path.Combine("resources", name);
-            if (System.IO.File.Exists(path)) return path;
-            throw new System.IO.FileNotFoundException($"Resource '{name}' not found");
+            Assert.AreEqual("true", output[0], "is_null[null] should be True");
+            Assert.AreEqual("false", output[1], "is_null[0] should be False");
+            Assert.AreEqual("false", output[2], "is_null[\"\"] should be False");
+            Assert.AreEqual("true", output[3], "is_null[x] where x=null should be True");
         }
     }
 }

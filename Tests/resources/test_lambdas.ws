@@ -36,13 +36,13 @@ end
 assert process [5] == 10
 
 # ── 6. Higher-order function: function returning a lambda ──
-fun make_adder [n]
-    return fun [x] return x + n end
+fun make_doubler []
+    return fun [x] return x * 2 end
 end
+assert (make_doubler []) != null
 
-# Note: n is a global when the lambda runs (no closures).
-# make_adder sets n in the global scope, and the lambda reads it.
-# This works for the last-set value of n.
+# Note: there are no closures. A lambda that read a parameter or local of
+# make_doubler would be a compile error ("closures are not supported").
 
 # ── 7. Lambda stored in array ──
 ops = {

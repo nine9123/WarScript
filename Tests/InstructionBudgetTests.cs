@@ -101,12 +101,26 @@ namespace Tests
             Assert.AreEqual(0, script.InstructionBudget);
         }
 
-        // ── Budget is catchable via begin/rescue ──
+        // ── An exhausted budget stays exhausted (BUDGET-2, Q-11) ──
+        // The error is raised again by every further instruction until the
+        // next outermost entry, so a rescue or ensure body cannot run and the
+        // error ends the entry whatever the script rescues.
+
+        /// <summary>The printed lines, without the log line of the error that halted the instance (T2.4).</summary>
+        private static List<string> Printed(WarScriptLanguage script, List<string> output)
+        {
+            var printed = new List<string>(output);
+            if (script.Fault != null) printed.Remove("[WarScript] " + script.Fault);
+            return printed;
+        }
+
+        private static string Unhandled(WarScriptLanguage script) =>
+            script.ExceptionContext.LastUnhandled?.Value.ToString();
 
         [Test]
-        public void BudgetExceededIsCatchable()
+        public void BudgetExceeded_RescueBodyDoesNotRun()
         {
-            var (_, output) = TestHelper.Run("test", @"
+            var (script, output) = TestHelper.Run("test", @"
                 caught = false
                 begin
                     loop 1 == 1
@@ -114,46 +128,82 @@ namespace Tests
                     end
                 rescue e
                     caught = true
-                end
-                print caught
-            ", setupScope: (script, _) => { script.InstructionBudget = 5000; });
-
-            Assert.AreEqual(new[] { "True" }, output);
-        }
-
-        [Test]
-        public void BudgetExceededMessageAccessibleInRescue()
-        {
-            var (_, output) = TestHelper.Run("test", @"
-                msg = null
-                begin
-                    loop 1 == 1
-                        x = 1
-                    end
-                rescue e
-                    msg = e
-                end
-                print msg
-            ", setupScope: (script, _) => { script.InstructionBudget = 1000; });
-
-            Assert.AreEqual(new[] { "Instruction budget exceeded" }, output);
-        }
-
-        [Test]
-        public void ScriptContinuesAfterCaughtBudgetExceeded()
-        {
-            var (_, output) = TestHelper.Run("test", @"
-                begin
-                    loop 1 == 1
-                        x = 1
-                    end
-                rescue e
                     print ""caught""
                 end
-                print ""still running""
-            ", setupScope: (script, _) => { script.InstructionBudget = 2000; });
+                print caught
+            ", setupScope: (s, _) => { s.InstructionBudget = 5000; });
 
-            Assert.AreEqual(new[] { "caught", "still running" }, output);
+            CollectionAssert.IsEmpty(Printed(script, output));
+            Assert.AreEqual("Instruction budget exceeded", Unhandled(script));
+        }
+
+        [Test]
+        public void BudgetExceeded_EndsTheEntryEvenWhenRescued()
+        {
+            var (script, output) = TestHelper.Run("test", @"
+                fun after []
+                    print ""next entry""
+                end
+                begin
+                    loop 1 == 1
+                        x = 1
+                    end
+                rescue e
+                end
+                print ""still running""
+            ", setupScope: (s, _) => { s.InstructionBudget = 2000; });
+
+            CollectionAssert.IsEmpty(Printed(script, output));
+            Assert.AreEqual("Instruction budget exceeded", Unhandled(script));
+
+            // The error halted the instance (T2.4); once the host clears the
+            // fault, the next outermost entry starts with a full budget.
+            Assert.IsTrue(script.IsHalted);
+            script.ClearFault();
+            output.Clear();
+            script.Call(script.GetFunction("after", 0));
+            CollectionAssert.AreEqual(new[] { "next entry" }, output);
+        }
+
+        [Test]
+        public void BudgetExceeded_SkipsRescueAndEnsureBodies()
+        {
+            var (script, output) = TestHelper.Run("test", @"
+                result = ""none""
+                begin
+                    loop 1 == 1
+                        x = 1
+                    end
+                rescue e
+                    result = ""rescued""
+                ensure
+                    print ""ensured""
+                end
+                print result
+            ", setupScope: (s, _) => { s.InstructionBudget = 3000; });
+
+            CollectionAssert.IsEmpty(Printed(script, output));
+            Assert.AreEqual("Instruction budget exceeded", Unhandled(script));
+        }
+
+        [Test]
+        public void BudgetExceeded_EnsureOnlyBlockDoesNotRun()
+        {
+            // An ensure body could loop forever too, so it gets no instructions.
+            var (script, output) = TestHelper.Run("test", @"
+                begin
+                    loop 1 == 1
+                        x = 1
+                    end
+                ensure
+                    loop 1 == 1
+                        print ""cleanup""
+                    end
+                end
+            ", setupScope: (s, _) => { s.InstructionBudget = 2000; });
+
+            CollectionAssert.IsEmpty(Printed(script, output));
+            Assert.AreEqual("Instruction budget exceeded", Unhandled(script));
         }
 
         // ── Budget on Call() path ──
@@ -187,6 +237,7 @@ namespace Tests
             var script = new WarScriptLanguage("test", @"
                 count = 0
                 fun bump []
+                    global count
                     count = count + 1
                 end
             ", null, (s, msg) => output.Add(msg));
@@ -248,7 +299,9 @@ namespace Tests
             script.Call(work);
             Assert.IsTrue(output.Exists(o => o.Contains("budget exceeded")));
 
-            // Call with a generous budget — should succeed
+            // Call with a generous budget — should succeed (once the host
+            // has cleared the fault that halted the instance, T2.4)
+            script.ClearFault();
             script.InstructionBudget = 100000;
             output.Clear();
             script.Call(work);
@@ -321,45 +374,6 @@ namespace Tests
             script.Run();
 
             Assert.IsTrue(output.Exists(o => o.Contains("budget exceeded")));
-        }
-
-        // ── Budget with exception handling ──
-
-        [Test]
-        public void BudgetExceededInTryBlockIsRescuable()
-        {
-            var (_, output) = TestHelper.Run("test", @"
-                result = ""none""
-                begin
-                    loop 1 == 1
-                        x = 1
-                    end
-                rescue e
-                    result = ""rescued""
-                ensure
-                    print ""ensured""
-                end
-                print result
-            ", setupScope: (script, _) => { script.InstructionBudget = 3000; });
-
-            Assert.AreEqual(new[] { "ensured", "rescued" }, output);
-        }
-
-        [Test]
-        public void BudgetExceededEnsureBlockRuns()
-        {
-            var (_, output) = TestHelper.Run("test", @"
-                begin
-                    loop 1 == 1
-                        x = 1
-                    end
-                ensure
-                    print ""cleanup""
-                end
-            ", setupScope: (script, _) => { script.InstructionBudget = 2000; });
-
-            // Ensure runs, then unhandled exception prints stack trace
-            Assert.IsTrue(output.Contains("cleanup"));
         }
     }
 }
