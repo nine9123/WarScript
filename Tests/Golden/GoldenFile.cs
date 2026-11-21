@@ -42,6 +42,17 @@ namespace Tests.Golden
         public GoldenMode[] Modes = { GoldenMode.Source, GoldenMode.Bytecode };
 
         /// <summary>
+        /// Natives, globals, enums and classes declared on every instance
+        /// after the stdlib, as stubs (PROP-30, the runner's
+        /// <c>--manifest</c>): a mod's script compiles against the game's
+        /// natives. Null for a golden.
+        /// </summary>
+        public NativeManifest Manifest;
+
+        /// <summary>Stop after the compile (the runner's <c>--compile-only</c>): nothing runs, no hash.</summary>
+        public bool CompileOnly;
+
+        /// <summary>
         /// A bytecode file to load as it is instead of compiling
         /// <see cref="Source"/> (the fuzzer's bytecode mode, plan 9.6): an
         /// <see cref="InvalidDataException"/> from the loader is the
@@ -239,6 +250,7 @@ namespace Tests.Golden
                 script.LogUnhandledErrors = false;
                 if (!file.NoStdlib)
                     WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
+                file.Manifest?.Register(script);
                 script.InstructionBudget = file.Budget;
                 script.MemoryBudget = file.MemoryBudget;
                 if (audit != null)
@@ -270,7 +282,14 @@ namespace Tests.Golden
                 else if (mode == GoldenMode.Source)
                 {
                     target = NewInstance(file.Source);
-                    run.AddWarnings(target.Compile());
+                    var compiled = target.Compile();
+                    run.AddWarnings(compiled);
+                    if (file.CompileOnly)
+                    {
+                        // The error is listed first: "script:line:column: error: message".
+                        if (!compiled.Success) run.CompileError = compiled.Diagnostics[0].ToString();
+                        return run;
+                    }
                 }
                 else
                 {

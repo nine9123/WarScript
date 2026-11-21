@@ -3,7 +3,9 @@
 # with stub UnityEditor/UnityEngine types, generates the bindings of a sample
 # [WsModule] (a function, a [WsConst] and a [WsEnum]), compiles the generated
 # code against Headless~/Runtime and runs a script that uses them. Prints the
-# script's output; exits non-zero if any step fails.
+# script's output; exits non-zero if any step fails. Also writes the module's
+# native manifest (PROP-30) and compiles the same script against it on an
+# instance without the bindings: prints the manifest and "manifest: compiles".
 #
 # The run project is named WarScript.Tests so that it may use the runtime's
 # internals: generated [WsConst]/[WsEnum] code calls the internal
@@ -25,6 +27,7 @@ namespace Demo
     public static partial class DemoModule
     {
         [WsFunction("twice")] public static F64 Twice(F64 a) => a * 2;
+        [WsFunction] public static string Label(string text, int width = 3) => text;
         [WsConst] public const int MAX_UNITS = 50;
         [WsEnum] public enum State { Idle, Moving, Attacking = 7 }
     }
@@ -67,6 +70,10 @@ class GenMain
         var t = typeof(Demo.DemoModule);
         var src = (string)m.Invoke(null, new object[] { t, t.GetCustomAttribute<WarScript.Attributes.WsModuleAttribute>() });
         System.IO.File.WriteAllText("$WORK/run/Demo.g.cs", src);
+        var entries = new WarScript.Editor.WsBindingGenerator.ManifestEntries();
+        typeof(WarScript.Editor.WsBindingGenerator).GetMethod("AddManifestEntries", BindingFlags.NonPublic | BindingFlags.Static)
+            .Invoke(null, new object[] { t, entries });
+        System.IO.File.WriteAllText("$WORK/run/demo.wsmanifest", entries.Write());
     }
 }
 EOF
@@ -95,10 +102,19 @@ class RunMain
             "print State :: name [3]",
             "print State :: names",
             "print State :: count",
+            "print label [\"ab\"]",
             "") ;
         var s = new WarScriptLanguage("demo", src, null, (x, m) => System.Console.WriteLine(m));
         Demo.DemoModule.Register(s, s.GlobalDefinitionScope);
         s.Run();
+
+        var text = System.IO.File.ReadAllText(System.IO.Path.Combine(System.AppContext.BaseDirectory, "../../../demo.wsmanifest"));
+        System.Console.Write(text);
+        var checker = new WarScriptLanguage("demo", src, null, (x, m) => System.Console.WriteLine(m));
+        NativeManifest.Parse(text).Register(checker);
+        var compiled = checker.Compile();
+        System.Console.WriteLine(compiled.Success ? "manifest: compiles" : "manifest: " + compiled.Diagnostics[0]);
+        if (!compiled.Success) System.Environment.Exit(1);
     }
 }
 EOF

@@ -302,6 +302,7 @@ print ""f: "" + double");
             "NotEqualsOperator.cs: right",
             "SubtractionOperator.cs: left",
             "SubtractionOperator.cs: right",
+            "NativeManifest.cs: sb",                   // StringBuilder
             "WarValue.cs: sb",
             "WarValue.cs: other",                      // WarValue
             "LexicalParser.cs: c",                     // char

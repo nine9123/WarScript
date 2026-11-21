@@ -105,7 +105,7 @@ namespace Tests.Golden
             }
         }
 
-        private static string DotnetHost()
+        internal static string DotnetHost()
         {
             // Set by the dotnet CLI for the processes it starts, including test hosts.
             var host = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH");

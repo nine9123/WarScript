@@ -1317,6 +1317,38 @@ aborts the whole run. Use `F64`. Because an `F64` parameter cannot carry a C# co
 model an optional numeric as `WarValue x = default` and read
 `x.IsNumeric ? x.Numeric : fallback` (an omitted argument arrives as `Null`).
 
+### Native manifest: checking scripts without the game
+
+Every **Generate Bindings** run also writes `WarScriptNatives.wsmanifest` next to the project's
+`Assets` folder: the name and parameters of every `[WsFunction]`, every `[WsConst]` and every
+`[WsEnum]` with its members. `NativeManifest` reads it and declares those names on an instance as
+stubs, so the compiler checks a script against the game's natives where the game isn't running:
+
+```csharp
+var script = new WarScriptLanguage(name, source, fileResolver, logger);
+WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);   // real natives win
+NativeManifest.Parse(File.ReadAllText("WarScriptNatives.wsmanifest")).Register(script);
+CompileResult c = script.Compile();   // unknown functions, wrong arities, unknown globals... are errors
+```
+
+A stub function that is called raises a rescuable error, a stub global or constant holds `null`, and
+a manifest enum works like the generated one. Natives you register by hand aren't in the generated
+file: `NativeManifest.FromScript(script).ToString()` writes the manifest of an instance after
+everything is registered (natives, host globals, constants, enums and host classes). The headless
+runner takes one: `WarScript.Runner mod.ws --manifest WarScriptNatives.wsmanifest --compile-only`.
+
+The format is one entry per line (`#` starts a comment), after the header `warscript-manifest 1`:
+
+```
+function spawn_unit 1 kind team     # name, required count, parameters
+global player
+const MAX_UNITS
+enum Team Red=0 Blue=1
+class Unit kind                     # constructor parameters
+fields Unit hp                      # optional: without it any `u :: x` is accepted
+method Unit move 2 x y
+```
+
 ### Safety budgets
 
 ```csharp

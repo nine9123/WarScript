@@ -12,12 +12,19 @@ namespace WarScript.Runner
     ///
     ///   WarScript.Runner &lt;file.ws|file.wsbc&gt; [--mode source|bytecode] [--budget n]
     ///                    [--memory-budget n] [--culture name|invariant]
+    ///                    [--manifest file] [--compile-only]
     ///
     /// A <c>.wsbc</c> file is bytecode, loaded as it is (the fuzzer's bytecode
     /// mode, plan 9.6; --mode does not apply): a file the loader rejects with
     /// InvalidDataException reports status "rejected".
     /// Budgets default to the file's '# budget:' / '# memory-budget:' directives
     /// (a .wsbc file has none: the GoldenFile defaults).
+    /// --manifest declares a native manifest's natives, globals, enums and
+    /// classes after the stdlib (PROP-30, <see cref="NativeManifest"/>), so a
+    /// mod's script compiles against the game's natives; a stub native that
+    /// runs raises an error. --compile-only stops after compiling the source
+    /// (status ok or compile-error, the error as script:line:column; hash
+    /// null), the way to check a script against a manifest.
     /// Exit codes: 0 the script completed (with any script status), 2 an
     /// invariant was violated, 3 a C# exception escaped, 1 bad arguments.
     /// </summary>
@@ -29,7 +36,10 @@ namespace WarScript.Runner
             var mode = GoldenMode.Source;
             var culture = "";
             int? budget = null;
+            NativeManifest manifest = null;
             long? memoryBudget = null;
+            string manifestPath = null;
+            var compileOnly = false;
 
             try
             {
@@ -46,6 +56,12 @@ namespace WarScript.Runner
                         case "--memory-budget":
                             memoryBudget = long.Parse(Value(args, ref i), CultureInfo.InvariantCulture);
                             break;
+                        case "--manifest":
+                            manifestPath = Value(args, ref i);
+                            break;
+                        case "--compile-only":
+                            compileOnly = true;
+                            break;
                         case "--culture":
                             culture = Value(args, ref i);
                             if (culture == "invariant") culture = "";
@@ -59,12 +75,17 @@ namespace WarScript.Runner
                 }
                 if (path == null)
                     throw new ArgumentException("no script file given");
+                if (compileOnly && (mode != GoldenMode.Source || path.EndsWith(".wsbc", StringComparison.OrdinalIgnoreCase)))
+                    throw new ArgumentException("--compile-only compiles a source file (--mode source)");
+                if (manifestPath != null)
+                    manifest = NativeManifest.Parse(File.ReadAllText(manifestPath));
             }
-            catch (System.Exception e) when (e is ArgumentException || e is FormatException || e is OverflowException)
+            catch (System.Exception e) when (e is ArgumentException || e is FormatException || e is OverflowException
+                                             || e is IOException || e is UnauthorizedAccessException)
             {
                 Console.Error.WriteLine(e.Message);
                 Console.Error.WriteLine("usage: WarScript.Runner <file.ws|file.wsbc> [--mode source|bytecode] [--budget n] " +
-                                        "[--memory-budget n] [--culture name|invariant]");
+                                        "[--memory-budget n] [--culture name|invariant] [--manifest file] [--compile-only]");
                 return 1;
             }
 
@@ -74,6 +95,8 @@ namespace WarScript.Runner
                 : GoldenFile.Load(Path.GetDirectoryName(full), Path.GetFileName(full));
             if (budget.HasValue) file.Budget = budget.Value;
             if (memoryBudget.HasValue) file.MemoryBudget = memoryBudget.Value;
+            file.Manifest = manifest;
+            file.CompileOnly = compileOnly;
 
             var run = GoldenRun.Execute(file, mode, culture);
 
