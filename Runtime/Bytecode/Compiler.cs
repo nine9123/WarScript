@@ -803,6 +803,7 @@ namespace WarScript.Bytecode
                 // creating the name if needed. At the top level SetGlobal
                 // writes the scope chain (the globals, then the host
                 // globals), creating the name in the globals.
+                _script.DeclareGlobalWrite(v.Name);
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(v.Name));
                 Chunk.EmitOp(OpCode.SetGlobal, line);
                 Chunk.EmitU16(nameIdx, line);
@@ -826,6 +827,7 @@ namespace WarScript.Bytecode
                     }
                     else
                     {
+                        CheckGlobalRead(avVar);
                         var nameIdx = Chunk.AddConstant(WarValue.FromText(avVar.Name));
                         Chunk.EmitOp(OpCode.IndexSetGlobal, line);
                         Chunk.EmitU16(nameIdx, line);
@@ -1428,6 +1430,22 @@ namespace WarScript.Bytecode
         }
 
         /// <summary>
+        /// A bare read of a global must name one the module set writes or the
+        /// host defines (T3.8, PROP-27): recorded for
+        /// <see cref="WarScriptLanguage.CheckGlobalRead"/>, checked once the
+        /// module set is compiled. In a class body a field of the class is
+        /// found first, so a known field (or unknown fields: a base class the
+        /// compiler does not see) is not recorded.
+        /// </summary>
+        private void CheckGlobalRead(VariableExpression v)
+        {
+            if (_classBody && (_classFields == null || _classFields.Contains(v.Name))) return;
+            var onThisLine = v.Line > 0 && v.Line == _line;
+            _script.CheckGlobalRead(v.Name, _classBody, _source,
+                onThisLine ? v.Line : _line, onThisLine ? v.Column : _column);
+        }
+
+        /// <summary>
         /// The slot a read of <paramref name="v"/> uses, or -1 for a global
         /// read, after the read checks of <see cref="CheckRead"/>.
         /// </summary>
@@ -1557,6 +1575,7 @@ namespace WarScript.Bytecode
                     }
                     else
                     {
+                        CheckGlobalRead(v);
                         Chunk.EmitOp(OpCode.GetGlobal, _line);
                         Chunk.EmitU16(Chunk.AddConstant(WarValue.FromText(v.Name)), _line);
                     }

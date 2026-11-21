@@ -12,6 +12,10 @@
 assert is_null[null] == true
 
 # ── An undefined variable is a NameError, not null (DEC-5) ──
+# (assigned only where it never runs, so the read compiles: PROP-27)
+if false
+    undefined_xyz = 0
+end
 begin
     v = is_null[undefined_xyz]
     assert false

@@ -446,6 +446,10 @@ The compiler rejects what would otherwise be a silent mistake:
 - a `loop` or `rescue` variable with the name of a parameter, a local, a declared global or an
   enclosing loop/rescue variable of the same body (those variables exist only inside their block);
 - `global x` after `x` was used, or for a parameter `x`.
+- reading a global that no file of the script and its imports ever writes (at the top level, as
+  a `const` or `enum`, or through `global`) and the host does not define when the script
+  compiles — *undefined variable 'x'*. A name written only on a path that does not run still
+  compiles, and reading it before it is written raises a `NameError` at runtime.
 
 Methods follow the same rules: a bare name in a method is a local or a global, and the instance's
 fields are reached with `@x` / `this :: x`. In a class body a bare assignment declares a field
@@ -1488,8 +1492,9 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 
 **Semantics**
 
-- Reading a variable that was never assigned raises a `NameError` (`undefined variable 'x'`);
-  a variable assigned `null` reads as `null`. An out-of-range index raises an `IndexError`.
+- Reading a variable that was never assigned raises a `NameError` (`undefined variable 'x'`) —
+  a compile error when nothing in the script, its imports or the host defines the name; a
+  variable assigned `null` reads as `null`. An out-of-range index raises an `IndexError`.
 - Lambdas have no closures — their own parameters and locals, and globals; reading a local of the
   code around one is a compile error.
 - Default parameters cannot distinguish an omitted argument from an explicit `null`.

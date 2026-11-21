@@ -32,7 +32,8 @@ namespace Tests
         // IndexReadInvalid, IndexWriteInvalid, TextIndexAssign and
         // PropertyWriteOnNonInstance have no v1 path left since T3.6: those
         // reads and writes raise IndexError or TypeError (5.5).
-        [TestCase("r = undefined_thing", AuditKind.UndefinedRead, 1)]
+        // The never-run write makes the read compile (T3.8, PROP-27).
+        [TestCase("r = undefined_thing\nif false\n  undefined_thing = 0\nend", AuditKind.UndefinedRead, 1)]
         // GlobalWriteFromFunction, FieldAccessViaBareName, GlobalShadowedInClass
         // and BlockVariableEscapes have no v1 path left since T3.4: a name a
         // function or method assigns is its local, a global needs `global`,
@@ -118,7 +119,7 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "fun tag [p]\n  begin\n    q = undefined_a\n  rescue e\n  end\n  return p\nend\nbegin\n  a1 = undefined_b\nrescue e\nend"
+                ["lib"] = "fun tag [p]\n  begin\n    q = undefined_a\n  rescue e\n  end\n  return p\nend\nbegin\n  a1 = undefined_b\nrescue e\nend\nif false\n  undefined_a = 0\nend\nif false\n  undefined_b = 0\nend"
             };
             var events = Audit("import \"lib\"\ny = tag [2]", path => files.TryGetValue(path, out var s) ? s : null);
 
@@ -134,7 +135,7 @@ namespace Tests
         public void ReportGroupsEventsBySite()
         {
             var report = new AuditReport();
-            TestHelper.Run("main", "loop i in 0..3\n  begin\n    p = undefined_a\n  rescue e\n  end\nend\nr = undefined_thing",
+            TestHelper.Run("main", "loop i in 0..3\n  begin\n    p = undefined_a\n  rescue e\n  end\nend\nr = undefined_thing\nif false\n  undefined_a = 0\nend\nif false\n  undefined_thing = 0\nend",
                            (script, scope) => { script.AuditSink = report.Add; script.LogUnhandledErrors = false; });
 
             Assert.AreEqual(4, report.EventCount);
@@ -162,7 +163,7 @@ namespace Tests
         [Test]
         public void AuditingDoesNotChangeTheRun()
         {
-            const string source = "class P [x]\nend\nx = {1, true}\nprint x\nprint new P [1] == new P [1]\ny = undefined_thing";
+            const string source = "class P [x]\nend\nx = {1, true}\nprint x\nprint new P [1] == new P [1]\ny = undefined_thing\nif false\n  undefined_thing = 0\nend";
             var (plain, plainOutput) = TestHelper.Run("a", source, (script, scope) => script.AuditSink = null);
             var (audited, auditedOutput) = TestHelper.Run("a", source, (script, scope) => script.AuditSink = e => { });
             CollectionAssert.AreEqual(plainOutput, auditedOutput);

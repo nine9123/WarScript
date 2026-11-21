@@ -36,6 +36,10 @@ d = c > 10
 assert d == true
 
 # ── Reading an unassigned variable is a NameError (DEC-5) ──
+# (assigned only where it never runs, so the read compiles: PROP-27)
+if false
+    uninitialized_var = 0
+end
 begin
     v = uninitialized_var
     assert false

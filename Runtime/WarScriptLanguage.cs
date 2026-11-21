@@ -193,6 +193,17 @@ namespace WarScript
         // at the top level of a file of the module set; checked by
         // CheckProperties once the module set is compiled. Null otherwise.
         private List<(string Name, string? Enum, string? File, string? Source, int Line, int Column)>? _propertyUses;
+
+        // While Compile() runs: every bare read of a global (GetGlobal) and
+        // index write into one (IndexSetGlobal) the compiler emitted (T3.8,
+        // PROP-27; ClassBody: in a class body, where a field of the
+        // instance is found first), every name it writes as a global
+        // (SetGlobal), and whether a bytecode import (whose writes are not
+        // known) joined the module set; checked by CheckGlobalReads once the
+        // module set is compiled. Null / false otherwise.
+        private List<(string Name, bool ClassBody, string? File, string? Source, int Line, int Column)>? _globalReads;
+        private HashSet<string>? _globalWrites;
+        private bool _globalWritesUnknown;
         private Dictionary<string, HashSet<string>>? _enumMembers;
         private WarVM? _cachedVM;
 
@@ -608,6 +619,9 @@ namespace WarScript
             _instantiations = new List<(string, int, bool, string?, string?, int, int)>();
             _propertyUses = new List<(string, string?, string?, string?, int, int)>();
             _enumMembers = new Dictionary<string, HashSet<string>>(System.StringComparer.Ordinal);
+            _globalReads = new List<(string, bool, string?, string?, int, int)>();
+            _globalWrites = new HashSet<string>(System.StringComparer.Ordinal);
+            _globalWritesUnknown = false;
             DefinitionContext.PushScope(_definitionScope);
             try
             {
@@ -624,6 +638,7 @@ namespace WarScript
                 _cachedCompiled = Compiler.CompileScript(this, module.TopLevel, _definitionScope);
                 CheckInstantiations();
                 CheckProperties();
+                CheckGlobalReads();
 
                 // Warnings as errors (PROP-31): the script does not compile,
                 // and every warning is reported as an error.
@@ -688,6 +703,9 @@ namespace WarScript
                 _instantiations = null;
                 _propertyUses = null;
                 _enumMembers = null;
+                _globalReads = null;
+                _globalWrites = null;
+                _globalWritesUnknown = false;
                 _parsingImports = null;
                 ParsingFile = null;
                 ParsingSource = null;
@@ -779,6 +797,8 @@ namespace WarScript
                 }
                 AddResolvedImport(new ImportedModule(path, precompiled, loadedScope!));
                 _parsingImports?.Add(loadedScope!);
+                // Its top level and functions may write any global (PROP-27).
+                _globalWritesUnknown = true;
                 return;
             }
 
@@ -1084,6 +1104,65 @@ namespace WarScript
                     message = $"'{name}' is not a field or method of any class";
                 if (message != null)
                     throw new Exception.CompileError(message, file, line, column).LocateIn(file, source);
+            }
+        }
+
+        /// <summary>
+        /// Records a bare read of the global <paramref name="name"/> (or an
+        /// index write into it, which reads it too) at <paramref name="line"/>,
+        /// <paramref name="column"/> of <paramref name="file"/> (T3.8,
+        /// PROP-27; <paramref name="classBody"/>: in a class body, where the
+        /// VM looks in the instance's fields first), checked by
+        /// <see cref="CheckGlobalReads"/> once the module set is compiled.
+        /// Ignored outside <see cref="Compile"/>.
+        /// </summary>
+        internal void CheckGlobalRead(string name, bool classBody, string? file, int line, int column) =>
+            _globalReads?.Add((name, classBody, file, ParsingSource, line, column));
+
+        /// <summary>
+        /// Records that the module set writes the global <paramref name="name"/>
+        /// (a <c>SetGlobal</c>: a top-level assignment, a <c>const</c>, an
+        /// <c>enum</c>, an assignment of a name declared <c>global</c>), for
+        /// <see cref="CheckGlobalReads"/>. Ignored outside <see cref="Compile"/>.
+        /// </summary>
+        internal void DeclareGlobalWrite(string name) => _globalWrites?.Add(name);
+
+        /// <summary>
+        /// The compile error <c>undefined variable 'x'</c> for the first
+        /// recorded global read (T3.8, PROP-27, DEC-21) of a name that no file
+        /// of the module set ever writes as a global and that is not defined
+        /// when <see cref="Compile"/> runs (a host global, or a global the
+        /// instance already holds, as after a <see cref="Reload"/>): such a
+        /// read can only raise NameError at runtime. In a class body a name
+        /// that is a field of any class of the module set counts as written
+        /// (the instance's one field scope, Q-16, may hold a parameter of a
+        /// derived class). Nothing is checked when a bytecode import is in
+        /// the module set (which globals it writes is not known). A name
+        /// written only on a path that does not run still raises NameError at
+        /// runtime.
+        /// </summary>
+        private void CheckGlobalReads()
+        {
+            if (_globalReads == null || _globalReads.Count == 0 || _globalWritesUnknown) return;
+            HashSet<string>? fields = null;
+            foreach (var (name, classBody, file, source, line, column) in _globalReads)
+            {
+                if (_globalWrites!.Contains(name) || UserMemoryScope.TryGet(name, out _)) continue;
+                if (classBody)
+                {
+                    if (fields == null)
+                    {
+                        fields = new HashSet<string>(System.StringComparer.Ordinal);
+                        foreach (var c in ModuleSetClasses())
+                        {
+                            fields.UnionWith(c.ClassDetails.Properties);
+                            if (c.Fields != null) fields.UnionWith(c.Fields);
+                        }
+                    }
+                    if (fields.Contains(name)) continue;
+                }
+                throw new Exception.CompileError(Bytecode.WarVM.UndefinedVariableMessage(name), file, line, column)
+                    .LocateIn(file, source);
             }
         }
 

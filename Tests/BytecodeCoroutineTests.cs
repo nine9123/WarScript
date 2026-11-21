@@ -461,6 +461,9 @@ namespace Tests
                         print ""probe: "" + e
                     end
                 end
+                if false
+                    keep = 0  # a global only on a path that never runs (PROP-27)
+                end
             ");
 
             script.StartCoroutine("co", System.Array.Empty<WarValue>());

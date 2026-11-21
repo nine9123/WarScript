@@ -6,6 +6,10 @@
 # ──────────────────────────────────────────────────────
 
 # ── Variables should initialize fresh each run ──
+# (assigned only where it never runs, so the read compiles: PROP-27)
+if false
+    undefined_var = 0
+end
 begin
     v = undefined_var
     assert false

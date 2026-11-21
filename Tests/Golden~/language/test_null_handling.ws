@@ -22,6 +22,10 @@ assert false != null
 assert "" != null
 
 # ── Reading a name never assigned is a NameError, not null (DEC-5) ──
+# (assigned only where it never runs, so the read compiles: PROP-27)
+if false
+    unset_variable = 0
+end
 begin
     v = unset_variable
     assert false
