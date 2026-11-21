@@ -162,7 +162,8 @@ namespace Tests
         {
             // The for-range condition is strictly `i < limit`, so a descending
             // range never enters the body — pinned behavior, not an accident.
-            var output = Run("n = 0\nloop i in 10..0 by -1\nn += 1\nend\nprint n");
+            // (A literal step that is not positive is a compile error, T3.8.)
+            var output = Run("n = 0\nstep = -1\nloop i in 10..0 by step\nn += 1\nend\nprint n");
             Assert.AreEqual("0", output[0]);
         }
 

@@ -191,6 +191,50 @@ namespace Tests
             Assert.AreEqual(12, result.Error.Column);
         }
 
+        [TestCase("0", "0", 19)]
+        [TestCase("-1", "-1", 19)]
+        [TestCase("- 2", "-2", 19)]
+        [TestCase("0.0", "0", 19)]
+        public void ARangeLoopsLiteralStepNotAboveZero_IsACompileErrorAtTheStep(string step, string shown, int column)
+        {
+            var (script, _) = Script("print 1\nloop i in 0..3 by " + step + "\n    print i\nend\n");
+
+            var result = script.Compile();
+
+            Assert.IsFalse(result.Success);
+            Assert.AreEqual(1, result.Diagnostics.Count);
+            Assert.AreEqual("The step of a range loop must be greater than 0, not " + shown
+                + ": the loop runs while its variable is less than the upper bound", result.Diagnostics[0].Message);
+            Assert.AreEqual(2, result.Diagnostics[0].Line);
+            Assert.AreEqual(column, result.Diagnostics[0].Column, "at the step");
+        }
+
+        [Test]
+        public void ARangeLoopsPositiveOrDynamicStep_Compiles()
+        {
+            var (script, output) = Script(
+                "loop i in 0..1 by 0.5\n    print i\nend\n" +
+                "step = 0\n" +
+                "loop i in 1..0 by step\n    print i\nend\n" +
+                "loop i in 1..0 by -step\n    print i\nend\n");
+
+            Assert.IsTrue(script.Compile().Success);
+            Assert.IsTrue(script.Run().IsOk);
+            Assert.AreEqual(new[] { "0", "0.5" }, output);
+        }
+
+        [Test]
+        public void ARangeLoopsStepError_IsAtTheStep()
+        {
+            var (script, _) = Script("loop i in 0..2 by true\n    print i\nend\n");
+
+            var result = script.Run();
+
+            Assert.AreEqual(ScriptErrorKind.TypeError, result.Error.Kind);
+            Assert.AreEqual(1, result.Error.Line);
+            Assert.AreEqual(19, result.Error.Column, "at the step");
+        }
+
         [Test]
         public void AnEnumsNameMethodReadAsAField_OrCalledWithAnotherCount_IsNotTyped()
         {

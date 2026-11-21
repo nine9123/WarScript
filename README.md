@@ -369,7 +369,8 @@ loop i in 0..3
     print i          # → 0, 1, 2
 end
 
-# For with a step
+# For with a step (ranges only count up: the loop runs while i < 10, so a
+# literal step of 0 or less is a compile error)
 loop i in 0..10 by 5
     print i          # → 0, 5
 end

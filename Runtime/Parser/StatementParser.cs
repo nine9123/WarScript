@@ -646,9 +646,10 @@ namespace WarScript
                     if (Tokens.Peek(TokenType.Keyword, "by"))
                     {
                         // loop <variable> in <lower_bound>..<upper_bound> by <step>
-                        Tokens.Next(TokenType.Keyword, "by");
+                        var by = Tokens.Next(TokenType.Keyword, "by");
+                        var stepColumn = Tokens.TryPeekSameLine(out var stepToken) ? stepToken.Column : by.Column;
                         var step = RequireExpression(ExpressionReader.ReadExpression(_script, Tokens), rowToken, "a step after 'by'");
-                        loopStatement = new ForLoopStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName, variable, bounds, upperBound, step) { RangeColumn = range.Column };
+                        loopStatement = new ForLoopStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName, variable, bounds, upperBound, step) { RangeColumn = range.Column, StepColumn = stepColumn };
                     }
                     else
                     {

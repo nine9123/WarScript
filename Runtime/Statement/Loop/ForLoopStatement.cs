@@ -18,6 +18,9 @@ namespace WarScript.Statement.Loop
         /// <summary>The column of the range's <c>..</c> (0 = unknown), where the bound check <c>i &lt; limit</c> is reported (T3.8).</summary>
         internal int RangeColumn { get; set; }
 
+        /// <summary>The column of the step after <c>by</c> (0 = unknown or no <c>by</c>), where a step that is not positive and the addition <c>i + step</c> are reported (T3.8).</summary>
+        internal int StepColumn { get; set; }
+
         public ForLoopStatement(WarScriptLanguage script, int rowNumber, string blockName,
             VariableExpression variable, IExpression lowerBound, IExpression upperBound)
             : base(script, rowNumber, blockName)

@@ -1,5 +1,6 @@
 #nullable enable
 
+using FixMath;
 using System.Collections.Generic;
 using WarScript.Context.Definition;
 using WarScript.Exception;
@@ -1131,6 +1132,16 @@ namespace WarScript.Bytecode
             CompileExpression(stmt.Step);
             var stepSlot = AddLocal("$step");
 
+            // The loop runs while `i < limit`, so a step that is not
+            // positive either never runs the body or never ends it: a
+            // literal one is a compile error (T3.8).
+            var stepError = NonPositiveStepError(stmt.Step);
+            if (stepError != null)
+            {
+                if (stmt.StepColumn > 0) SetColumn(stmt.StepColumn);
+                throw new CompileError(stepError, _source, _line, _column);
+            }
+
             // The first `i < limit` always runs (PROP-28, T3.8): bounds of
             // known types it rejects are a compile error, at the `..` (where
             // the VM reports it too). The step is only added once an
@@ -1168,7 +1179,8 @@ namespace WarScript.Bytecode
             foreach (var nj in ctx.NextJumps)
                 Chunk.PatchJump(nj);
 
-            // Increment: i = i + step
+            // Increment: i = i + step (an error in it is the step's)
+            if (stmt.StepColumn > 0) SetColumn(stmt.StepColumn);
             Chunk.EmitOp(OpCode.GetLocal, line); Chunk.EmitU16(iterSlot, line);
             Chunk.EmitOp(OpCode.GetLocal, line); Chunk.EmitU16(stepSlot, line);
             Chunk.EmitOp(OpCode.Add, line);
@@ -1185,6 +1197,25 @@ namespace WarScript.Bytecode
                 Chunk.PatchJump(bj);
 
             EndScope(line); // pops i, $limit, $step
+        }
+
+        /// <summary>
+        /// The error for a range step that is a number literal (or a negated
+        /// one) not greater than 0, else null. A step from a variable, a
+        /// constant or a call is not checked.
+        /// </summary>
+        private static string? NonPositiveStepError(IExpression step)
+        {
+            F64 value;
+            if (step is ConstantExpression c && c.Value.IsNumeric)
+                value = c.Value.Numeric;
+            else if (step is NegateOperator n && n.Value is ConstantExpression nc && nc.Value.IsNumeric)
+                value = -nc.Value.Numeric;
+            else
+                return null;
+            if (value > F64.Zero) return null;
+            return "The step of a range loop must be greater than 0, not " + WarValue.FormatNumber(value)
+                + ": the loop runs while its variable is less than the upper bound";
         }
 
         // ── Iterable loop (loop x in collection) ──

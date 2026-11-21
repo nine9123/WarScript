@@ -256,9 +256,11 @@ print c :: caller2 []
         public void DescendingRangeWithNegativeStep_RunsZeroTimes()
         {
             // Ranges only iterate upward; a negative step does not enable
-            // descending iteration — the loop body never runs.
+            // descending iteration — the loop body never runs. (A literal
+            // step that is not positive is a compile error, T3.8.)
             var output = Run(@"
-loop i in 10..0 by -2
+step = -2
+loop i in 10..0 by step
     print i
 end
 print ""end""
@@ -272,8 +274,9 @@ print ""end""
         {
             var output = new List<string>();
             var script = new WarScriptLanguage("zero_step", @"
+step = 0
 begin
-    loop i in 0..10 by 0
+    loop i in 0..10 by step
         x = 1
     end
     print ""finished""
