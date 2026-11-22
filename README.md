@@ -113,6 +113,8 @@ files is an optional build-time optimisation, not a requirement. See
 ## Language Guide
 
 Every example below has been executed against the runtime; the `# →` comments show real output.
+The normative reference (every operator, scope and error rule) is
+[`Documentation~/LANGUAGE.md`](Documentation~/LANGUAGE.md).
 
 ### Comments
 

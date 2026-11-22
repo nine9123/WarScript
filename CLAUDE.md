@@ -6,7 +6,7 @@ WarScript is a custom embeddable scripting language with a bytecode VM, written 
 
 Repository: `https://github.com/nine9123/WarScript.git#upm`
 
-**v2 work in progress.** The WarScript v2 design decisions and phased implementation plan (Phases 0–3: tests, crash/determinism fixes, host API v2, language v2) live in `Documentation~/WARSCRIPT_V2_PLAN.md`. Task IDs such as `T0.1` and decision IDs such as `DEC-5` in commit messages refer to that document.
+**v2 work in progress.** The WarScript v2 design decisions and phased implementation plan (Phases 0–3: tests, crash/determinism fixes, host API v2, language v2) live in `Documentation~/WARSCRIPT_V2_PLAN.md`. Task IDs such as `T0.1` and decision IDs such as `DEC-5` in commit messages refer to that document. The language reference written from its section 5 is `Documentation~/LANGUAGE.md` (T3.10): when a language rule changes, change it there too, with its golden.
 
 ## Determinism & Fixed-Point Numerics (READ FIRST)
 
