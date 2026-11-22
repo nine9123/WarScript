@@ -1351,6 +1351,8 @@ generated one. Natives you register by hand aren't in the generated
 file: `NativeManifest.FromScript(script).ToString()` writes the manifest of an instance after
 everything is registered (natives, host globals, constants, enums and host classes). The headless
 runner takes one: `WarScript.Runner mod.ws --manifest WarScriptNatives.wsmanifest --compile-only`.
+Add `--import-root <mod folder>` when the mod names its imports from its root (as the game's
+resolver does) and `--warnings-as-errors` to fail on warnings too.
 
 The format is one entry per line (`#` starts a comment), after the header `warscript-manifest 2`
 (a `warscript-manifest 1` file, whose constants have no type, is still read):

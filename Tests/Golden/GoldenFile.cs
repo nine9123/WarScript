@@ -53,6 +53,17 @@ namespace Tests.Golden
         public bool CompileOnly;
 
         /// <summary>
+        /// The folder import paths are resolved against (the runner's
+        /// <c>--import-root</c>): a mod names its imports from the mod's root,
+        /// not from the importing file's folder. Null: the file's own folder,
+        /// as for a golden.
+        /// </summary>
+        public string ImportRoot;
+
+        /// <summary>Compile with <see cref="WarScriptLanguage.WarningsAsErrors"/> (the runner's <c>--warnings-as-errors</c>, PROP-31).</summary>
+        public bool WarningsAsErrors;
+
+        /// <summary>
         /// A bytecode file to load as it is instead of compiling
         /// <see cref="Source"/> (the fuzzer's bytecode mode, plan 9.6): an
         /// <see cref="InvalidDataException"/> from the loader is the
@@ -243,7 +254,7 @@ namespace Tests.Golden
                 var script = new WarScriptLanguage(
                     scriptName: file.Name,
                     sourceCode: source,
-                    fileResolver: ImportResolver(directory),
+                    fileResolver: ImportResolver(file.ImportRoot ?? directory),
                     logger: (s, msg) => run.Output.Add(msg));
                 // The run reads the error from Run()'s result (T2.3), so
                 // only printed lines reach the output (T2.4).
@@ -251,6 +262,7 @@ namespace Tests.Golden
                 if (!file.NoStdlib)
                     WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
                 file.Manifest?.Register(script);
+                script.WarningsAsErrors = file.WarningsAsErrors;
                 script.InstructionBudget = file.Budget;
                 script.MemoryBudget = file.MemoryBudget;
                 if (audit != null)

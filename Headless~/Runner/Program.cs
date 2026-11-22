@@ -12,7 +12,8 @@ namespace WarScript.Runner
     ///
     ///   WarScript.Runner &lt;file.ws|file.wsbc&gt; [--mode source|bytecode] [--budget n]
     ///                    [--memory-budget n] [--culture name|invariant]
-    ///                    [--manifest file] [--compile-only]
+    ///                    [--manifest file] [--compile-only] [--import-root dir]
+    ///                    [--warnings-as-errors]
     ///
     /// A <c>.wsbc</c> file is bytecode, loaded as it is (the fuzzer's bytecode
     /// mode, plan 9.6; --mode does not apply): a file the loader rejects with
@@ -25,6 +26,10 @@ namespace WarScript.Runner
     /// runs raises an error. --compile-only stops after compiling the source
     /// (status ok or compile-error, the error as script:line:column; hash
     /// null), the way to check a script against a manifest.
+    /// --import-root resolves import paths against that folder instead of
+    /// the script's own (a mod's scripts name imports from the mod's root;
+    /// T3.9). --warnings-as-errors sets WarningsAsErrors (PROP-31), so any
+    /// warning fails the compile, as plan 8.3 step 7 checks game scripts.
     /// Exit codes: 0 the script completed (with any script status), 2 an
     /// invariant was violated, 3 a C# exception escaped, 1 bad arguments.
     /// </summary>
@@ -40,6 +45,8 @@ namespace WarScript.Runner
             long? memoryBudget = null;
             string manifestPath = null;
             var compileOnly = false;
+            string importRoot = null;
+            var warningsAsErrors = false;
 
             try
             {
@@ -61,6 +68,12 @@ namespace WarScript.Runner
                             break;
                         case "--compile-only":
                             compileOnly = true;
+                            break;
+                        case "--import-root":
+                            importRoot = Path.GetFullPath(Value(args, ref i));
+                            break;
+                        case "--warnings-as-errors":
+                            warningsAsErrors = true;
                             break;
                         case "--culture":
                             culture = Value(args, ref i);
@@ -85,7 +98,8 @@ namespace WarScript.Runner
             {
                 Console.Error.WriteLine(e.Message);
                 Console.Error.WriteLine("usage: WarScript.Runner <file.ws|file.wsbc> [--mode source|bytecode] [--budget n] " +
-                                        "[--memory-budget n] [--culture name|invariant] [--manifest file] [--compile-only]");
+                                        "[--memory-budget n] [--culture name|invariant] [--manifest file] [--compile-only] " +
+                                        "[--import-root dir] [--warnings-as-errors]");
                 return 1;
             }
 
@@ -97,6 +111,8 @@ namespace WarScript.Runner
             if (memoryBudget.HasValue) file.MemoryBudget = memoryBudget.Value;
             file.Manifest = manifest;
             file.CompileOnly = compileOnly;
+            file.ImportRoot = importRoot;
+            file.WarningsAsErrors = warningsAsErrors;
 
             var run = GoldenRun.Execute(file, mode, culture);
 

@@ -283,6 +283,21 @@ namespace Tests
         }
 
         [Test]
+        public void ImportRoot_ResolvesEveryImportFromThatFolder()
+        {
+            // A mod names its imports from its root: "lib/b.ws" from lib/a.ws is lib/b.ws, not lib/lib/b.ws (T3.9).
+            var root = Path.Combine(Path.GetTempPath(), "wsmigrate");
+            var result = new Migrator(new string[0]) { ImportRoot = root }.Run(new[]
+            {
+                new MigrationFile("main.ws", Path.Combine(root, "main.ws"), "import \"lib/a.ws\"\nscore = 0\n"),
+                new MigrationFile("lib/a.ws", Path.Combine(root, "lib", "a.ws"), "import \"lib/b.ws\"\n"),
+                new MigrationFile("lib/b.ws", Path.Combine(root, "lib", "b.ws"), "fun add []\n    score = 1\nend\n"),
+            });
+            Assert.IsFalse(result.Entries.Any(e => e.Rule == Rules.UnresolvedImport));
+            Assert.AreEqual("fun add []\n    global score\n    score = 1\nend\n", Rewritten(result, "lib/b.ws"));
+        }
+
+        [Test]
         public void GlobalsOfImportingFiles_CountForTheImportedOne()
         {
             var result = Migrate(

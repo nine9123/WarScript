@@ -328,13 +328,49 @@ namespace Tests
             }
         }
 
-        private static (int exit, string output) RunRunner(string runner, string dir, string script)
+        [Test]
+        [Category("HeadlessOnly")]
+        public void TheRunner_ResolvesImportsFromAnImportRoot_AndFailsOnWarnings()
+        {
+            // A mod names its imports from its root (T3.9): lib/a.ws imports
+            // "lib/b.ws", which is lib/b.ws only from the root.
+            var runner = IsolatedRun.RunnerPath();
+            if (runner == null) Assert.Ignore("The runner is built by the headless test project only.");
+            var dir = Path.Combine(Path.GetTempPath(), "ws-manifest-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(dir, "lib"));
+            try
+            {
+                File.WriteAllText(Path.Combine(dir, "game.wsmanifest"), Sample);
+                File.WriteAllText(Path.Combine(dir, "lib", "a.ws"), "import \"lib/b.ws\"\nu = spawn_unit [helper []]\n");
+                File.WriteAllText(Path.Combine(dir, "lib", "b.ws"), "fun helper []\n    x = 1\n    return \"orc\"\nend\n");
+
+                var (_, fromFolder) = RunRunner(runner, dir, Path.Combine("lib", "a.ws"));
+                StringAssert.Contains("Import 'lib/b.ws' not found", fromFolder);
+
+                var (rootExit, fromRoot) = RunRunner(runner, dir, Path.Combine("lib", "a.ws"), "--import-root \"" + dir + "\"");
+                Assert.AreEqual(0, rootExit, fromRoot);
+                StringAssert.Contains("\"status\": \"ok\"", fromRoot);
+                StringAssert.Contains("local 'x' is assigned but never read", fromRoot);
+
+                var (strictExit, strict) = RunRunner(runner, dir, Path.Combine("lib", "a.ws"),
+                    "--import-root \"" + dir + "\" --warnings-as-errors");
+                Assert.AreEqual(0, strictExit, strict);
+                StringAssert.Contains("\"status\": \"compile-error\"", strict);
+                StringAssert.Contains("lib/b.ws:2:5: error: local 'x' is assigned but never read", strict);
+            }
+            finally
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+
+        private static (int exit, string output) RunRunner(string runner, string dir, string script, string extraArguments = "")
         {
             var info = new ProcessStartInfo
             {
                 FileName = IsolatedRun.DotnetHost(),
                 Arguments = "\"" + runner + "\" \"" + Path.Combine(dir, script) + "\" --manifest \""
-                            + Path.Combine(dir, "game.wsmanifest") + "\" --compile-only",
+                            + Path.Combine(dir, "game.wsmanifest") + "\" --compile-only " + extraArguments,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,

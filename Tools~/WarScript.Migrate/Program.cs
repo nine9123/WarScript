@@ -2,7 +2,7 @@
 //
 //   dotnet run --project "Tools~/WarScript.Migrate" -- (--report | --rewrite) <root>...
 //       [--out <dir>] [--report-file <file>] [--host-globals <a,b,...>] [--host-globals-file <file>]
-//       [--manifest <file>]
+//       [--manifest <file>] [--import-root <dir>]
 //
 // <root> is a .ws file or a folder (searched recursively for *.ws). Every
 // file is parsed with the v1 frontend; files connected by imports form a
@@ -14,6 +14,8 @@
 // host sets) are given by name, or one per line in a file ('#' comments),
 // or read from a native manifest (WarScriptNatives.wsmanifest, written by
 // Generate Bindings: its globals, constants and enums; T3.8, PROP-30).
+// Imports are resolved against the importing file's folder, or against
+// --import-root when given (a mod names its imports from its root; T3.9).
 //
 // Exit code: 0 done (with or without manual items), 1 bad arguments,
 // 2 a file did not parse (it is listed in the report and left unchanged).
@@ -31,7 +33,7 @@ namespace WarScript.Migrate
         private static int Main(string[] args)
         {
             bool? rewrite = null;
-            string outDir = null, reportFile = null;
+            string outDir = null, reportFile = null, importRoot = null;
             var roots = new List<string>();
             var hostGlobals = new List<string>();
             try
@@ -44,6 +46,7 @@ namespace WarScript.Migrate
                         case "--rewrite": rewrite = true; break;
                         case "--out": outDir = args[++i]; break;
                         case "--report-file": reportFile = args[++i]; break;
+                        case "--import-root": importRoot = Path.GetFullPath(args[++i]); break;
                         case "--host-globals":
                             hostGlobals.AddRange(args[++i].Split(',').Select(s => s.Trim()).Where(s => s.Length > 0));
                             break;
@@ -66,7 +69,7 @@ namespace WarScript.Migrate
             catch (System.Exception e) when (e is ArgumentException || e is IndexOutOfRangeException || e is IOException || e is FormatException)
             {
                 Console.Error.WriteLine("WarScript.Migrate: " + e.Message);
-                Console.Error.WriteLine("usage: WarScript.Migrate (--report | --rewrite) <root>... [--out <dir>] [--report-file <file>] [--host-globals <a,b>] [--host-globals-file <file>] [--manifest <file>]");
+                Console.Error.WriteLine("usage: WarScript.Migrate (--report | --rewrite) <root>... [--out <dir>] [--report-file <file>] [--host-globals <a,b>] [--host-globals-file <file>] [--manifest <file>] [--import-root <dir>]");
                 return 1;
             }
 
@@ -91,7 +94,7 @@ namespace WarScript.Migrate
                 }
             }
 
-            var result = new Migrator(hostGlobals).Run(inputs.Select(x => x.File).ToList());
+            var result = new Migrator(hostGlobals) { ImportRoot = importRoot }.Run(inputs.Select(x => x.File).ToList());
 
             if (rewrite.Value)
             {

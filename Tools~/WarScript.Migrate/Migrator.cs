@@ -145,6 +145,13 @@ namespace WarScript.Migrate
         }
 
         /// <summary>
+        /// The folder every import path is resolved against (<c>--import-root</c>):
+        /// a mod names its imports from the mod's root (T3.9). Null: the
+        /// importing file's own folder.
+        /// </summary>
+        public string? ImportRoot { get; set; }
+
+        /// <summary>
         /// The host globals a native manifest declares (T3.8, PROP-30): its
         /// globals, constants and enums (a <c>[WsEnum]</c> is a host global
         /// holding the enum's instance), sorted ordinally. Natives and
@@ -173,7 +180,7 @@ namespace WarScript.Migrate
                 }
             }
 
-            ResolveImports(parsed, result);
+            ResolveImports(parsed, ImportRoot);
             foreach (var set in ModuleSets(parsed))
                 new ModuleSet(set, _hostGlobals).Analyse();
 
@@ -196,14 +203,14 @@ namespace WarScript.Migrate
             return result;
         }
 
-        private static void ResolveImports(List<ParsedFile> files, MigrationResult result)
+        private static void ResolveImports(List<ParsedFile> files, string? importRoot)
         {
             var byPath = new Dictionary<string, ParsedFile>(StringComparer.Ordinal);
             foreach (var f in files) byPath[Normalize(f.File.FullPath)] = f;
 
             foreach (var file in files)
             {
-                var directory = System.IO.Path.GetDirectoryName(file.File.FullPath) ?? "";
+                var directory = importRoot ?? System.IO.Path.GetDirectoryName(file.File.FullPath) ?? "";
                 foreach (var import in file.ImportStatements)
                 {
                     var candidate = Normalize(System.IO.Path.Combine(directory, import.Path));
@@ -211,7 +218,7 @@ namespace WarScript.Migrate
                         && !byPath.TryGetValue(candidate + ".ws", out target))
                     {
                         file.Entries.Add(file.Entry(import.RowNumber ?? 0, import.Column, Rules.UnresolvedImport, EntryKind.Manual,
-                            $"`import \"{import.Path}\"` names no file among the inputs: its globals and classes are not part of the analysis. Add the file (or its root) to the inputs."));
+                            $"`import \"{import.Path}\"` names no file among the inputs: its globals and classes are not part of the analysis. Add the file (or its root) to the inputs, or give `--import-root` when imports are named from a mod's root."));
                         continue;
                     }
                     file.Imports.Add(target);
