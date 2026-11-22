@@ -124,6 +124,7 @@ WarScript/
     ├── Golden~/                 # Golden .ws corpus (no .meta: Unity ignores ~ folders)
     │   ├── language/ deep/ algorithms/ gapfill/ regression/   # former assert-only resources
     │   ├── errors/              # T2.5: one golden per error kind, with its line
+    │   ├── modules/             # T3.10: imports (5.8); every file is also a golden on its own
     │   └── repro/               # Plan Appendix A repros, mostly # known-failing
     └── resources/               # .ws files still driven by C# tests (RunFile, Benchmarks)
 ```

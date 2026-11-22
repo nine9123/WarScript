@@ -33,7 +33,7 @@ Every rule here that can be shown by running a script has a golden test under
   error.
 - **Reserved words** include `fun`, `class`, `new`, `this`, `return`, `if`, `elif`,
   `else`, `end`, `loop`, `in`, `by`, `break`, `next`, `begin`, `rescue`, `ensure`,
-  `raise`, `yield`, `import`, `const`, `enum`, `global`, `new`, `is`, `as`,
+  `raise`, `yield`, `import`, `const`, `enum`, `global`, `is`, `as`,
   `and`, `or`, `true`, `false`, `null`, `print`, `assert`. (`wait` and `until`
   have their meaning only after `yield`.)
 
@@ -122,7 +122,8 @@ Compound assignment `x += e` (`-=`, `*=`, `/=`) means `x = x + e`.
   an `F64Vec3` compares by value.
 - `!=` is always the negation of `==`.
 
-[Goldens: `language/operator_types.ws`, `language/instance_identity_diamond.ws`.]
+[Goldens: `language/equality.ws`, `language/operator_types.ws`,
+`language/instance_identity_diamond.ws`, `language/value_depth.ws`.]
 
 ## 5. Indexing, text and properties
 
@@ -153,7 +154,8 @@ body (section 7), base classes included; a declared field not assigned yet reads
 `null`.
 
 [Goldens: `language/indexing.ws`, `errors/index_out_of_bounds.ws`,
-`errors/index_text_write.ws`, `errors/iterate_non_iterable.ws`,
+`errors/index_text_write.ws`, `language/instance_iteration.ws`,
+`errors/iterate_non_iterable.ws`,
 `errors/property_on_non_class.ws`, `errors/undeclared_property_read.ws`,
 `errors/undeclared_property_write.ws`, `language/declared_properties.ws`.]
 
@@ -262,7 +264,8 @@ function value is called. Anything else is a NameError
 (`Function 'f' with 1 args is not defined`); calling a value that is not a
 function is a TypeError (`Value is not callable`).
 
-[Goldens: `language/function_locals.ws`, `language/global_declaration.ws`,
+[Goldens: `language/break_outside_loop.ws`, `language/next_outside_loop.ws`,
+`language/function_locals.ws`, `language/global_declaration.ws`,
 `language/names_resolve_by_frame.ws`, `language/read_before_assignment.ws`,
 `language/lambda_closure.ws`, `errors/undefined_variable.ws`,
 `errors/undefined_function.ws`, `errors/not_callable.ws`.]
@@ -363,9 +366,13 @@ arities overlap an existing one, or a second class of the same name, is a
 compile error (PROP-12), and so is a function with the name and an arity of a
 native.
 
-[Goldens: `language/import_after_statement.ws`, `language/import_in_block.ws`,
+[Goldens: `modules/import_order.ws` (initialization order and one namespace,
+with `order_left.ws`, `order_right.ws`, `order_base.ws`), `modules/cycle_a.ws`,
+`modules/import_not_found.ws`, `modules/duplicate_across_files.ws`,
+`language/import_after_statement.ws`, `language/import_in_block.ws`,
 `language/duplicate_definitions.ws`, `language/function_shadows_native.ws`;
-initialization order: `ImportTests`.]
+bytecode imports, re-running a failed import and `yield` in an import:
+`ImportTests`.]
 
 ## 9. Errors
 
@@ -383,7 +390,7 @@ Every runtime error has a kind:
 | NativeError | Any other failure inside a native function (`Native function 'f' failed: ...`) |
 | InstructionBudgetExceeded | The host's instruction budget is used up; it stays exhausted until the host's next entry, so rescuing it does not continue the script |
 | MemoryBudgetExceeded | The host's memory budget is used up |
-| LimitExceeded | The value stack, call frames (`Stack overflow`), exception handlers, host nesting, text length, array length or value depth exceeded a limit (section 11) |
+| LimitExceeded | The value stack, call frames (`Stack overflow`), exception handlers, host nesting, text length, array length or value depth exceeded a limit (section 12) |
 
 **Rescuing.** `begin ... rescue e ... ensure ... end` rescues every kind above.
 `e` is the raised value for `raise`, and the message text for every other kind
@@ -399,7 +406,8 @@ call site (PROP-1).
 instance until the host clears it. The host sees the kind, the message, the
 line and column, and the script call stack.
 
-[Goldens: one per kind in `errors/`.]
+[Goldens: one per kind in `errors/`; `raise null`: `errors/raise_null.ws`;
+the rescued value: `errors/rescue_value_is_message.ws`.]
 
 ### Compile-time checks
 
@@ -410,7 +418,8 @@ boundaries), then the warnings.
 
 Errors:
 
-- syntax errors, and the limits of section 11;
+- syntax errors, and the limits of section 12;
+- `break` or `next` outside a loop;
 - a call of a name that is no function, native or variable of the module set,
   or with a number of arguments none of its definitions takes;
 - a read of a name that is not a local and that the module set never assigns
