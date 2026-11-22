@@ -189,8 +189,8 @@ namespace WarScript.Bytecode
             foreach (var name in func.LocalNames)
                 WriteString(w, name ?? "");
 
-            // Inline cache slot count (rebuilt at runtime, just need the size)
-            w.Write((ushort)func.Chunk.PropertyCaches.Length);
+            // Inline cache slot count (the caches are per instance, T3.4)
+            w.Write((ushort)func.Chunk.CacheSlotCount);
         }
 
         /// <summary>
@@ -514,9 +514,8 @@ namespace WarScript.Bytecode
             }
             func.LocalNames = names;
 
-            // Inline cache slots (runtime-only, just allocate empty array)
-            var cacheCount = r.U16();
-            func.Chunk.PropertyCaches = new InlineCache[cacheCount];
+            // Inline cache slot count (the caches are per instance, T3.4)
+            func.Chunk.CacheSlotCount = r.U16();
 
             BytecodeVerifier.Verify(func, atLoad: true);
             return func;

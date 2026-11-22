@@ -63,7 +63,7 @@ namespace WarScript.Bytecode
 
             // ── Operands ──
             int constantCount = chunk.Constants.Count;
-            int cacheCount = chunk.PropertyCaches.Length;
+            int cacheCount = chunk.CacheSlotCount;
             for (int at = 0; at < length;)
             {
                 var info = OpInfo.Get(code[at])!;

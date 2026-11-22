@@ -239,5 +239,58 @@ namespace Tests
             script.Call(script.GetFunction("make", 0));
             Assert.AreEqual(new[] { "42" }, output);
         }
+
+        // ── The caches are per-instance data, not program data (T3.4, F-VM-3) ──
+
+        [Test]
+        public void Caches_ArePerInstance_NotInTheCompiledCode()
+        {
+            var (script, output) = TestHelper.Run("test", @"
+                class Entity [hp]
+                end
+                fun get_hp [e]
+                    return e :: hp
+                end
+                fun make []
+                    print get_hp [new Entity [42]]
+                end
+            ");
+            Assert.IsTrue(script.Call(script.GetFunction("make", 0)).IsOk);
+            Assert.AreEqual(new[] { "42" }, output);
+
+            var getHp = script.GetFunction("get_hp", 1).Definition.Compiled;
+            Assert.AreEqual(1, getHp.Chunk.CacheSlotCount);
+            var caches = script.InlineCachesOf(getHp);
+            Assert.AreSame(caches, script.InlineCachesOf(getHp), "one array per function and instance");
+            Assert.IsNotNull(caches[0].CachedType, "the call filled this instance's cache");
+
+            var other = new WarScriptLanguage("other", "", null, null).InlineCachesOf(getHp);
+            Assert.AreNotSame(caches, other);
+            Assert.AreEqual(1, other.Length);
+            Assert.IsNull(other[0].CachedType, "another instance starts with an empty cache");
+        }
+
+        [Test]
+        public void TailCall_UsesTheTargetsCaches()
+        {
+            // The frame of 'one' fetches its one-slot caches, then tail-calls
+            // 'three', whose third slot must come from its own caches.
+            var (_, output) = TestHelper.Run("test", @"
+                class P [a, b, c]
+                end
+                fun three [p]
+                    return p :: a + p :: b + p :: c
+                end
+                fun one [p]
+                    if p :: a > 100
+                        return 0
+                    end
+                    return three [p]
+                end
+                print one [new P [1, 2, 3]]
+                print one [new P [4, 5, 6]]
+            ");
+            Assert.AreEqual(new[] { "6", "15" }, output);
+        }
     }
 }

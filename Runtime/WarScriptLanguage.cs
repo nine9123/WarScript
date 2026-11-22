@@ -605,6 +605,22 @@ namespace WarScript
                 ? value
                 : _functionValues.GetValue(function, _newFunctionValue);
 
+        // The property inline caches of each function this instance has run
+        // (T3.4, F-VM-3): per-instance mutable data, kept out of the compiled
+        // code (program data). Weak keys, as for the function values.
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<CompiledFunction, InlineCache[]> _inlineCaches = new();
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<CompiledFunction, InlineCache[]>.CreateValueCallback _newInlineCaches =
+            function => new InlineCache[function.Chunk.CacheSlotCount];
+
+        /// <summary>
+        /// This instance's inline caches for <paramref name="function"/>:
+        /// created empty the first time, the same array after that (T3.4).
+        /// </summary>
+        internal InlineCache[] InlineCachesOf(CompiledFunction function) =>
+            _inlineCaches.TryGetValue(function, out var caches)
+                ? caches
+                : _inlineCaches.GetValue(function, _newInlineCaches);
+
         // ── Coroutine support (BytecodeCoroutine: VM suspend/resume) ──
         private readonly List<ICoroutine> _coroutines = new();
         private int _nextCoroutineId = 1;

@@ -36,26 +36,19 @@ namespace WarScript.Bytecode
         internal string? Source;
 
         /// <summary>
-        /// Inline caches for property access. Each GetProperty/SetProperty/IndexSetProp
-        /// bytecode site gets a cache slot ID (emitted as a U16 operand). At runtime,
-        /// the VM checks if the instance's ClassDetails matches the cached type. On hit:
-        /// one reference comparison + one array index — no string hashing.
-        /// The only mutable state a compiled function holds (T3.4): it is
-        /// filled from program data alone (a class's details and a property
-        /// index), but sharing one compiled program between instances
-        /// (F-VM-3) still needs it per instance, or written tear-free, first.
+        /// How many inline cache slots the code uses. Each GetProperty /
+        /// SetProperty / IndexSetProp / ThisGetProperty / ThisSetProperty site
+        /// gets a slot ID (emitted as a U16 operand). The caches themselves
+        /// are per-instance mutable data (T3.4, F-VM-3), not program data:
+        /// each instance keeps its own array for the function
+        /// (<c>WarScriptLanguage.InlineCachesOf</c>), which a frame fetches on
+        /// its first property access (<see cref="CallFrame.Caches"/>).
         /// </summary>
-        internal InlineCache[] PropertyCaches = System.Array.Empty<InlineCache>();
-        private int _nextCacheSlot;
+        internal int CacheSlotCount;
 
         public int AllocCacheSlot()
         {
-            return _nextCacheSlot++;
-        }
-
-        public void FinalizePropertyCaches()
-        {
-            PropertyCaches = new InlineCache[_nextCacheSlot];
+            return CacheSlotCount++;
         }
 
         public int Count => Code.Count;
@@ -252,12 +245,6 @@ namespace WarScript.Bytecode
             return starts;
         }
 
-        /// <summary>
-        /// One instruction, decoded through <see cref="OpInfo"/> (T1.7,
-        /// DX-5). Never throws on malformed code: an unknown opcode, an
-        /// instruction cut off by the end of the code or a constant index
-        /// out of range is written as such.
-        /// </summary>
         // A lambda constant is its CompiledFunction (T3.4): shown as the
         // function value it evaluates to.
         private static string FormatConstant(in WarValue constant) =>
@@ -265,6 +252,12 @@ namespace WarScript.Bytecode
                 ? "<fun " + (lambda.Name == "<lambda>" ? "lambda" : lambda.Name) + ">"
                 : constant.Format(null);
 
+        /// <summary>
+        /// One instruction, decoded through <see cref="OpInfo"/> (T1.7,
+        /// DX-5). Never throws on malformed code: an unknown opcode, an
+        /// instruction cut off by the end of the code or a constant index
+        /// out of range is written as such.
+        /// </summary>
         private int DisassembleInstruction(StringBuilder sb, int offset)
         {
             sb.Append(offset.ToString("D4", CultureInfo.InvariantCulture)).Append(' ');
@@ -440,8 +433,8 @@ namespace WarScript.Bytecode
     }
 
     /// <summary>
-    /// Per-bytecode-site cache for property access. Stores the last-seen class
-    /// type and its property index. On cache hit (same ClassDetails reference),
+    /// Per-bytecode-site cache for property access, one per instance (T3.4):
+    /// stores the last-seen class type and its property index. On cache hit (same ClassDetails reference),
     /// the VM uses the index directly — O(1) array access, no dictionary lookup.
     /// </summary>
     internal struct InlineCache

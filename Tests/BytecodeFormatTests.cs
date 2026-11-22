@@ -129,7 +129,7 @@ namespace Tests
             f.Chunk.Code.AddRange(code);
             if (code.Length > 0) f.Chunk.Lines.Mark(0, 1);
             if (constants != null) f.Chunk.Constants.AddRange(constants);
-            f.Chunk.PropertyCaches = new InlineCache[caches];
+            f.Chunk.CacheSlotCount = caches;
             return f;
         }
 

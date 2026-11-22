@@ -108,5 +108,13 @@ namespace WarScript.Bytecode
         /// frame, so a suspended coroutine's frames keep theirs between ticks.
         /// </summary>
         public WarScript.Context.Definition.DefinitionScope Definitions;
+
+        /// <summary>
+        /// The running instance's inline caches for <see cref="Function"/>
+        /// (T3.4: per-instance data, not program data), fetched on the
+        /// frame's first property access (<c>WarVM.CachesOf</c>); null until
+        /// then, and again after a tail call replaces the function.
+        /// </summary>
+        internal InlineCache[]? Caches;
     }
 }

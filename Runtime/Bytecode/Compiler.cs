@@ -214,7 +214,6 @@ namespace WarScript.Bytecode
             EmitReturn(0);
             _current.LocalCount = _maxLocals;
             _current.LocalNames = _localNames.ToArray();
-            Chunk.FinalizePropertyCaches();
             VerifyOutput(_current);
             return _current;
         }
@@ -264,7 +263,6 @@ namespace WarScript.Bytecode
             child.EmitReturn(0);
             child._current.LocalCount = child._maxLocals;
             child._current.LocalNames = child._localNames.ToArray();
-            child._current.Chunk.FinalizePropertyCaches();
             VerifyOutput(child._current);
             funcDef.Compiled = child._current;
         }
@@ -444,7 +442,6 @@ namespace WarScript.Bytecode
             child.EmitReturn(0);
             child._current.LocalCount = child._maxLocals;
             child._current.LocalNames = child._localNames.ToArray();
-            child._current.Chunk.FinalizePropertyCaches();
             VerifyOutput(child._current);
             classDef.CompiledConstructor = child._current;
         }
@@ -524,7 +521,6 @@ namespace WarScript.Bytecode
             compiler.EmitReturn(0);
             compiler._current.LocalCount = compiler._maxLocals;
             compiler._current.LocalNames = compiler._localNames.ToArray();
-            compiler._current.Chunk.FinalizePropertyCaches();
             compiler.VerifyOutput(compiler._current);
             return compiler._current;
         }

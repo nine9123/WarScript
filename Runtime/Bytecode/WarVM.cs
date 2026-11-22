@@ -1061,6 +1061,7 @@ namespace WarScript.Bytecode
                             // Reuse the frame — no _frameCount change
                             _frames[fi].Function = tailTarget;
                             _frames[fi].IP = 0;
+                            _frames[fi].Caches = null;
                             code = tailTarget.Chunk.Code;
                             constants = tailTarget.Chunk.Constants;
                         }
@@ -1299,7 +1300,7 @@ namespace WarScript.Bytecode
                         {
                             var cd = inst.ClassValue;
                             var details = cd.Definition.ClassDetails;
-                            ref var cache = ref _frames[fi].Function.Chunk.PropertyCaches[cacheSlot];
+                            ref var cache = ref CachesOf(fi)[cacheSlot];
                             WarValue propVal;
                             if (ReferenceEquals(cache.CachedType, details))
                             {
@@ -1464,7 +1465,7 @@ namespace WarScript.Bytecode
                         {
                             var cd = inst.ClassValue;
                             var details = cd.Definition.ClassDetails;
-                            ref var cache = ref _frames[fi].Function.Chunk.PropertyCaches[cacheSlot];
+                            ref var cache = ref CachesOf(fi)[cacheSlot];
                             if (ReferenceEquals(cache.CachedType, details))
                             {
                                 // Cache hit: O(1) array access
@@ -1512,7 +1513,7 @@ namespace WarScript.Bytecode
                                 return;
                             }
                             var details = cd.Definition.ClassDetails;
-                            ref var cache = ref _frames[fi].Function.Chunk.PropertyCaches[cacheSlot];
+                            ref var cache = ref CachesOf(fi)[cacheSlot];
                             if (ReferenceEquals(cache.CachedType, details))
                             {
                                 cd.SetPropertyByIndex(cache.CachedIndex, value);
@@ -1569,7 +1570,7 @@ namespace WarScript.Bytecode
                             return;
                         }
                         var details = cd.Definition.ClassDetails;
-                        ref var cache = ref _frames[fi].Function.Chunk.PropertyCaches[cacheSlot];
+                        ref var cache = ref CachesOf(fi)[cacheSlot];
                         if (ReferenceEquals(cache.CachedType, details))
                         {
                             Push(cd.GetPropertyByIndex(cache.CachedIndex));
@@ -1604,7 +1605,7 @@ namespace WarScript.Bytecode
                             return;
                         }
                         var details = cd.Definition.ClassDetails;
-                        ref var cache = ref _frames[fi].Function.Chunk.PropertyCaches[cacheSlot];
+                        ref var cache = ref CachesOf(fi)[cacheSlot];
                         if (ReferenceEquals(cache.CachedType, details))
                         {
                             cd.SetPropertyByIndex(cache.CachedIndex, value);
@@ -2360,6 +2361,29 @@ namespace WarScript.Bytecode
             if (owner == null || ReferenceEquals(owner, _script)) return true;
             RuntimeError(ScriptErrorKind.TypeError, ForeignOwnerMessage(what));
             return false;
+        }
+
+        // The function whose caches this VM fetched last, and them: a call
+        // that repeats (a method in a loop) skips the instance's table.
+        private CompiledFunction? _lastCachesFunction;
+        private InlineCache[]? _lastCaches;
+
+        /// <summary>
+        /// Frame <paramref name="fi"/>'s inline caches: this instance's for
+        /// the frame's function (T3.4), fetched once per frame.
+        /// </summary>
+        private InlineCache[] CachesOf(int fi) =>
+            _frames[fi].Caches ?? FetchCaches(fi);
+
+        private InlineCache[] FetchCaches(int fi)
+        {
+            var function = _frames[fi].Function;
+            if (!ReferenceEquals(function, _lastCachesFunction) || _lastCaches == null)
+            {
+                _lastCaches = _script.InlineCachesOf(function);
+                _lastCachesFunction = function;
+            }
+            return _frames[fi].Caches = _lastCaches;
         }
 
         /// <summary>
