@@ -451,6 +451,36 @@ namespace Tests
         }
 
         [Test]
+        public void LineTable_ColumnsPastTheU16Range_ShareOneFileEntry()
+        {
+            // Every column of line 2 is past 65,535: in the file they are all
+            // 0 (T3.11), so line 2 keeps one entry instead of one per column.
+            var source = "x = 0\n" + new string(' ', 70000) + "y = 1 / x + x * 2";
+            var (body, definitions) = new WarScriptLanguage("t", source, null, null).CompileWithoutRunning();
+            var ms = new MemoryStream();
+            using (var w = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
+                BytecodeSerializer.Save(w, body, definitions);
+            ms.Position = 0;
+            CompiledFunction loadedBody;
+            using (var r = new BinaryReader(ms))
+                (loadedBody, _) = BytecodeSerializer.Load(r, new WarScriptLanguage("u", "", null, null), null);
+
+            var line2 = 0;
+            for (int i = 0; i < body.Chunk.Lines.EntryCount; i++)
+                if (body.Chunk.Lines.LineAt(i) == 2) line2++;
+            Assert.Greater(line2, 1, "in memory, line 2 has an entry per column");
+            var loadedLine2 = 0;
+            for (int i = 0; i < loadedBody.Chunk.Lines.EntryCount; i++)
+                if (loadedBody.Chunk.Lines.LineAt(i) == 2) loadedLine2++;
+            Assert.AreEqual(1, loadedLine2);
+            for (int i = 0; i < body.Chunk.Code.Count; i++)
+            {
+                Assert.AreEqual(body.Chunk.Lines.GetLine(i), loadedBody.Chunk.Lines.GetLine(i), "offset " + i);
+                if (body.Chunk.Lines.GetLine(i) == 2) Assert.AreEqual(0, loadedBody.Chunk.Lines.GetColumn(i), "offset " + i);
+            }
+        }
+
+        [Test]
         public void LineTable_RoundTripsThroughAFile_ForEveryByte()
         {
             var source = "x = 1\nfun f [a]\n    if a > 0\n        return a * 2\n    end\n    return 0\nend\n\nprint f [x]\nprint f [0]";

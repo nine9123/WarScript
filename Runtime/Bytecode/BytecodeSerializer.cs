@@ -168,15 +168,20 @@ namespace WarScript.Bytecode
             // Line numbers (for debug / stack traces): run-length entries
             // (10.2), one where the line or the column (T3.1) changes, as the
             // in-memory table has them (format v3, T3.11). A column past
-            // 65,535 is written as 0 (unknown).
+            // 65,535 is written as 0 (unknown), and an entry that then
+            // repeats the one written before it is left out, so the file
+            // keeps one entry per change.
             var lines = func.Chunk.Lines;
-            w.Write((uint)lines.EntryCount);
+            var entries = 0;
+            for (int i = 0; i < lines.EntryCount; i++)
+                if (WritesLineEntry(lines, i)) entries++;
+            w.Write((uint)entries);
             for (int i = 0; i < lines.EntryCount; i++)
             {
-                var column = lines.ColumnAt(i);
+                if (!WritesLineEntry(lines, i)) continue;
                 w.Write((ushort)lines.OffsetAt(i));
                 w.Write(lines.LineAt(i));
-                w.Write((ushort)(column > ushort.MaxValue ? 0 : column));
+                w.Write((ushort)FileColumn(lines, i));
             }
 
             // Local variable names (for debugger)
@@ -187,6 +192,26 @@ namespace WarScript.Bytecode
             // Inline cache slot count (rebuilt at runtime, just need the size)
             w.Write((ushort)func.Chunk.PropertyCaches.Length);
         }
+
+        /// <summary>
+        /// The column entry <paramref name="index"/> gets in the file: a u16,
+        /// so a column past 65,535 is 0 (unknown, T3.11).
+        /// </summary>
+        private static int FileColumn(LineTable lines, int index)
+        {
+            var column = lines.ColumnAt(index);
+            return column > ushort.MaxValue ? 0 : column;
+        }
+
+        /// <summary>
+        /// Whether entry <paramref name="index"/> goes into the file: the
+        /// first one, and any whose line or file column differs from the
+        /// entry before it (columns past the u16 range all become 0).
+        /// </summary>
+        private static bool WritesLineEntry(LineTable lines, int index) =>
+            index == 0
+            || lines.LineAt(index) != lines.LineAt(index - 1)
+            || FileColumn(lines, index) != FileColumn(lines, index - 1);
 
         private static void WriteConstant(BinaryWriter w, in WarValue val)
         {
