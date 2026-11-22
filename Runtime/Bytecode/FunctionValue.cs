@@ -10,11 +10,14 @@ namespace WarScript.Bytecode
     /// function value owned by another instance raises TypeError "belongs to
     /// another script instance".
     ///
-    /// The compiler and the bytecode loader create one per lambda constant of
-    /// the instance they compile or load for, so evaluating a lambda literal
-    /// allocates nothing and evaluates to the same value each time (equality
-    /// is by reference, as before). Only the <see cref="Function"/> is written
-    /// to a bytecode file.
+    /// A lambda constant is only its <see cref="CompiledFunction"/> (program
+    /// data that holds no instance, T3.4, F-VM-3); the VM asks the running
+    /// instance for its function value of it
+    /// (<c>WarScriptLanguage.FunctionValueOf</c>) when the lambda literal is
+    /// evaluated, which creates one the first time and returns the same one
+    /// after that, so a lambda literal evaluates to the same value each time
+    /// (equality is by reference, as before). Only the
+    /// <see cref="Function"/> is written to a bytecode file.
     /// </summary>
     public sealed class FunctionValue
     {

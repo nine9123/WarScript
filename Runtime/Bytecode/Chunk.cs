@@ -40,6 +40,10 @@ namespace WarScript.Bytecode
         /// bytecode site gets a cache slot ID (emitted as a U16 operand). At runtime,
         /// the VM checks if the instance's ClassDetails matches the cached type. On hit:
         /// one reference comparison + one array index — no string hashing.
+        /// The only mutable state a compiled function holds (T3.4): it is
+        /// filled from program data alone (a class's details and a property
+        /// index), but sharing one compiled program between instances
+        /// (F-VM-3) still needs it per instance, or written tear-free, first.
         /// </summary>
         internal InlineCache[] PropertyCaches = System.Array.Empty<InlineCache>();
         private int _nextCacheSlot;
@@ -254,6 +258,13 @@ namespace WarScript.Bytecode
         /// instruction cut off by the end of the code or a constant index
         /// out of range is written as such.
         /// </summary>
+        // A lambda constant is its CompiledFunction (T3.4): shown as the
+        // function value it evaluates to.
+        private static string FormatConstant(in WarValue constant) =>
+            constant.IsNativeObject && constant.Ref is CompiledFunction lambda
+                ? "<fun " + (lambda.Name == "<lambda>" ? "lambda" : lambda.Name) + ">"
+                : constant.Format(null);
+
         private int DisassembleInstruction(StringBuilder sb, int offset)
         {
             sb.Append(offset.ToString("D4", CultureInfo.InvariantCulture)).Append(' ');
@@ -290,7 +301,7 @@ namespace WarScript.Bytecode
                     case OperandKind.U16Const:
                     case OperandKind.U16Name:
                         sb.Append(value.ToString(CultureInfo.InvariantCulture));
-                        if (value < Constants.Count) sb.Append(" (").Append(Constants[value].Format(null)).Append(')');
+                        if (value < Constants.Count) sb.Append(" (").Append(FormatConstant(Constants[value])).Append(')');
                         else sb.Append(" (out of range)");
                         break;
                     case OperandKind.U16JumpForward:

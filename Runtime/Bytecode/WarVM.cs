@@ -503,7 +503,12 @@ namespace WarScript.Bytecode
                     case OpCode.Constant:
                     {
                         var idx = ReadU16(code, ref _frames[fi].IP);
-                        Push(constants[idx]);
+                        // A lambda constant is its CompiledFunction (program
+                        // data, T3.4): its value is this instance's (6.7).
+                        if (constants[idx].Tag == ValueTag.NativeObject && constants[idx].Ref is CompiledFunction lambda)
+                            Push(WarValue.FromNativeObject(_script.FunctionValueOf(lambda)));
+                        else
+                            Push(constants[idx]);
                         break;
                     }
                     case OpCode.Null:  Push(WarValue.Null);  break;

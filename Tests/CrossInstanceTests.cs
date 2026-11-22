@@ -250,6 +250,59 @@ end
             AssertForeign(Call(a, "call_heal", Get(b, "make_unit")), "method 'heal'");
         }
 
+        /// <summary>
+        /// Program data holds no instance (T3.4, F-VM-3): every lambda
+        /// constant, compiled or loaded, is its <see cref="CompiledFunction"/>
+        /// alone; the function value is created for the running instance.
+        /// </summary>
+        [Test]
+        public void LambdaConstants_AreProgramData_NotFunctionValues()
+        {
+            const string source = "fun outer []\n    return fun [x] return fun [y] return y end end\nend\nf = fun [z] return z end\n";
+            var (body, definitions) = new WarScriptLanguage("t", source, null, null).CompileWithoutRunning();
+            AssertLambdaConstants(body, definitions.GetFunction("outer", 0).Compiled, 3);
+
+            var ms = new MemoryStream();
+            using (var w = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
+                BytecodeSerializer.Save(w, body, definitions);
+            ms.Position = 0;
+            using (var r = new BinaryReader(ms))
+            {
+                var (loadedBody, loaded) = BytecodeSerializer.Load(r, new WarScriptLanguage("u", "", null, null), null);
+                AssertLambdaConstants(loadedBody, loaded.GetFunction("outer", 0).Compiled, 3);
+            }
+        }
+
+        private static void AssertLambdaConstants(CompiledFunction body, CompiledFunction outer, int expected)
+        {
+            int found = 0;
+            void Walk(CompiledFunction f)
+            {
+                foreach (var c in f.Chunk.Constants)
+                {
+                    if (!c.IsNativeObject) continue;
+                    Assert.IsInstanceOf<CompiledFunction>(c.Ref, f.Name);
+                    found++;
+                    Walk((CompiledFunction)c.Ref);
+                }
+            }
+            Walk(body);
+            Walk(outer);
+            Assert.AreEqual(expected, found);
+        }
+
+        [Test]
+        public void ALambda_IsOwnedByTheInstanceEvaluatingIt_AndTheSameEachTime()
+        {
+            var (a, _) = Instance("a", OwnerSource);
+            var (b, _) = Instance("b", OwnerSource);
+            var fa = Get(a, "make_lambda");
+            var fb = Get(b, "make_lambda");
+            Assert.AreSame(a, ((FunctionValue)fa.Ref).Owner);
+            Assert.AreSame(b, ((FunctionValue)fb.Ref).Owner);
+            Assert.AreSame(fa.Ref, Get(a, "make_lambda").Ref, "the same literal is the same value");
+        }
+
         [Test]
         public void FunctionValue_FormatsAsBefore()
         {

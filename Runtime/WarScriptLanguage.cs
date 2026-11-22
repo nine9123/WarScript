@@ -587,6 +587,24 @@ namespace WarScript
         /// </summary>
         internal readonly StringInterner Strings = new();
 
+        // The function value of each lambda this instance has evaluated (6.7,
+        // Q-1, T3.4): the constant pool holds only the CompiledFunction
+        // (program data, F-VM-3), so the VM pairs it with this instance when
+        // a lambda literal runs, and the same literal evaluates to the same
+        // value each time. Weak keys: a reload's dropped code goes with them.
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<CompiledFunction, FunctionValue> _functionValues = new();
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<CompiledFunction, FunctionValue>.CreateValueCallback _newFunctionValue;
+
+        /// <summary>
+        /// This instance's function value for the lambda
+        /// <paramref name="function"/> (owned by this instance, 6.7): created
+        /// the first time, the same one after that (T3.4, F-VM-3).
+        /// </summary>
+        internal FunctionValue FunctionValueOf(CompiledFunction function) =>
+            _functionValues.TryGetValue(function, out var value)
+                ? value
+                : _functionValues.GetValue(function, _newFunctionValue);
+
         // ── Coroutine support (BytecodeCoroutine: VM suspend/resume) ──
         private readonly List<ICoroutine> _coroutines = new();
         private int _nextCoroutineId = 1;
@@ -617,6 +635,7 @@ namespace WarScript
             DefaultStep = new ConstantExpression(WarValue.FromNumeric(1));
 
             _sourceCode = sourceCode;
+            _newFunctionValue = function => new FunctionValue(function, this);
 
             var nativeDefinitionScope = DefinitionContext.NewScope();
             // The host globals and the script's globals (parent: the host
