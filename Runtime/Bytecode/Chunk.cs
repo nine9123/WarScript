@@ -370,14 +370,14 @@ namespace WarScript.Bytecode
         }
 
         /// <summary>
-        /// Appends an entry as read from a file; <see cref="Problem"/> checks
-        /// the result. The file has no columns before format v3 (T3.11).
+        /// Appends an entry as read from a file (with its column since format
+        /// v3, T3.11); <see cref="Problem"/> checks the result.
         /// </summary>
-        internal void AddEntry(int offset, int line)
+        internal void AddEntry(int offset, int line, int column = 0)
         {
             _offsets.Add(offset);
             _lines.Add(line);
-            _columns.Add(0);
+            _columns.Add(column);
         }
 
         /// <summary>

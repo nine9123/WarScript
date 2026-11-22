@@ -89,7 +89,7 @@ namespace Tests
         [Test]
         public void Load_RejectsAnotherVersion()
         {
-            foreach (byte version in new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14 })
+            foreach (byte version in new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15 })
             {
                 var bytes = SavedBytecode();
                 bytes[4] = version;
@@ -466,18 +466,18 @@ namespace Tests
 
             void Same(CompiledFunction a, CompiledFunction b)
             {
-                // The file keeps one entry per change of line: the columns
-                // (T3.1) are not in it until format v3 (T3.11).
-                var lineChanges = 0;
-                for (int i = 0; i < a.Chunk.Lines.EntryCount; i++)
-                    if (i == 0 || a.Chunk.Lines.LineAt(i) != a.Chunk.Lines.LineAt(i - 1)) lineChanges++;
-                Assert.AreEqual(lineChanges, b.Chunk.Lines.EntryCount, a.Name);
+                // The file keeps the in-memory entries, one per change of line
+                // or column (format v3, T3.11).
+                Assert.AreEqual(a.Chunk.Lines.EntryCount, b.Chunk.Lines.EntryCount, a.Name);
                 Assert.Less(b.Chunk.Lines.EntryCount, a.Chunk.Code.Count, a.Name + ": runs share entries");
+                var columns = 0;
                 for (int i = 0; i < a.Chunk.Code.Count; i++)
                 {
                     Assert.AreEqual(a.Chunk.Lines.GetLine(i), b.Chunk.Lines.GetLine(i), a.Name + " offset " + i);
-                    Assert.AreEqual(0, b.Chunk.Lines.GetColumn(i), a.Name + " offset " + i + ": no column loaded");
+                    Assert.AreEqual(a.Chunk.Lines.GetColumn(i), b.Chunk.Lines.GetColumn(i), a.Name + " offset " + i);
+                    if (b.Chunk.Lines.GetColumn(i) > 0) columns++;
                 }
+                Assert.Greater(columns, 0, a.Name + ": columns are loaded");
             }
             Same(body, loadedBody);
             Same(definitions.GetFunction("f", 1).Compiled, loaded.GetFunction("f", 1).Compiled);

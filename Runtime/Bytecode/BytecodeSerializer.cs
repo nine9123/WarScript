@@ -165,19 +165,18 @@ namespace WarScript.Bytecode
             foreach (var b in func.Chunk.Code)
                 w.Write(b);
 
-            // Line numbers (for debug / stack traces): run-length entries (10.2).
-            // An entry only where the line changes: the columns (T3.1) stay
-            // out of the file until format v3 (T3.11).
+            // Line numbers (for debug / stack traces): run-length entries
+            // (10.2), one where the line or the column (T3.1) changes, as the
+            // in-memory table has them (format v3, T3.11). A column past
+            // 65,535 is written as 0 (unknown).
             var lines = func.Chunk.Lines;
-            var entries = 0;
-            for (int i = 0; i < lines.EntryCount; i++)
-                if (i == 0 || lines.LineAt(i) != lines.LineAt(i - 1)) entries++;
-            w.Write((uint)entries);
+            w.Write((uint)lines.EntryCount);
             for (int i = 0; i < lines.EntryCount; i++)
             {
-                if (i > 0 && lines.LineAt(i) == lines.LineAt(i - 1)) continue;
+                var column = lines.ColumnAt(i);
                 w.Write((ushort)lines.OffsetAt(i));
                 w.Write(lines.LineAt(i));
+                w.Write((ushort)(column > ushort.MaxValue ? 0 : column));
             }
 
             // Local variable names (for debugger)
@@ -466,17 +465,19 @@ namespace WarScript.Bytecode
                 throw new InvalidDataException("Bytecode function '" + name + "' is longer than 65,535 bytes");
             func.Chunk.Code.AddRange(r.Bytes((int)codeLen, "code"));
 
-            // Line numbers: (code offset u16, line i32) where the line
-            // changes; at most one entry per code byte. The verifier checks
-            // that the offsets start at 0, increase and stay inside the code.
+            // Line numbers: (code offset u16, line i32, column u16) where the
+            // line or the column changes (format v3, T3.11); at most one entry
+            // per code byte. The verifier checks that the offsets start at 0,
+            // increase and stay inside the code.
             var lineEntries = r.U32();
             if (lineEntries > codeLen)
                 throw new InvalidDataException("Bytecode function '" + name + "' has more line entries than code bytes");
-            r.Need((long)lineEntries * 6, "line table");
+            r.Need((long)lineEntries * 8, "line table");
             for (uint i = 0; i < lineEntries; i++)
             {
                 var offset = r.U16();
-                func.Chunk.Lines.AddEntry(offset, r.I32());
+                var line = r.I32();
+                func.Chunk.Lines.AddEntry(offset, line, r.U16());
             }
 
             // Local variable names

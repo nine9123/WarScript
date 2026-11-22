@@ -309,7 +309,7 @@ namespace Tests
         }
 
         [Test]
-        public void RuntimeErrors_FromLoadedBytecode_HaveNoColumn()
+        public void RuntimeErrors_FromLoadedBytecode_HaveTheirColumn()
         {
             var compiled = new WarScriptLanguage("col", "x = 1\ny = x / 0", null, null);
             var bytes = new System.IO.MemoryStream();
@@ -320,8 +320,25 @@ namespace Tests
 
             var error = loaded.Run().Error;
 
-            Assert.AreEqual((2, 0), (error.Line, error.Column), "the file's line table has no columns until format v3 (T3.11)");
-            Assert.IsNull(error.SourceLine);
+            Assert.AreEqual((2, 7), (error.Line, error.Column), "the file's line table has columns since format v3 (T3.11)");
+            Assert.IsNull(error.SourceLine, "a loaded instance has no source to show");
+        }
+
+        [Test]
+        public void RuntimeErrors_FromLoadedBytecode_ColumnPastTheFormatsRange_IsUnknown()
+        {
+            // The file stores a column as u16 (T3.11): a larger one loads as 0.
+            var source = "x = 0\n" + new string(' ', 70000) + "y = 1 / x";
+            var compiled = new WarScriptLanguage("col", source, null, null);
+            var bytes = new System.IO.MemoryStream();
+            compiled.SaveBytecode(bytes);
+            var loaded = new WarScriptLanguage("col", "", null, null) { LogUnhandledErrors = false };
+            bytes.Position = 0;
+            loaded.LoadBytecode(bytes);
+
+            var error = loaded.Run().Error;
+
+            Assert.AreEqual((2, 0), (error.Line, error.Column));
         }
 
         [Test]

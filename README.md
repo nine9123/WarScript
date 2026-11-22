@@ -1467,7 +1467,7 @@ top-level statements.
 well, give the constructor a `bytecodeResolver` — see
 [Importing precompiled bytecode](#importing-precompiled-bytecode).
 
-> A `.wsbc` file starts with a format version (currently `11`) and a hash of the opcode table, and
+> A `.wsbc` file starts with a format version (currently `14`) and a hash of the opcode table, and
 > the loader accepts only an exact match, so bytecode written by another WarScript version must be
 > regenerated from source. The loader verifies everything it reads: a truncated, corrupt or
 > mismatched file makes `LoadBytecode` throw `InvalidDataException` and leaves the instance
