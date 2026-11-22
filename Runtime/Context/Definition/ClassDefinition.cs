@@ -45,8 +45,19 @@ namespace WarScript.Context.Definition
         /// Set by the compiler, and by the loader from the file; null for a
         /// class the host registered, whose fields are not known, so that
         /// accessing any property of its instances is allowed (PROP-15, T3.6).
+        /// Setting it also indexes the fields (<see cref="ClassDetails.Fields"/>, T3.4).
         /// </summary>
-        internal HashSet<string>? Fields { get; set; }
+        internal HashSet<string>? Fields
+        {
+            get => _fields;
+            set
+            {
+                _fields = value;
+                ClassDetails.SetDeclaredFields(value);
+            }
+        }
+
+        private HashSet<string>? _fields;
 
         /// <summary>
         /// True for the class of an <c>enum</c> (the parser's desugar, a
