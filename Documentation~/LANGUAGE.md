@@ -341,8 +341,8 @@ enum DamageType
 end
 DamageType.PHYSICAL      # 0
 DamageType.name(5)      # "TRUE"
-DamageType.values        # {0, 1, 5}
-DamageType.names         # {"PHYSICAL", "MAGICAL", "TRUE"}
+DamageType.values        # [0, 1, 5]
+DamageType.names         # ["PHYSICAL", "MAGICAL", "TRUE"]
 DamageType.count         # 3
 ```
 

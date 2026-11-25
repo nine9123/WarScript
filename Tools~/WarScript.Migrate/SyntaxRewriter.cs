@@ -39,12 +39,16 @@ namespace WarScript.Migrate
         /// <summary>
         /// Rewrites <paramref name="source"/>, written in the legacy syntax.
         /// Throws the lexer's <see cref="Exception.SyntaxException"/> when it
-        /// does not lex as legacy WarScript.
+        /// does not lex as legacy WarScript, and a <see cref="Exception.SyntaxException"/>
+        /// when it has a form only the current syntax writes (<see cref="RejectCurrentSyntax"/>):
+        /// a file rewritten already would otherwise be rewritten again, its
+        /// arrays and indexes turned into calls.
         /// </summary>
         public static Result Rewrite(string source)
         {
             var tokens = LexicalParser.ParseLegacy(source);
             var lineStarts = LineStarts(source);
+            RejectCurrentSyntax(source, tokens, lineStarts);
             var edits = new List<(int Start, int End, string Text)>();
             var result = new Result();
 
@@ -126,6 +130,82 @@ namespace WarScript.Migrate
             result.Source = sb.ToString();
             return result;
         }
+
+        /// <summary>
+        /// Throws when <paramref name="source"/> has a form that the current
+        /// syntax writes and the legacy one does not, or reads differently:
+        /// a '[' that is not right after a name or <c>fun</c> (an array
+        /// literal; the legacy syntax writes arrays <c>{1, 2}</c> and a '['
+        /// only opens a call's arguments), or a '(' right after a name on its
+        /// line (a call now, a group in the legacy syntax; such a line is
+        /// rewritten by hand), or a name's '[...]' followed by an assignment
+        /// (an index write; the legacy syntax cannot assign to a call). A
+        /// rewritten file that has none of these (nor a '.' member, which the
+        /// legacy lexer already rejects) only reads indexes, and is rewritten
+        /// again: <c>a[0]</c> becomes <c>a(0)</c>.
+        /// </summary>
+        private static void RejectCurrentSyntax(string source, IReadOnlyList<Token.Token> legacy, List<int> lineStarts)
+        {
+            int Offset(Token.Token t) =>
+                t.RowNumber >= 1 && t.RowNumber <= lineStarts.Count && t.Column >= 1
+                    ? lineStarts[t.RowNumber - 1] + t.Column - 1
+                    : -1;
+            bool On(Token.Token t, char c)
+            {
+                var at = Offset(t);
+                return at >= 0 && at < source.Length && source[at] == c;
+            }
+
+            for (var i = 0; i < legacy.Count; i++)
+            {
+                var t = legacy[i];
+                if (t.Type != TokenType.GroupDivider || t.Value != "(" || !On(t, '[')) continue;
+                if (i > 0 && (legacy[i - 1].Type == TokenType.Variable
+                              || (legacy[i - 1].Type == TokenType.Keyword && legacy[i - 1].Value == "fun")))
+                {
+                    // `s[0] = x`: the legacy syntax cannot assign to a call.
+                    var close = MatchingClose(legacy, i);
+                    if (close + 1 < legacy.Count && IsAssignment(legacy[close + 1]))
+                        throw new Exception.SyntaxException(
+                            "'[' after a name followed by an assignment is an index write in the current syntax "
+                            + "(the legacy syntax writes a{i} = x): the file looks rewritten already",
+                            t.RowNumber, t.Column);
+                    continue;
+                }
+                throw new Exception.SyntaxException(
+                    "'[' starts an array literal, which the legacy syntax writes {1, 2}: the file looks rewritten already",
+                    t.RowNumber, t.Column);
+            }
+
+            IReadOnlyList<Token.Token> current;
+            try { current = LexicalParser.Parse(source); }
+            catch (Exception.SyntaxException) { return; } // '{' or '::': legacy only
+            foreach (var t in current)
+            {
+                if (t.Type != TokenType.GroupDivider || t.Value != "(" || !On(t, '(')) continue;
+                throw new Exception.SyntaxException(
+                    "'(' right after a name is a call in the current syntax but a group in the legacy one: "
+                    + "the file looks rewritten already; if not, rewrite this line by hand",
+                    t.RowNumber, t.Column);
+            }
+        }
+
+        /// <summary>The index of the ')' closing the '(' at <paramref name="open"/>, or the token count.</summary>
+        private static int MatchingClose(IReadOnlyList<Token.Token> tokens, int open)
+        {
+            var depth = 0;
+            for (var i = open; i < tokens.Count; i++)
+            {
+                if (tokens[i].Type != TokenType.GroupDivider) continue;
+                if (tokens[i].Value == "(") depth++;
+                else if (tokens[i].Value == ")" && --depth == 0) return i;
+            }
+            return tokens.Count;
+        }
+
+        private static bool IsAssignment(Token.Token t) =>
+            t.Type == TokenType.Operator
+            && (t.Value == "=" || t.Value == "+=" || t.Value == "-=" || t.Value == "*=" || t.Value == "/=");
 
         /// <summary>
         /// The offset of each line's first character, with the lexer's line

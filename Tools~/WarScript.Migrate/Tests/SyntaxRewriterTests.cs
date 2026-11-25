@@ -35,6 +35,26 @@ namespace Tests
             Assert.AreEqual(current, Rewrite(legacy));
         }
 
+        [TestCase("arr = [1, 2]\nprint arr[0]")]
+        [TestCase("print f(arr[0])")]
+        [TestCase("g = fun(x) return x end")]
+        [TestCase("print x (y)")]
+        [TestCase("s[0] = \"x\"")]
+        [TestCase("grid[0][1] += 1")]
+        public void RefusesTheCurrentSyntax(string source)
+        {
+            // Review of T3.12: a second run turned `[1, 2]` into `(1, 2)` and
+            // `arr[0]` into `arr(0)`, and reported success.
+            Assert.Throws<SyntaxException>(() => SyntaxRewriter.Rewrite(source));
+        }
+
+        [Test]
+        public void RefusesItsOwnOutput()
+        {
+            var once = Rewrite("fun f [a, b]\n    return a + b\nend\narr = {1, {2, 3}}\nprint f [arr{0}, arr{1}{0}]\nprint \"v={arr{0}} {f [1, 2]}\"");
+            Assert.Throws<SyntaxException>(() => SyntaxRewriter.Rewrite(once));
+        }
+
         [Test]
         public void KeepsCommentsLayoutAndFields()
         {

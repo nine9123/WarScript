@@ -1962,8 +1962,8 @@ namespace WarScript.Bytecode
         /// a literal, an interpolated text, an array literal, <c>null</c>,
         /// <c>true</c>/<c>false</c>, or the result of an operator whose type
         /// follows from plan 5.3. No inference through variables or calls.
-        /// Indexing is not checked: the grammar only indexes a name
-        /// (<c>x[i]</c>, <c>obj.x[i]</c>), whose type is never known.
+        /// Indexing is not checked (since T3.12 any operand can be indexed,
+        /// so <c>5[0]</c> compiles and is the runtime TypeError).
         /// A <c>const</c> and an enum member of the module set are typed
         /// once the module set is compiled (<see cref="DeferTypedCheck"/>).
         /// </summary>
