@@ -2,7 +2,6 @@
 
 using System;
 using System.Collections.Generic;
-using WarScript.Audit;
 using WarScript.Context;
 using WarScript.Context.Definition;
 using WarScript.Exception;
@@ -558,7 +557,6 @@ namespace WarScript.Bytecode
                         // frame, a global, a host global) raises NameError.
                         if (!NameScope(fi).TryGet(name, out var global))
                         {
-                            if (_script.AuditSink != null) Audit(AuditKind.UndefinedRead, fi, name);
                             RuntimeError(ScriptErrorKind.NameError, UndefinedVariableMessage(name));
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
@@ -1286,7 +1284,6 @@ namespace WarScript.Bytecode
                         var nameScope = NameScope(fi);
                         if (!nameScope.TryGet(name, out var target))
                         {
-                            if (_script.AuditSink != null) Audit(AuditKind.UndefinedRead, fi, name);
                             RuntimeError(ScriptErrorKind.NameError, UndefinedVariableMessage(name));
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
@@ -2470,7 +2467,7 @@ namespace WarScript.Bytecode
             // The instance's fields. Their parent is the instance globals, so a
             // bare read in a class body finds a field first, then a global
             // (T3.4, 5.7, PROP-20).
-            fields ??= new MemoryScope(_script, _script.UserMemoryScope, MemoryScopeKind.ClassInstance);
+            fields ??= new MemoryScope(_script, _script.UserMemoryScope);
             var valueRefs = new ValueReference[propCount];
             for (int i = 0; i < propCount; i++)
             {
@@ -2650,39 +2647,6 @@ namespace WarScript.Bytecode
         private void OperandError(string op, in WarValue a, in WarValue b) =>
             RuntimeError(ScriptErrorKind.TypeError,
                 "Cannot apply '" + op + "' to " + TypeName(a) + " and " + TypeName(b));
-
-        // ── Audit mode (plan 8.1, T0.8; temporary) ──
-        // Every caller checks _script.AuditSink != null first, so with no
-        // sink attached the cost is that one check.
-
-        private void Audit(AuditKind kind, int fi, string detail)
-        {
-            var sink = _script.AuditSink;
-            if (sink == null) return;
-            var function = _frames[fi].Function;
-            var line = AuditLine(function.Chunk, _frames[fi].IP - 1);
-            sink(new AuditEvent(kind, function.Chunk.Source ?? _script.ScriptName, line, function.Name, detail));
-        }
-
-        /// <summary>
-        /// The line of the instruction at <paramref name="ip"/>. v1 records
-        /// line 0 for many expression instructions (T1.10), so fall back to
-        /// the next instruction that has a line, normally the statement the
-        /// expression belongs to (its opcode comes after its operands), and
-        /// then to the previous one.
-        /// </summary>
-        private static int AuditLine(Chunk chunk, int ip)
-        {
-            if (ip < 0 || ip >= chunk.Code.Count) return 0;
-            var lines = chunk.Lines;
-            int at = lines.EntryIndex(ip);
-            if (at < 0) return 0;
-            for (var i = at; i < lines.EntryCount; i++)
-                if (lines.LineAt(i) > 0) return lines.LineAt(i);
-            for (var i = at - 1; i >= 0; i--)
-                if (lines.LineAt(i) > 0) return lines.LineAt(i);
-            return 0;
-        }
 
         /// <summary>
         /// A value as text for <c>print</c> and the text operators: the

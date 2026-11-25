@@ -22,6 +22,9 @@ the imports up would run every `t[...]` before `translation_create`.
 items (`migration-report-warman.md`, run with `--import-root` on the mod) and
 nothing else.
 
+(T3.14 removed `WarScript.Migrate` and the reports it wrote, including
+`migration-report-warman.md`; they are at tag `warscript-migration-tools-final`.)
+
 ## The change
 
 | File | Change |

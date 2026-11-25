@@ -296,9 +296,8 @@ namespace WarScript
             {
                 // Imports come first in a file (T3.3, 5.8): before any
                 // other statement or definition, never in a block or body.
-                // The v1 frontend of the migration tool allows them anywhere.
                 var isImport = token.Type == TokenType.Keyword && token.Value == "import";
-                if (isImport && !_script.ParsingV1)
+                if (isImport)
                 {
                     if (_imports == null)
                         throw new SyntaxException("'import' is allowed only at the top of a file, not inside a block or a body", token.RowNumber, token.Column);
@@ -456,11 +455,10 @@ namespace WarScript
         /// <summary>
         /// Records a function or class definition in the namespace of the
         /// scope it goes into (PROP-12), or throws the duplicate-definition
-        /// error at <paramref name="at"/>, its name. Not for v1 scripts.
+        /// error at <paramref name="at"/>, its name.
         /// </summary>
         private void CheckDuplicate(System.Func<DeclaredDefinitions, string> add, Token.Token at)
         {
-            if (_script.ParsingV1) return;
             var scope = _script.DefinitionContext.GetScope();
             var message = add(scope.Declared ??= new DeclaredDefinitions());
             if (message != null) throw new SyntaxException(message, at.RowNumber, at.Column);
@@ -471,12 +469,10 @@ namespace WarScript
         /// arity it can be called with (T3.8, PROP-12, DEC-21): throws at
         /// <paramref name="at"/>, its name. A method only shadows the native
         /// for bare calls inside its class, and keeps the log line of
-        /// <see cref="DefinitionScope.AddFunction(FunctionDefinition)"/>. Not
-        /// for v1 scripts.
+        /// <see cref="DefinitionScope.AddFunction(FunctionDefinition)"/>.
         /// </summary>
         private void CheckShadowsNative(FunctionDetails details, Token.Token at)
         {
-            if (_script.ParsingV1) return;
             var scope = _script.DefinitionContext.GetScope();
             for (var arity = details.MinArity; arity <= details.Arguments.Count; arity++)
                 if (scope.GetFunction(details.Name, arity) is NativeFunctionDefinition)
@@ -488,11 +484,11 @@ namespace WarScript
         /// <summary>
         /// A parameter list names each parameter once (T3.8, PROP-29):
         /// throws at <paramref name="parameter"/> when
-        /// <paramref name="parameters"/> already has it. Not for v1 scripts.
+        /// <paramref name="parameters"/> already has it.
         /// </summary>
-        internal static void CheckParameter(WarScriptLanguage script, List<string> parameters, Token.Token parameter)
+        internal static void CheckParameter(List<string> parameters, Token.Token parameter)
         {
-            if (!script.ParsingV1 && parameters.Contains(parameter.Value))
+            if (parameters.Contains(parameter.Value))
                 throw new SyntaxException("Parameter '" + parameter.Value + "' is declared twice",
                     parameter.RowNumber, parameter.Column);
         }
@@ -529,7 +525,7 @@ namespace WarScript
                 while (!Tokens.Peek(TokenType.GroupDivider, ")"))
                 {
                     var argumentToken = Tokens.Next(TokenType.Variable);
-                    if (declaration) CheckParameter(_script, classArguments, argumentToken);
+                    if (declaration) CheckParameter(classArguments, argumentToken);
                     classArguments.Add(argumentToken.Value);
 
                     if (Tokens.Peek(TokenType.GroupDivider, ","))
@@ -557,7 +553,7 @@ namespace WarScript
                 while (!Tokens.Peek(TokenType.GroupDivider, ")"))
                 {
                     var argumentToken = Tokens.Next(TokenType.Variable);
-                    CheckParameter(_script, arguments, argumentToken);
+                    CheckParameter(arguments, argumentToken);
                     arguments.Add(argumentToken.Value);
 
                     // Check for default value: param = expr
@@ -776,7 +772,7 @@ namespace WarScript
         {
             // A class body runs as a constructor frame (T1.1): it cannot
             // suspend (T3.3, PROP-21).
-            if (_script.ParsingBody == ParseBody.ClassBody && !_script.ParsingV1)
+            if (_script.ParsingBody == ParseBody.ClassBody)
                 throw new SyntaxException("'yield' is not allowed in a class body", rowToken.RowNumber, rowToken.Column);
 
             YieldType yieldType;
@@ -909,7 +905,7 @@ namespace WarScript
             {
                 var memberName = Tokens.Next(TokenType.Variable);
                 // Each member once (T3.8, PROP-29).
-                if (!memberNames.Add(memberName.Value) && !_script.ParsingV1)
+                if (!memberNames.Add(memberName.Value))
                     throw new SyntaxException("Enum member '" + memberName.Value + "' is already declared in enum '" + enumName.Value + "'",
                         memberName.RowNumber, memberName.Column);
 
@@ -1035,7 +1031,7 @@ namespace WarScript
 
             // Its members, for `E.X` (T3.8, PROP-29): only an enum at the
             // top level of a file is a global the compiler can name.
-            if (_script.ParsingBody == ParseBody.TopLevel && _script.ParsingClassDepth == 0 && !_script.ParsingV1)
+            if (_script.ParsingBody == ParseBody.TopLevel && _script.ParsingClassDepth == 0)
                 _script.DeclareEnum(enumName.Value, memberNames);
         }
     }
