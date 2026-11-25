@@ -48,6 +48,17 @@ namespace Tests
             Assert.Throws<SyntaxException>(() => SyntaxRewriter.Rewrite(source));
         }
 
+        [TestCase("x = 1\narr = [1, 2]", 2)]
+        [TestCase("x = 1\n\ns[0] = 2", 3)]
+        [TestCase("x = f [1]\nprint x (y)", 2)]
+        public void RefusalNamesTheLine(string source, int line)
+        {
+            // The --syntax command prints only the message: it must say where.
+            var e = Assert.Throws<SyntaxException>(() => SyntaxRewriter.Rewrite(source));
+            Assert.AreEqual(line, e.Line);
+            StringAssert.Contains("at line " + line, e.Message);
+        }
+
         [Test]
         public void RefusesItsOwnOutput()
         {

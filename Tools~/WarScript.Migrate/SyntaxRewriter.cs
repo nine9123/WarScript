@@ -167,13 +167,14 @@ namespace WarScript.Migrate
                     var close = MatchingClose(legacy, i);
                     if (close + 1 < legacy.Count && IsAssignment(legacy[close + 1]))
                         throw new Exception.SyntaxException(
-                            "'[' after a name followed by an assignment is an index write in the current syntax "
+                            System.FormattableString.Invariant($"'[' after a name followed by an assignment at line {t.RowNumber} is an index write in the current syntax ")
                             + "(the legacy syntax writes a{i} = x): the file looks rewritten already",
                             t.RowNumber, t.Column);
                     continue;
                 }
                 throw new Exception.SyntaxException(
-                    "'[' starts an array literal, which the legacy syntax writes {1, 2}: the file looks rewritten already",
+                    System.FormattableString.Invariant($"'[' at line {t.RowNumber} starts an array literal, ")
+                    + "which the legacy syntax writes {1, 2}: the file looks rewritten already",
                     t.RowNumber, t.Column);
             }
 
@@ -184,7 +185,7 @@ namespace WarScript.Migrate
             {
                 if (t.Type != TokenType.GroupDivider || t.Value != "(" || !On(t, '(')) continue;
                 throw new Exception.SyntaxException(
-                    "'(' right after a name is a call in the current syntax but a group in the legacy one: "
+                    System.FormattableString.Invariant($"'(' right after a name at line {t.RowNumber} is a call in the current syntax but a group in the legacy one: ")
                     + "the file looks rewritten already; if not, rewrite this line by hand",
                     t.RowNumber, t.Column);
             }

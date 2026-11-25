@@ -28,7 +28,8 @@
 // Files are *.ws unless --ext lists other extensions. It prints each file
 // it changed and the raw text literals ("""...""") it left alone, which may
 // hold script source to rewrite by hand. Exit code: 0 done, 1 bad
-// arguments, 2 a file did not lex (it is listed and left unchanged).
+// arguments, 2 a file did not lex, or looks rewritten already (it is listed
+// and left unchanged).
 
 using System;
 using System.Collections.Generic;
@@ -212,7 +213,7 @@ namespace WarScript.Migrate
                 }
             }
             Console.WriteLine(FormattableString.Invariant(
-                $"{files.Count} files, {changed} rewritten, {raw} raw literals to check, {failed} not lexed"));
+                $"{files.Count} files, {changed} rewritten, {raw} raw literals to check, {failed} not rewritten"));
             return failed > 0 ? 2 : 0;
         }
 
