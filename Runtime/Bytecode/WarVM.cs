@@ -74,6 +74,12 @@ namespace WarScript.Bytecode
         private YieldType _yieldType;
         private F64 _yieldWaitDuration;
 
+        // Where a yield may suspend this VM (Q-15, SEM-14): anywhere in a
+        // coroutine (InitCoroutine), else only in the script body that Run
+        // entered (frame 0, a top-level yield keeps its v1 meaning).
+        private bool _coroutine;
+        private bool _scriptBodyEntry;
+
         /// <summary>True if the last Execute() stopped because of a yield opcode.</summary>
         public bool IsYielded => _yielded;
 
@@ -174,6 +180,8 @@ namespace WarScript.Bytecode
             _yielded = false;
             _yieldType = YieldType.NextTick;
             _yieldWaitDuration = F64.Zero;
+            _coroutine = false;
+            _scriptBodyEntry = false;
             _stepMode = StepMode.Continue;
             _stepFrameDepth = 0;
             _lastDebugLine = -1;
@@ -192,6 +200,7 @@ namespace WarScript.Bytecode
         {
             Reset();
             RecordEntryDepths();
+            _scriptBodyEntry = true;
             _pendingMain = main;
             if (!EnterNextModule()) return;
             Execute();
@@ -282,6 +291,7 @@ namespace WarScript.Bytecode
         {
             Reset();
             RecordEntryDepths();
+            _coroutine = true;
             if (!StackFits(0, func)) return;
 
             int given = System.Math.Min(arguments.Length, func.Arity);
@@ -1753,7 +1763,7 @@ namespace WarScript.Bytecode
                     // ══════════════════════════════════════════════
 
                     case OpCode.Yield:
-                        if (YieldInImport())
+                        if (CannotYield(fi))
                         {
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
@@ -1767,7 +1777,7 @@ namespace WarScript.Bytecode
                     {
                         var dur = Pop();
                         var d = dur.IsNumeric ? dur.Numeric : F64.Zero;
-                        if (YieldInImport())
+                        if (CannotYield(fi))
                         {
                             if (DoHandleException(ref fi, ref code, ref constants)) break;
                             return;
@@ -2712,19 +2722,32 @@ namespace WarScript.Bytecode
 
         // ── Import ──
         /// <summary>
-        /// A <c>yield</c> reached while an import's top-level code runs in
-        /// this VM (in that code or in a function it calls) is an error
-        /// (T3.7, owner's answer for imports; Q-15 stays open for a yield in
-        /// a function called from the script body): an import initializes
-        /// its module once, to the end, before the modules that depend on it
-        /// (5.8), so it cannot suspend. Raises the rescuable TypeError
-        /// <c>Cannot yield while importing 'path'</c> and returns true;
-        /// false when no import runs on this VM.
+        /// Raises the rescuable TypeError for a <c>yield</c> this VM cannot
+        /// suspend at, and returns true; false when the yield may suspend.
+        /// <list type="bullet">
+        /// <item>While an import's top-level code runs in this VM (in that
+        /// code or in a function it calls): <c>Cannot yield while importing
+        /// 'path'</c> (T3.7, owner's answer for imports): an import
+        /// initializes its module once, to the end, before the modules that
+        /// depend on it (5.8), so it cannot suspend.</item>
+        /// <item>Outside a coroutine anywhere but in the script body that
+        /// <see cref="Run"/> entered (a function, method, lambda or
+        /// constructor it calls, or a function the host or a native calls):
+        /// <c>Cannot yield outside a coroutine</c> (Q-15, SEM-14). Nothing
+        /// could resume such a frame: the entry used to end silently with the
+        /// rest of the script not run. A top-level <c>yield</c> keeps its v1
+        /// meaning (the run ends there).</item>
+        /// </list>
         /// </summary>
-        private bool YieldInImport()
+        private bool CannotYield(int fi)
         {
-            if (_runningImport == null) return false;
-            RuntimeError(ScriptErrorKind.TypeError, "Cannot yield while importing '" + _runningImport.Path + "'");
+            if (_runningImport != null)
+            {
+                RuntimeError(ScriptErrorKind.TypeError, "Cannot yield while importing '" + _runningImport.Path + "'");
+                return true;
+            }
+            if (_coroutine || (fi == 0 && _scriptBodyEntry)) return false;
+            RuntimeError(ScriptErrorKind.TypeError, "Cannot yield outside a coroutine");
             return true;
         }
 

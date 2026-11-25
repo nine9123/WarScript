@@ -480,6 +480,11 @@ The host starts a coroutine from a function; it runs at once until its first
   host supplies each tick's time; there is no clock);
 - `yield until condition` checks the condition each tick.
 
+A `yield` in a function called from anywhere but a coroutine (from the
+top-level code, a host `Call` or a native's callback) is the TypeError
+`Cannot yield outside a coroutine`; one in the top-level code ends the run
+there (Q-15).
+
 A looping coroutine starts again when it completes. Budgets reset at each
 resume. A coroutine's unhandled error ends it and halts the instance (PROP-3).
 Scripts start coroutines with the `start_coroutine` native.

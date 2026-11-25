@@ -51,8 +51,6 @@ rescue err
     print err                            # expect: Value nested too deeply
 end
 
-# The state hash is not memoized yet (open part of BUDGET-3), so the shared
-# arrays must not be left in globals.
-a = 0
-b = 0
-c = 0
+# The state hash writes an array it has already encoded as a back-reference
+# (Q-13), so the shared arrays may stay in globals: the golden runner hashes
+# them after every run.

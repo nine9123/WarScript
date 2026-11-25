@@ -803,8 +803,10 @@ end
 | `yield wait N` | after `N` seconds of accumulated `dt` |
 | `yield until <condition>` | on the first tick where the condition is truthy (re-evaluated each tick) |
 
-`yield` works anywhere — inside loops, inside `if` blocks, inside `begin`/`rescue`, and inside
-nested function and lambda calls, because the whole VM state is suspended:
+`yield` works anywhere in a coroutine — inside loops, inside `if` blocks, inside `begin`/`rescue`, and inside
+nested function and lambda calls, because the whole VM state is suspended. Outside a coroutine (a
+function called from the top-level code or by `Call()`) it is the rescuable `TypeError`
+`Cannot yield outside a coroutine`; a `yield` in the top-level code itself ends `Run()`:
 
 ```ruby
 fun do_step(n)
@@ -1490,7 +1492,7 @@ ingredients:
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Code up to the first `yield` runs once, and calling the function again restarts it from the top | The function was invoked with `script.Call(fn)` instead of being started as a coroutine. `Call()` executes until the first `yield`, then returns — the suspended state is discarded. | `script.StartCoroutine("fn", args)` |
+| `Call()` returns a `TypeError` `Cannot yield outside a coroutine` (and the instance halts) | The function was invoked with `script.Call(fn)` (or called from the top-level code, or from a native's callback) instead of being started as a coroutine. Only a coroutine can be suspended and resumed. | `script.StartCoroutine("fn", args)` |
 | Code up to the first `yield` runs, then nothing ever happens again | The host never calls `TickCoroutines(dt)`. | Call `script.TickCoroutines(dt)` every tick |
 | `yield` advances but `yield wait N` never completes | `dt` is zero (paused game), or is not in seconds. | Pass real elapsed seconds as `F64` — e.g. `F64.Ratio(1, 60)` |
 | `StartCoroutine` returns `-1` and nothing runs | The function name/arity does not resolve: wrong argument count, or the name is a **class method** (only top-level functions can be coroutines). The result's `Error` says which (a `NameError`). Like any error at a host entry, it also halts the instance. | Match the arity; move the body to a top-level function; `ClearFault()` |
@@ -1499,7 +1501,7 @@ ingredients:
 | A looping coroutine seems to skip a tick between repetitions | Also by design: `loop: true` restarts the function on the *next* tick after it completes. | — |
 | Every coroutine stopped, and nothing runs any more | An uncaught error inside a coroutine ended it, and — because `TickCoroutines` is a host entry — halted the instance, which clears all coroutines. `TickCoroutines` returned that error, `IsHalted` is true and `Fault` holds it. | Check the logger output or the result; `ClearFault()` and restart them |
 | A coroutine vanished | The code path ran `Reload()` / `LoadBytecode()`, both of which stop all coroutines, or a script called `stop_coroutine`. | Restart coroutines after a reload |
-| `script.IsYielded` is stuck `true` | `Call()`ing a function that hits a `yield` sets this script-level flag and nothing clears it. It is not a reliable signal. | Use `ActiveCoroutineCount`; call `script.ClearYield()` if you need the flag reset |
+| `script.IsYielded` is stuck `true` | A `yield` in the top-level code ends `Run()` and sets this script-level flag, and nothing clears it. It is not a reliable signal. | Use `ActiveCoroutineCount`; call `script.ClearYield()` if you need the flag reset |
 
 ### A correct, minimal end-to-end example
 

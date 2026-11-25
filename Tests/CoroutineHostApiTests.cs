@@ -259,8 +259,10 @@ end
         // ────────────────────────────────────────────────
 
         [Test]
-        public void PlainCallHittingYield_StopsAtYield_AndSetsIsYielded()
+        public void PlainCallHittingYield_IsATypeError_AndDoesNotYield()
         {
+            // Q-15, SEM-14: nothing could resume a plain Call, which used to
+            // end silently at the yield.
             var (script, output) = TestHelper.Run("plain_yield", @"
 fun gen()
     print ""a""
@@ -268,11 +270,62 @@ fun gen()
     print ""b""
 end
 ");
-            script.Call(script.GetFunction("gen", 0));
+            script.LogUnhandledErrors = false;
+            var result = script.Call(script.GetFunction("gen", 0));
 
-            Assert.IsTrue(script.IsYielded);
-            Assert.AreEqual(1, output.Count, "execution stops at the yield; there is no way to resume a plain Call");
-            Assert.AreEqual("a", output[0]);
+            Assert.AreEqual(ScriptStatus.Error, result.Status);
+            Assert.AreEqual(ScriptErrorKind.TypeError, result.Error.Kind);
+            Assert.AreEqual("Cannot yield outside a coroutine", result.Error.Message);
+            Assert.AreEqual(4, result.Error.Line);
+            Assert.IsFalse(script.IsYielded);
+            CollectionAssert.AreEqual(new[] { "a" }, output);
+        }
+
+        [Test]
+        public void YieldInAFunctionCalledFromACoroutine_StillSuspends()
+        {
+            var (script, output) = TestHelper.Run("co_yield", @"
+fun inner()
+    print ""a""
+    yield
+    print ""b""
+end
+fun outer()
+    inner()
+end
+");
+            var start = script.StartCoroutine("outer", null, false, out _);
+            Assert.IsTrue(start.IsOk);
+            CollectionAssert.AreEqual(new[] { "a" }, output);
+            Assert.IsTrue(script.TickCoroutines(F64.FromInt(1)).IsOk);
+            CollectionAssert.AreEqual(new[] { "a", "b" }, output);
+        }
+
+        [Test]
+        public void YieldInACallbackFromANativeInsideACoroutine_IsATypeError()
+        {
+            // The native's nested Call runs on another VM, which a coroutine
+            // tick cannot resume.
+            var (script, output) = TestHelper.Run("callback_yield", @"
+fun cb()
+    yield
+end
+fun co()
+    begin
+        call_back()
+    rescue err
+        print err
+    end
+end
+", setupScope: (s, scope) =>
+            {
+                scope.AddFunction(new NativeFunctionDefinition(
+                    new FunctionDetails("call_back", new List<string>()),
+                    _ => { s.Call(s.GetFunction("cb", 0)); return WarValue.Null; }, "", ""));
+            });
+
+            Assert.IsTrue(script.StartCoroutine("co", null, false, out _).IsOk);
+            CollectionAssert.AreEqual(new[] { "Cannot yield outside a coroutine" }, output);
         }
 
         // ────────────────────────────────────────────────

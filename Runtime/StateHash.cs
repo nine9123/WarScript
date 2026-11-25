@@ -20,8 +20,13 @@ namespace WarScript
     /// elements; instance — the class name encoded as a text value, then its
     /// fields; native object — its formatting encoded as a text value. An array
     /// or instance already being encoded is written as <see cref="CycleMarker"/>,
-    /// and one nested deeper than <see cref="MaxValueDepth"/> as
-    /// <see cref="DepthMarker"/>.
+    /// one nested deeper than <see cref="MaxValueDepth"/> as
+    /// <see cref="DepthMarker"/>, and one already encoded earlier in this hash
+    /// (by any global) as <see cref="BackReference"/> followed by the 4-byte
+    /// index of its first encoding, counting every array and instance encoded
+    /// from 0 in encoding order (plan Q-13): shared arrays are encoded once
+    /// each, so the hash stays linear in the number of distinct values
+    /// (BUDGET-3).
     ///
     /// v1 instances have no declared field list yet (T3.4 adds one), so an
     /// instance's fields are written as: a 4-byte count of its fields, the
@@ -37,6 +42,7 @@ namespace WarScript
         public const byte GlobalsSeparator = 0xFF;
         public const byte CycleMarker = 0xFE;
         public const byte DepthMarker = 0xFD;
+        public const byte BackReference = 0xFC;
 
         /// <summary>Plan PROP-5; the same limit as equality and formatting.</summary>
         public const int MaxValueDepth = WarValue.MaxValueDepth;
@@ -65,13 +71,13 @@ namespace WarScript
             var names = new List<string>(variables.Keys);
             names.Sort(System.StringComparer.Ordinal);
 
-            var inProgress = new HashSet<object>(ReferenceComparer.Instance);
+            var seen = new Seen();
             foreach (var name in names)
             {
                 h.Chars(name);
                 h.Byte(0x00);
                 h.Byte(0x00);
-                h.Value(variables[name], 0, inProgress);
+                h.Value(variables[name], 0, seen);
             }
             return h.Hash;
         }
@@ -116,7 +122,7 @@ namespace WarScript
                 Chars(s);
             }
 
-            public void Value(in WarValue value, int depth, HashSet<object> inProgress)
+            public void Value(in WarValue value, int depth, Seen seen)
             {
                 switch (value.Tag)
                 {
@@ -145,11 +151,21 @@ namespace WarScript
                     Byte(DepthMarker);
                     return;
                 }
-                if (!inProgress.Add(value.Ref!))
+                if (seen.Encoded.TryGetValue(value.Ref!, out var index))
                 {
-                    Byte(CycleMarker);
+                    if (seen.InProgress.Contains(value.Ref!))
+                    {
+                        Byte(CycleMarker);
+                    }
+                    else
+                    {
+                        Byte(BackReference);
+                        Int32(index);
+                    }
                     return;
                 }
+                seen.Encoded.Add(value.Ref!, seen.Encoded.Count);
+                seen.InProgress.Add(value.Ref!);
 
                 if (value.Tag == ValueTag.Array)
                 {
@@ -157,7 +173,7 @@ namespace WarScript
                     Byte((byte)ValueTag.Array);
                     Int32(elements.Count);
                     foreach (var element in elements)
-                        Value(element, depth + 1, inProgress);
+                        Value(element, depth + 1, seen);
                 }
                 else
                 {
@@ -170,7 +186,7 @@ namespace WarScript
 
                     var declared = instance.Definition.ClassDetails.Properties;
                     foreach (var name in declared)
-                        Value(fields.TryGetValue(name, out var v) ? v : WarValue.Null, depth + 1, inProgress);
+                        Value(fields.TryGetValue(name, out var v) ? v : WarValue.Null, depth + 1, seen);
 
                     var others = new List<string>();
                     foreach (var name in fields.Keys)
@@ -182,12 +198,22 @@ namespace WarScript
                         Chars(name);
                         Byte(0x00);
                         Byte(0x00);
-                        Value(fields[name], depth + 1, inProgress);
+                        Value(fields[name], depth + 1, seen);
                     }
                 }
 
-                inProgress.Remove(value.Ref!);
+                seen.InProgress.Remove(value.Ref!);
             }
+        }
+
+        /// <summary>
+        /// The arrays and instances one hash has encoded (with their index)
+        /// and those it is encoding now.
+        /// </summary>
+        private sealed class Seen
+        {
+            public readonly Dictionary<object, int> Encoded = new Dictionary<object, int>(ReferenceComparer.Instance);
+            public readonly HashSet<object> InProgress = new HashSet<object>(ReferenceComparer.Instance);
         }
 
         /// <summary>Reference identity (ReferenceEqualityComparer is not in netstandard2.1).</summary>

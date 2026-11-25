@@ -111,6 +111,31 @@ print ""done""";
         }
 
         [Test]
+        public void SharedArrayIsHashedWithABackReference()
+        {
+            // Plan Q-13: an array or instance already encoded is 0xFC and the
+            // 4-byte index of its first encoding (every array and instance
+            // counted from 0 in encoding order, across all globals).
+            // 0xFF, "s" 0x00 0x00, Array, count 1, Numeric 1.0,
+            // "v" 0x00 0x00, Array, count 2, 0xFC 0, 0xFC 0.
+            Assert.AreEqual(0x49029133d216f38cUL, HashOf("s = [1]\nv = [s, s]"));
+            // 0xFF, "v" 0x00 0x00, Array (index 0), count 2, Array (index 1),
+            // count 1, Numeric 1.0, 0xFC 1.
+            Assert.AreEqual(0xc6b7a1f0ad863c6cUL, HashOf("v = [1]\nv = [v, v]"));
+            // Sharing is state: equal but distinct arrays hash differently.
+            Assert.AreNotEqual(HashOf("v = [1]\nv = [v, v]"), HashOf("v = [[1], [1]]"));
+        }
+
+        [Test]
+        public void SharedArraysAreHashedOnce()
+        {
+            // BUDGET-3 / A.27: 2^40 paths, 41 distinct arrays. Without the
+            // back-references this does not return.
+            const string source = "a = [1]\nloop i in 0..40\n    a = [a, a]\nend\nclass P(x)\nend\np = new P(a)\nq = [p, p]";
+            Assert.AreEqual(HashOf(source), HashOf(source));
+        }
+
+        [Test]
         public void DeepNestingIsCutOff()
         {
             // Deeper than MaxValueDepth (256): the hash stays finite and stable.

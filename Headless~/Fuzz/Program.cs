@@ -462,11 +462,8 @@ namespace WarScript.Fuzz
     {
         private static readonly (Regex pattern, string id)[] Table =
         {
-            // Since BUDGET-2 was fixed (T1.5) the only hang seen is the state hash
-            // walking shared arrays a mutated A.27 leaves in globals (BUDGET-3,
-            // state hash part, Q-13); any other cause looks the same, so check a
-            // timeout's case.
-            (new Regex(@"^crash: timed out"), "BUDGET-3?"),
+            // The timeout entry (BUDGET-3, state hash part) was removed when
+            // Q-13 landed: a timeout is now reported as NEW.
         };
 
         public static string Match(string signature)
