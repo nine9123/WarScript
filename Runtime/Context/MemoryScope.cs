@@ -3,49 +3,17 @@ using WarScript.Expression.Value;
 
 namespace WarScript.Context
 {
-    /// <summary>
-    /// What a <see cref="MemoryScope"/> was created for (diagnostic only;
-    /// nothing reads it since T3.5 removed the audit's scope-based checks).
-    /// </summary>
-    internal enum MemoryScopeKind
-    {
-        /// <summary>A scope not classified below (block, function and method scopes went with T3.5).</summary>
-        Block,
-        /// <summary>The host globals (<see cref="WarScriptLanguage.GlobalMemoryScope"/>).</summary>
-        Native,
-        /// <summary>The script's globals (<see cref="WarScriptLanguage.UserMemoryScope"/>).</summary>
-        User,
-        /// <summary>A class instance part's fields; the class body runs in it. Its parent is the globals (T3.4).</summary>
-        ClassInstance,
-    }
-
     public class MemoryScope
     {
         private readonly Dictionary<string, ValueReference> _variables;
         private readonly MemoryScope _parent;
         private readonly WarScriptLanguage _script;
-        internal readonly MemoryScopeKind Kind;
 
         public MemoryScope(WarScriptLanguage script, MemoryScope parent)
-            : this(script, parent, MemoryScopeKind.Block)
-        {
-        }
-
-        internal MemoryScope(WarScriptLanguage script, MemoryScope parent, MemoryScopeKind kind)
         {
             _script = script;
             _variables = new Dictionary<string, ValueReference>();
             _parent = parent;
-            Kind = kind;
-        }
-
-        /// <summary>The scope in this one's parent chain that holds <paramref name="name"/>, or null (audit mode).</summary>
-        internal MemoryScope Resolve(string name)
-        {
-            for (var scope = this; scope != null; scope = scope._parent)
-                if (scope._variables.ContainsKey(name))
-                    return scope;
-            return null;
         }
 
         internal MemoryScope Parent => _parent;

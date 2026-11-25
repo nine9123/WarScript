@@ -22,6 +22,10 @@ the imports up would run every `t[...]` before `translation_create`.
 items (`migration-report-warman.md`, run with `--import-root` on the mod) and
 nothing else.
 
+(T3.14 removed `WarScript.Migrate` and the reports it wrote, including
+`migration-report-warman.md`; they are at commit `510e6df`, meant to be tagged
+`warscript-migration-tools-final`.)
+
 ## The change
 
 | File | Change |
@@ -60,8 +64,8 @@ in v1's order.
 ## What is left (owner)
 
 1. Play. A runtime error is a v2 error with a kind, a line and a stack (T2.5).
-2. Plan 8.3 step 8: regenerate the mod archives (bytecode format v3, T3.11),
-   then remove `Tools~/WarScript.Migrate` and the audit hooks.
+2. Plan 8.3 step 8: regenerate the mod archives (bytecode format v3, T3.11).
+   (Removing `Tools~/WarScript.Migrate` and the audit hooks was done in T3.14.)
 
 After a change to the game's natives or the mod, re-run Generate Bindings and
 `.claude-task/tools/check-mod.sh <mod folder> WarScriptNatives.wsmanifest`

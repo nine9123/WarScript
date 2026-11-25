@@ -283,9 +283,6 @@ print ""f: "" + double");
         /// </summary>
         private static readonly HashSet<string> NonNumericToString = new HashSet<string>
         {
-            "AuditReport.cs: sb",                      // StringBuilder
-            "AuditReport.cs: e.Kind",                  // AuditKind
-            "AuditReport.cs: sb.Append('\"')",         // StringBuilder
             "Chunk.cs: sb",
             "WarVM.cs: v.Tag",                         // ValueTag
             "ExceptionContext.cs: Exception",          // WarScript.Exception.Exception

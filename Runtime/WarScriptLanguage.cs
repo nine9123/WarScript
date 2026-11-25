@@ -301,18 +301,6 @@ namespace WarScript
 
         private readonly HashSet<int> _breakpoints = new();
 
-        // ── Audit mode (v2 plan 8.1, T0.8; temporary) ──
-
-        /// <summary>
-        /// Receives an <see cref="Audit.AuditEvent"/> each time the VM takes a
-        /// v1 code path whose behavior changes in WarScript v2 (mixed-type
-        /// equality, text subtraction, ignored index writes, a function
-        /// writing a global, ...). Null (the default) disables auditing; the
-        /// cost is then one null check on those paths. Collect events with an
-        /// <see cref="Audit.AuditReport"/>: <c>script.AuditSink = report.Add</c>.
-        /// </summary>
-        public Action<Audit.AuditEvent>? AuditSink { get; set; }
-
         /// <summary>Add a breakpoint at a source line number.</summary>
         public void AddBreakpoint(int line) => _breakpoints.Add(line);
 
@@ -657,7 +645,7 @@ namespace WarScript
             // The host globals and the script's globals (parent: the host
             // globals). No frame pushes a MemoryScope since T3.5, so there is
             // no scope stack: the VM finds them through WarVM.NameScope.
-            var nativeMemoryScope = new MemoryScope(this, null, MemoryScopeKind.Native);
+            var nativeMemoryScope = new MemoryScope(this, null);
 
             DefinitionContext.PushScope(nativeDefinitionScope);
 
@@ -665,7 +653,7 @@ namespace WarScript
             GlobalMemoryScope = nativeMemoryScope;
 
             _definitionScope = DefinitionContext.NewScope();
-            _memoryScope = new MemoryScope(this, nativeMemoryScope, MemoryScopeKind.User);
+            _memoryScope = new MemoryScope(this, nativeMemoryScope);
 
             DefinitionContext.EndScope();
         }
@@ -1023,13 +1011,6 @@ namespace WarScript
             }
             return null;
         }
-
-        /// <summary>
-        /// Expression spans recorded while parsing (T3.2): null, except
-        /// during <see cref="ParseForMigration"/>, so a normal parse records
-        /// nothing. The migration tool supplies a reference-equality map.
-        /// </summary>
-        internal Dictionary<Expression.IExpression, Expression.ExpressionSpan>? ExpressionSpans;
 
         /// <summary>
         /// The kind of body the parser is in (T3.3): set and restored by
@@ -1605,10 +1586,10 @@ namespace WarScript
         /// <summary>
         /// Records a syntax error the parser recovers from by skipping the
         /// statement it is in (T3.8), as <see cref="RecoverFromCompileError"/>
-        /// does; never for the v1 frontend of the migration tool.
+        /// does.
         /// </summary>
         internal bool RecoverFromParseError(Exception.SyntaxException error) =>
-            !ParsingV1 && RecoverFromCompileError(error);
+            RecoverFromCompileError(error);
 
         /// <summary>The number of errors recorded so far while <see cref="Compile"/> runs (0 otherwise).</summary>
         internal int CompileErrorCount => _compileErrors?.Count ?? 0;
@@ -1660,56 +1641,6 @@ namespace WarScript
         /// </summary>
         internal static string ConstructorArityMessage(string className, string takes, int given) =>
             $"Class '{className}' takes {takes}, not {given.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
-
-        /// <summary>
-        /// True only during <see cref="ParseForMigration"/>: the parser
-        /// accepts v1 syntax, which v2 rejects: imports anywhere, <c>yield</c>
-        /// in a class body, <c>this</c> in a lambda; <c>global</c> is lexed as
-        /// a keyword but handed to the parser as a name.
-        /// </summary>
-        internal bool ParsingV1;
-
-        /// <summary>
-        /// Lexes and parses the script without compiling it, for the
-        /// migration tool (T3.2, plan 8.2): returns the token list, the
-        /// top-level statements and the definitions (the instance's own
-        /// definition scope, which keeps them), recording every expression's
-        /// span into <paramref name="spans"/>. Throws the parser's
-        /// <see cref="Exception.SyntaxException"/>. The instance is not
-        /// usable afterwards.
-        /// </summary>
-        internal (IReadOnlyList<Token.Token> Tokens, CompositeStatement TopLevel, DefinitionScope Definitions) ParseForMigration(
-            Dictionary<Expression.IExpression, Expression.ExpressionSpan> spans)
-        {
-            ExpressionSpans = spans;
-            ParsingV1 = true;
-            DefinitionContext.PushScope(_definitionScope);
-            try
-            {
-                // `global` was a name in v1 (T3.3 made it a keyword). The
-                // cached list is shared, so the renamed tokens are a copy.
-                var lexed = LexicalParser.ParseLegacy(_sourceCode);
-                var tokens = new List<Token.Token>(lexed.Count);
-                foreach (var t in lexed)
-                    tokens.Add(t.Type == Token.TokenType.Keyword && t.Value == "global"
-                        ? new Token.Token(Token.TokenType.Variable, t.Value, t.RowNumber, t.Column)
-                        : t);
-                var statement = new CompositeStatement(this, null, ScriptName);
-                StatementParser.Parse(this, tokens, statement);
-                return (tokens, statement, _definitionScope);
-            }
-            catch (Exception.SyntaxException e)
-            {
-                e.LocateIn(ScriptName, _sourceCode);
-                throw;
-            }
-            finally
-            {
-                ExpressionSpans = null;
-                ParsingV1 = false;
-                DefinitionContext.EndScope();
-            }
-        }
 
         private void RollBackCompile(HashSet<string> constantsBefore)
         {

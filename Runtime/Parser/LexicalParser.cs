@@ -46,35 +46,16 @@ namespace WarScript
 
             // Lex outside the lock: a SyntaxException caches nothing, and
             // threads lexing different sources don't wait for each other.
-            var parser = new LexicalParser(sourceCode, false);
+            var parser = new LexicalParser(sourceCode);
             parser.Scan();
 
             return Cache.Add(sourceCode, parser._tokens.AsReadOnly());
-        }
-
-        /// <summary>
-        /// The tokens of <paramref name="sourceCode"/> written in the legacy
-        /// syntax (before T3.12): <c>f [a]</c> calls and parameter lists,
-        /// <c>{1, 2}</c> arrays and <c>a{i}</c> indexes, <c>obj :: x</c>
-        /// members. They come out as the current syntax's tokens (<c>[</c>
-        /// as a call <c>(</c>, <c>{</c> as <c>[</c>, <c>::</c> as
-        /// <c>.</c>), at the old characters' positions, so the parser reads
-        /// both. Only the migration tools use it; nothing is cached.
-        /// </summary>
-        internal static IReadOnlyList<Token.Token> ParseLegacy(string sourceCode)
-        {
-            var parser = new LexicalParser(sourceCode, true);
-            parser.Scan();
-            return parser._tokens.AsReadOnly();
         }
 
         public static void ClearCache() => Cache.Clear();
 
         /// <summary>Number of sources in the token cache (tests).</summary>
         internal static int CachedCount => Cache.Count;
-
-        /// <summary>Lexing the legacy syntax (<see cref="ParseLegacy"/>).</summary>
-        private readonly bool _legacy;
 
         /// <summary>
         /// For each <c>(</c> still open: whether it opened an argument or
@@ -84,9 +65,8 @@ namespace WarScript
         /// </summary>
         private readonly Stack<bool> _parens = new Stack<bool>();
 
-        private LexicalParser(string source, bool legacy)
+        private LexicalParser(string source)
         {
-            _legacy = legacy;
             _source = source;
             _tokens = new List<Token.Token>();
             _pos = 0;
@@ -226,11 +206,8 @@ namespace WarScript
                         _pos += 2;
                         return;
                     case "::":
-                        if (!_legacy)
-                            throw new SyntaxException(
-                                System.FormattableString.Invariant($"Unexpected '::' at line {_row}: members are written obj.name"), _row, col);
-                        AddMember(col, 2);
-                        return;
+                        throw new SyntaxException(
+                            System.FormattableString.Invariant($"Unexpected '::' at line {_row}: members are written obj.name"), _row, col);
                 }
             }
 
@@ -243,30 +220,22 @@ namespace WarScript
                     _pos++;
                     return;
                 case '(':
-                    if (_legacy)
-                        Add(TokenType.Operator, "(", _row, col);
-                    else
-                        OpenParen(col);
+                    OpenParen(col);
                     _pos++;
                     return;
                 case ')':
-                    if (_legacy)
-                        Add(TokenType.Operator, ")", _row, col);
-                    else
-                        CloseParen(col);
+                    CloseParen(col);
                     _pos++;
                     return;
                 case '.':
                     // Not '..' (a range) nor '.5' (a number): both handled above.
-                    if (_legacy)
-                        break;
-                    AddMember(col, 1);
+                    AddMember(col);
                     return;
             }
 
             // ── Group dividers ──
-            // The legacy syntax's '[' ']' are an argument list's '(' ')',
-            // its '{' '}' an array's or index's '[' ']'.
+            // '[' ']' are an array literal's or an index's; '{' '}' only
+            // appear in text interpolation (T3.12).
             switch (c)
             {
                 case ',':
@@ -274,21 +243,17 @@ namespace WarScript
                     _pos++;
                     return;
                 case '[':
-                    Add(TokenType.GroupDivider, _legacy ? "(" : "[", _row, col);
+                    Add(TokenType.GroupDivider, "[", _row, col);
                     _pos++;
                     return;
                 case ']':
-                    Add(TokenType.GroupDivider, _legacy ? ")" : "]", _row, col);
+                    Add(TokenType.GroupDivider, "]", _row, col);
                     _pos++;
                     return;
                 case '{':
                 case '}':
-                    if (!_legacy)
-                        throw new SyntaxException(
-                            System.FormattableString.Invariant($"Unexpected '{c}' at line {_row}: arrays are written [1, 2, 3] and indexed a[i]"), _row, col);
-                    Add(TokenType.GroupDivider, c == '{' ? "[" : "]", _row, col);
-                    _pos++;
-                    return;
+                    throw new SyntaxException(
+                        System.FormattableString.Invariant($"Unexpected '{c}' at line {_row}: arrays are written [1, 2, 3] and indexed a[i]"), _row, col);
                 case ':':
                     // Single colon (not ::, handled above)
                     Add(TokenType.GroupDivider, ":", _row, col);
@@ -354,13 +319,12 @@ namespace WarScript
         }
 
         /// <summary>
-        /// The member operator: <c>.</c> (or the legacy <c>::</c>, whose
-        /// <paramref name="length"/> is 2), or <c>.new</c> when the word
+        /// The member operator: <c>.</c>, or <c>.new</c> when the word
         /// <c>new</c> follows it: a nested class's instance.
         /// </summary>
-        private void AddMember(int col, int length)
+        private void AddMember(int col)
         {
-            var rest = _pos + length;
+            var rest = _pos + 1;
             while (rest < _source.Length && (_source[rest] == ' ' || _source[rest] == '\t'))
                 rest++;
             if (rest + 3 <= _source.Length
@@ -373,7 +337,7 @@ namespace WarScript
             else
             {
                 Add(TokenType.Operator, ".", _row, col);
-                _pos += length;
+                _pos++;
             }
         }
         
@@ -453,7 +417,7 @@ namespace WarScript
                     Add(TokenType.Operator, "(", exprRow, holeCol);
 
                     // Recursively lex the expression
-                    var innerParser = new LexicalParser(exprSource, _legacy);
+                    var innerParser = new LexicalParser(exprSource);
                     innerParser._row = exprRow;
                     innerParser._lineStart = exprLineStart - exprStart;
                     innerParser.Scan();
@@ -735,7 +699,7 @@ namespace WarScript
 
             // Decimal part (but not the .. range operator, nor a member: `5.x`)
             // — allow _ separators here too (`1._5`; `1.` is 1).
-            if (!AtEnd && Current == '.' && Peek() != '.' && (_legacy || !StartsMember(_pos + 1)))
+            if (!AtEnd && Current == '.' && Peek() != '.' && !StartsMember(_pos + 1))
             {
                 _pos++;
                 while (!AtEnd && (char.IsDigit(Current) || Current == '_'))
