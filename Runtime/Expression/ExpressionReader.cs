@@ -528,6 +528,9 @@ namespace WarScript.Expression
                        || _operators.Peek() == Operator.Operator.ClassInstance))
                 ApplyTopOperator();
 
+            // An empty group, `()[0]`, leaves no operand to index.
+            if (_operands.Count == 0)
+                throw new SyntaxException("Malformed expression: '[' has nothing to index", bracket.RowNumber, bracket.Column);
             var target = _operands.Pop();
             var index = ReadExpression(_script, this);
             CloseIndex(null);
