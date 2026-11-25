@@ -77,13 +77,13 @@ namespace WarScript.Expression.Operator.Extensions
                 Operator.ArrayAppend          => new ArrayAppendOperator(script, left, right),
                 Operator.ArrayValue           => new ArrayValueOperator(script, left, right),
                 Operator.AdditionAssignment       => new AssignmentOperator(script, left,
-                    new AdditionOperator(script, left, right)),
+                    new AdditionOperator(script, left, right)) { CompoundOperator = "+=" },
                 Operator.SubtractionAssignment    => new AssignmentOperator(script, left,
-                    new SubtractionOperator(script, left, right)),
+                    new SubtractionOperator(script, left, right)) { CompoundOperator = "-=" },
                 Operator.MultiplicationAssignment => new AssignmentOperator(script, left,
-                    new MultiplicationOperator(script, left, right)),
+                    new MultiplicationOperator(script, left, right)) { CompoundOperator = "*=" },
                 Operator.DivisionAssignment       => new AssignmentOperator(script, left,
-                    new DivisionOperator(script, left, right)),
+                    new DivisionOperator(script, left, right)) { CompoundOperator = "/=" },
                 _ => throw new SyntaxException($"Operator {op} is not a binary operator")
             };
 

@@ -846,6 +846,9 @@ namespace WarScript.Bytecode
         /// </summary>
         private bool CompileAssignment(AssignmentOperator assign, int line)
         {
+            if (assign.CompoundOperator != null)
+                CheckCompoundTarget(assign);
+
             // ── Variable assignment: x = expr ──
             if (assign.Left is VariableExpression v)
             {
@@ -985,6 +988,76 @@ namespace WarScript.Bytecode
             throw new SyntaxException(
                 System.FormattableString.Invariant($"Invalid assignment target at line {line}: ") +
                 "only variables, array elements and class properties can be assigned to");
+        }
+
+        // ── Compound assignment targets (T3.13, PROP-32) ──
+
+        /// <summary>
+        /// <c>target op= e</c> is desugared to <c>target = target op e</c>,
+        /// so the parts of the target that compute where to read and write
+        /// (an index's target and index, a property's instance) run twice.
+        /// Reading twice is harmless; a side effect there is a compile error
+        /// until a <c>Dup2</c> opcode evaluates them once (F-PERF-8).
+        /// </summary>
+        private void CheckCompoundTarget(AssignmentOperator assign)
+        {
+            string? effect = null;
+            switch (assign.Left)
+            {
+                case ArrayValueOperator av:
+                    effect = FindSideEffect(av.Left) ?? FindSideEffect(av.Right);
+                    break;
+                case ClassPropertyOperator cp when cp.Right is VariableExpression:
+                    effect = FindSideEffect(cp.Left);
+                    break;
+                case ClassPropertyOperator cp when cp.Right is ArrayValueOperator propArr:
+                    effect = FindSideEffect(cp.Left) ?? FindSideEffect(propArr.Right);
+                    break;
+            }
+            if (effect == null) return;
+            var onThisLine = assign.Line > 0 && assign.Line == _line;
+            throw new CompileError(
+                "The target of '" + assign.CompoundOperator + "' is evaluated twice and " + effect +
+                ": put that value in a variable first",
+                _source, onThisLine ? assign.Line : _line, onThisLine ? assign.Column : _column);
+        }
+
+        /// <summary>
+        /// The first side effect of <paramref name="expression"/> in source
+        /// order, described for the PROP-32 message, or null when it has none.
+        /// A lambda's body is not looked into: creating a function value has
+        /// no side effect.
+        /// </summary>
+        private static string? FindSideEffect(IExpression? expression)
+        {
+            switch (expression)
+            {
+                case null:
+                case LambdaExpression _:
+                    return null;
+                case FunctionExpression f:
+                    return "calls '" + f.Name + "'";
+                case ClassExpression c:
+                    return "creates a '" + c.ClassName + "'";
+                // Their left operand comes before the operator in the source.
+                case AssignmentOperator a:
+                    return FindSideEffect(a.Left) ?? "assigns";
+                case ArrayAppendOperator append:
+                    return FindSideEffect(append.Left) ?? "appends with '<<'";
+                case BinaryOperatorExpression b:
+                    return FindSideEffect(b.Left) ?? FindSideEffect(b.Right);
+                case UnaryOperatorExpression u:
+                    return FindSideEffect(u.Value);
+                case ArrayExpression array:
+                    foreach (var value in array.Values)
+                    {
+                        var effect = FindSideEffect(value);
+                        if (effect != null) return effect;
+                    }
+                    return null;
+                default:
+                    return null;
+            }
         }
 
         // ── Print ──

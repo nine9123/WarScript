@@ -108,11 +108,22 @@ Results longer than `MaxTextLength` (text `+` and `*`) or `MaxArrayLength`
 (array `+`, `<<`, array literals) raise LimitExceeded (`Text too long`,
 `Array too long`), checked before anything is allocated.
 
-Compound assignment `x += e` (`-=`, `*=`, `/=`) means `x = x + e`, so the target is evaluated twice: `g()[0] += 1` calls `g` twice, and `a[i()] += 1` calls `i` twice.
+Compound assignment `x += e` (`-=`, `*=`, `/=`) means `x = x + e`: the target
+is evaluated twice (once to read, once to write) and `e` once. So the parts of
+the target that are evaluated twice (an index's target and index, a property's
+instance) may not have a side effect: a call (`g()[0] += 1`, `a[i()] += 1`,
+`make_unit().hp -= 1`), `new`, an assignment (`a[i += 1] += 1`) or `<<` there is
+a compile error at the operator, `The target of '+=' is evaluated twice and
+calls 'g': put that value in a variable first` (PROP-32). Put the value in a
+variable first (`row = g()` then `row[0] += 1`). Reads (`a[i] += 1`,
+`grid[x][y] += 1`, `p.items[0][1] += 1`, `@hp -= 1`) and calls on the right
+(`a[0] += g()`) are fine.
 
 [Goldens: `language/operator_types.ws`, `language/operator_table.ws`,
-`language/text_length_limit.ws`, `errors/division_by_zero.ws`,
-`errors/modulo_by_zero.ws`; the array limits are `AllocationGuardTests`.]
+`language/text_length_limit.ws`, `language/compound_assignment_targets.ws`,
+`errors/division_by_zero.ws`, `errors/modulo_by_zero.ws`,
+`errors/compound_target_call.ws`; the array limits are `AllocationGuardTests`,
+the compound targets `CompoundAssignmentTests`.]
 
 ## 4. Equality
 
@@ -444,7 +455,9 @@ Errors:
   enum member; `this` or `@x` outside a class or in a lambda; `@x` that is not a
   field of the class (PROP-29);
 - the scope errors of section 6 and the definition errors of section 8;
-- an assignment to a constant or enum anywhere in the module set.
+- an assignment to a constant or enum anywhere in the module set;
+- a compound assignment whose target has a call, `new`, an assignment or `<<`
+  in a part it evaluates twice (PROP-32, section 3).
 
 Warnings (errors when the host compiles with warnings as errors, PROP-31):
 

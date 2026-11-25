@@ -19,6 +19,15 @@ namespace WarScript.Expression.Operator
         /// </summary>
         internal bool Desugared { get; set; }
 
+        /// <summary>
+        /// The operator written for a compound assignment (<c>"+="</c>,
+        /// <c>"-="</c>, <c>"*="</c>, <c>"/="</c>), which the parser desugars to
+        /// <c>target = target op e</c>; null for a plain <c>=</c>. The compiler
+        /// rejects a compound target whose twice-evaluated parts have a side
+        /// effect (T3.13, PROP-32).
+        /// </summary>
+        internal string CompoundOperator { get; set; }
+
         public AssignmentOperator(WarScriptLanguage script, IExpression left, IExpression right) : base(script, left, right) { }
     }
 }

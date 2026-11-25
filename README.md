@@ -1545,7 +1545,8 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 - Array indexing is `arr[i]` (and chains: `grid[0][1]`); calls and parameter lists use `(` and `)`; members are `obj.x`.
 - A `(` right after a name is a call, even with a space between (`f (x)` is `f(x)`); `f [x]` indexes a variable `f`.
 - Only a name can be called: `arr[0](args)` and `f(x)(y)` are syntax errors — put the value in a variable first.
-- Compound assignment evaluates its target twice: `g()[0] += 1` calls `g` twice.
+- Compound assignment evaluates its target twice, so a call (or `new`, `=`, `<<`) in it is a compile error:
+  `g()[0] += 1` → `The target of '+=' is evaluated twice and calls 'g'`. Write `row = g()` then `row[0] += 1`.
 - A `fun` nested inside another `fun` is not callable from the outer body; use a lambda value.
 - `this` (or `@x`) outside every class is a compile error (`'this' and '@' fields can only be used
   inside a class`).
