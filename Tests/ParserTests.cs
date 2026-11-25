@@ -319,7 +319,9 @@ namespace Tests
             var body = module.Definitions.GetFunction("f", 0).Statement.StatementsToExecute;
             Assert.IsInstanceOf<GlobalStatement>(body[0]);
             Assert.AreEqual(new[] { "a", "b", "c" }, ((GlobalStatement)body[0]).Names.ToArray());
-            Assert.AreEqual((2, 5), (body[0].RowNumber, body[0].Column));
+            // RowNumber is int?: an (int, int) expected tuple is never Equal to an (int?, int) one
+            // under Unity's NUnit, which compares tuples with Equals (newer NUnit compares elements).
+            Assert.AreEqual(((int?)2, 5), (body[0].RowNumber, body[0].Column));
         }
 
         [TestCase("fun f()\n    global\nend")]
