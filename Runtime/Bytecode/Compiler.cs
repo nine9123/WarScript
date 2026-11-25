@@ -1505,7 +1505,19 @@ namespace WarScript.Bytecode
             Chunk.PatchJump(jumpToEnsure);
             tryCtx.Region = TryRegion.Ensure;
             if (stmt.EnsureStatement != null)
+            {
                 CompileEnsureBody(stmt.EnsureStatement, line);
+                // An ensure block that compiles to nothing (`ensure` with no
+                // statements, or only `global`) would start where the block
+                // ends, which the VM and the verifier read as "no ensure
+                // block" — yet the rescue body above already ends with the
+                // PopHandler of one. Give it code of its own.
+                if (Chunk.Count == ensureIP)
+                {
+                    Chunk.EmitOp(OpCode.Null, line);
+                    Chunk.EmitOp(OpCode.Pop, line);
+                }
+            }
 
             int endIP = Chunk.Count;
             _tries.RemoveAt(_tries.Count - 1);
