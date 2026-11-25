@@ -9,7 +9,7 @@ namespace WarScript.Expression
         /// parser made the expression up (a desugared default, const or
         /// enum). Not an <see cref="IPositionedExpression"/>: an error about
         /// a variable is reported at its statement or operator. Read by the
-        /// migration tool (T3.2).
+        /// compile-time checks.
         /// </summary>
         public int Line { get; internal set; }
 

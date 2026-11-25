@@ -30,7 +30,7 @@ namespace WarScript.Bytecode
 
         /// <summary>
         /// The script the code was compiled from (the instance's script name or
-        /// an import path), for audit events (plan 8.1). Not serialized: null
+        /// an import path), for error call stacks and compile errors. Not serialized: null
         /// for bytecode loaded with LoadBytecode or a BytecodeResolver.
         /// </summary>
         internal string? Source;
