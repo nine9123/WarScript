@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Collections.Generic;
 using NUnit.Framework;
 using WarScript;
@@ -5,7 +6,6 @@ using WarScript.Expression;
 using WarScript.Expression.Operator;
 using WarScript.Expression.Value;
 using FixMath;
-using WarScript.Expression;
 using WarScript.Statement;
 using WarScript.Token;
 
@@ -25,14 +25,12 @@ namespace Tests
             _script = new WarScriptLanguage("test", "", null, null);
             _script.Run();
             _script.DefinitionContext.PushScope(_script.DefinitionContext.NewScope());
-            _script.MemoryContext.PushScope(_script.MemoryContext.NewScope());
         }
 
         [TearDown]
         public void TearDown()
         {
             _script.DefinitionContext.EndScope();
-            _script.MemoryContext.EndScope();
         }
 
         private WarScript.Token.Token T(TokenType type, string value, int row = 1)
@@ -58,7 +56,7 @@ namespace Tests
             var printStatement = (PrintStatement)statements[0];
 
             Assert.IsInstanceOf<ConstantExpression>(printStatement.Expression);
-            var textValue = ((ConstantExpression)printStatement.Expression).Evaluate();
+            var textValue = ((ConstantExpression)printStatement.Expression).Value;
 
             Assert.AreEqual("Hello World", textValue.TextValue);
         }
@@ -94,11 +92,11 @@ namespace Tests
             var addOperator = (AdditionOperator)assignOperator.Right;
 
             Assert.IsInstanceOf<ConstantExpression>(addOperator.Left);
-            var left = ((ConstantExpression)addOperator.Left).Evaluate();
+            var left = ((ConstantExpression)addOperator.Left).Value;
             Assert.AreEqual(F64.FromInt(2), left.Numeric);
 
             Assert.IsInstanceOf<ConstantExpression>(addOperator.Right);
-            var right = ((ConstantExpression)addOperator.Right).Evaluate();
+            var right = ((ConstantExpression)addOperator.Right).Value;
             Assert.AreEqual(F64.FromInt(5), right.Numeric);
         }
 
@@ -147,13 +145,13 @@ namespace Tests
             Assert.AreEqual("a", ((VariableExpression)gtOp.Left).Name);
 
             Assert.IsInstanceOf<ConstantExpression>(gtOp.Right);
-            Assert.AreEqual(F64.FromInt(5), ((ConstantExpression)gtOp.Right).Evaluate().Numeric);
+            Assert.AreEqual(F64.FromInt(5), ((ConstantExpression)gtOp.Right).Value.Numeric);
 
             Assert.AreEqual(1, ifBody.StatementsToExecute.Count);
             Assert.IsInstanceOf<PrintStatement>(ifBody.StatementsToExecute[0]);
             var ifPrint = (PrintStatement)ifBody.StatementsToExecute[0];
             Assert.IsInstanceOf<ConstantExpression>(ifPrint.Expression);
-            Assert.AreEqual("a is greater than 5", ((ConstantExpression)ifPrint.Expression).Evaluate().TextValue);
+            Assert.AreEqual("a is greater than 5", ((ConstantExpression)ifPrint.Expression).Value.TextValue);
 
             // elif case
             var elifCondition = cases[1].Key;
@@ -166,26 +164,26 @@ namespace Tests
             Assert.AreEqual("a", ((VariableExpression)gteOp.Left).Name);
 
             Assert.IsInstanceOf<ConstantExpression>(gteOp.Right);
-            Assert.AreEqual(F64.FromInt(1), ((ConstantExpression)gteOp.Right).Evaluate().Numeric);
+            Assert.AreEqual(F64.FromInt(1), ((ConstantExpression)gteOp.Right).Value.Numeric);
 
             Assert.AreEqual(1, elifBody.StatementsToExecute.Count);
             Assert.IsInstanceOf<PrintStatement>(elifBody.StatementsToExecute[0]);
             var elifPrint = (PrintStatement)elifBody.StatementsToExecute[0];
             Assert.IsInstanceOf<ConstantExpression>(elifPrint.Expression);
-            Assert.AreEqual("a is greater than or equal to 1", ((ConstantExpression)elifPrint.Expression).Evaluate().TextValue);
+            Assert.AreEqual("a is greater than or equal to 1", ((ConstantExpression)elifPrint.Expression).Value.TextValue);
 
             // else case
             var elseCondition = cases[2].Key;
             var elseBody = cases[2].Value;
 
-            Assert.IsTrue(elseCondition is ConstantExpression ce && ce.Evaluate().IsLogical);
-            Assert.IsTrue(((ConstantExpression)elseCondition).Evaluate().LogicalValue);
+            Assert.IsTrue(elseCondition is ConstantExpression ce && ce.Value.IsLogical);
+            Assert.IsTrue(((ConstantExpression)elseCondition).Value.LogicalValue);
 
             Assert.AreEqual(1, elseBody.StatementsToExecute.Count);
             Assert.IsInstanceOf<PrintStatement>(elseBody.StatementsToExecute[0]);
             var elsePrint = (PrintStatement)elseBody.StatementsToExecute[0];
             Assert.IsInstanceOf<ConstantExpression>(elsePrint.Expression);
-            Assert.AreEqual("a is less than 1", ((ConstantExpression)elsePrint.Expression).Evaluate().TextValue);
+            Assert.AreEqual("a is less than 1", ((ConstantExpression)elsePrint.Expression).Value.TextValue);
         }
 
         [Test]
@@ -195,11 +193,11 @@ namespace Tests
             {
                 T(TokenType.Keyword, "class", 1),
                 T(TokenType.Variable, "Person", 1),
-                T(TokenType.GroupDivider, "[", 1),
+                T(TokenType.GroupDivider, "(", 1),
                 T(TokenType.Variable, "name", 1),
                 T(TokenType.GroupDivider, ",", 1),
                 T(TokenType.Variable, "age", 1),
-                T(TokenType.GroupDivider, "]", 1),
+                T(TokenType.GroupDivider, ")", 1),
                 T(TokenType.LineBreak, "\n", 1),
                 T(TokenType.Keyword, "end", 2),
                 T(TokenType.LineBreak, "\n", 2),
@@ -207,21 +205,21 @@ namespace Tests
                 T(TokenType.Operator, "=", 3),
                 T(TokenType.Operator, "new", 3),
                 T(TokenType.Variable, "Person", 3),
-                T(TokenType.GroupDivider, "[", 3),
+                T(TokenType.GroupDivider, "(", 3),
                 T(TokenType.Text, "Randy Marsh", 3),
                 T(TokenType.GroupDivider, ",", 3),
                 T(TokenType.Numeric, "45", 3),
-                T(TokenType.GroupDivider, "]", 3),
+                T(TokenType.GroupDivider, ")", 3),
                 T(TokenType.LineBreak, "\n", 3),
                 T(TokenType.Keyword, "print", 4),
                 T(TokenType.Variable, "person", 4),
-                T(TokenType.Operator, "::", 4),
+                T(TokenType.Operator, ".", 4),
                 T(TokenType.Variable, "name", 4),
                 T(TokenType.Operator, "+", 4),
                 T(TokenType.Text, " is ", 4),
                 T(TokenType.Operator, "+", 4),
                 T(TokenType.Variable, "person", 4),
-                T(TokenType.Operator, "::", 4),
+                T(TokenType.Operator, ".", 4),
                 T(TokenType.Variable, "age", 4),
                 T(TokenType.Operator, "+", 4),
                 T(TokenType.Text, " years old", 4)
@@ -293,9 +291,46 @@ namespace Tests
             Assert.AreEqual("a", variableExpression.Name);
 
             Assert.IsInstanceOf<ConstantExpression>(assignStatement.Right);
-            var numericValue = ((ConstantExpression)assignStatement.Right).Evaluate();
+            var numericValue = ((ConstantExpression)assignStatement.Right).Value;
 
             Assert.AreEqual(F64.FromInt(5), numericValue.Numeric);
+        }
+
+        [Test]
+        public void ParseModule_ListsTheImports_AndKeepsThemAsTopLevelStatements()
+        {
+            // T3.3: the module structure (imports, top-level statements, definitions).
+            var module = StatementParser.ParseModule(_script,
+                LexicalParser.Parse("# lib\nimport \"a\"\nimport \"b\"\nfun f() return 1 end\nx = f()"), "m");
+
+            Assert.AreEqual(new[] { "a", "b" }, module.Imports.Select(i => i.Path).ToArray());
+            Assert.AreEqual(3, module.TopLevel.StatementsToExecute.Count);
+            Assert.AreSame(module.Imports[0], module.TopLevel.StatementsToExecute[0]);
+            Assert.AreEqual("m", module.TopLevel.BlockName);
+            Assert.IsNotNull(module.Definitions.GetFunction("f", 0));
+        }
+
+        [Test]
+        public void GlobalStatement_HoldsItsNames()
+        {
+            var module = StatementParser.ParseModule(_script,
+                LexicalParser.Parse("fun f()\n    global a, b,\n        c\n    a = 1\nend"), "m");
+
+            var body = module.Definitions.GetFunction("f", 0).Statement.StatementsToExecute;
+            Assert.IsInstanceOf<GlobalStatement>(body[0]);
+            Assert.AreEqual(new[] { "a", "b", "c" }, ((GlobalStatement)body[0]).Names.ToArray());
+            // RowNumber is int?: an (int, int) expected tuple is never Equal to an (int?, int) one
+            // under Unity's NUnit, which compares tuples with Equals (newer NUnit compares elements).
+            Assert.AreEqual(((int?)2, 5), (body[0].RowNumber, body[0].Column));
+        }
+
+        [TestCase("fun f()\n    global\nend")]
+        [TestCase("fun f()\n    global a,\nend")]
+        [TestCase("fun f()\n    global 1\nend")]
+        public void GlobalStatement_WithoutNames_IsASyntaxError(string source)
+        {
+            Assert.Throws<WarScript.Exception.SyntaxException>(() =>
+                StatementParser.ParseModule(_script, LexicalParser.Parse(source), "m"));
         }
     }
 }

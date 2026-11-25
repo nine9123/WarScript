@@ -1,3 +1,4 @@
+using System.Linq;
 using NUnit.Framework;
 using WarScript;
 using WarScript.Token;
@@ -23,7 +24,7 @@ namespace Tests
             foreach (var op in ops)
             {
                 var tokens = LexicalParser.Parse($"1 {op} 2");
-                Assert.IsTrue(tokens.Exists(t => t.Type == TokenType.Operator && t.Value == op),
+                Assert.IsTrue(tokens.Any(t => t.Type == TokenType.Operator && t.Value == op),
                     $"Operator '{op}' not recognized");
             }
         }
@@ -190,10 +191,10 @@ namespace Tests
         [Test]
         public void TestClass()
         {
-            var source = "class Person [ name, age ]\n" +
+            var source = "class Person( name, age )\n" +
                          "end\n" +
-                         "person = new Person[\"Randy Marsh\", 45]\n" +
-                         "print person :: name + \" is \" + person :: age + \" years old\"";
+                         "person = new Person(\"Randy Marsh\", 45)\n" +
+                         "print person.name + \" is \" + person.age + \" years old\"";
             var tokens = LexicalParser.Parse(source);
 
             Assert.AreEqual(32, tokens.Count);
@@ -208,7 +209,7 @@ namespace Tests
             Assert.AreEqual(1, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.GroupDivider, tokens[++count].Type);
-            Assert.AreEqual("[", tokens[count].Value);
+            Assert.AreEqual("(", tokens[count].Value);
             Assert.AreEqual(1, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.Variable, tokens[++count].Type);
@@ -224,7 +225,7 @@ namespace Tests
             Assert.AreEqual(1, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.GroupDivider, tokens[++count].Type);
-            Assert.AreEqual("]", tokens[count].Value);
+            Assert.AreEqual(")", tokens[count].Value);
             Assert.AreEqual(1, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.LineBreak, tokens[++count].Type);
@@ -256,7 +257,7 @@ namespace Tests
             Assert.AreEqual(3, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.GroupDivider, tokens[++count].Type);
-            Assert.AreEqual("[", tokens[count].Value);
+            Assert.AreEqual("(", tokens[count].Value);
             Assert.AreEqual(3, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.Text, tokens[++count].Type);
@@ -272,7 +273,7 @@ namespace Tests
             Assert.AreEqual(3, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.GroupDivider, tokens[++count].Type);
-            Assert.AreEqual("]", tokens[count].Value);
+            Assert.AreEqual(")", tokens[count].Value);
             Assert.AreEqual(3, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.LineBreak, tokens[++count].Type);
@@ -288,7 +289,7 @@ namespace Tests
             Assert.AreEqual(4, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.Operator, tokens[++count].Type);
-            Assert.AreEqual("::", tokens[count].Value);
+            Assert.AreEqual(".", tokens[count].Value);
             Assert.AreEqual(4, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.Variable, tokens[++count].Type);
@@ -312,7 +313,7 @@ namespace Tests
             Assert.AreEqual(4, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.Operator, tokens[++count].Type);
-            Assert.AreEqual("::", tokens[count].Value);
+            Assert.AreEqual(".", tokens[count].Value);
             Assert.AreEqual(4, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.Variable, tokens[++count].Type);
@@ -366,8 +367,8 @@ namespace Tests
         [Test]
         public void ThisBeforeClosingBracket()
         {
-            var tokens = LexicalParser.Parse("arr_remove[objects, this]");
-            var thisToken = tokens.Find(t => t.Value == "this");
+            var tokens = LexicalParser.Parse("arr_remove(objects, this)");
+            var thisToken = tokens.FirstOrDefault(t => t.Value == "this");
             Assert.IsNotNull(thisToken);
             Assert.AreEqual(TokenType.This, thisToken.Type,
                 "this before ] was lexed as Variable instead of This");
@@ -376,8 +377,8 @@ namespace Tests
         [Test]
         public void NullBeforeClosingBracket()
         {
-            var tokens = LexicalParser.Parse("call[null]");
-            var nullToken = tokens.Find(t => t.Value == "null");
+            var tokens = LexicalParser.Parse("call(null)");
+            var nullToken = tokens.FirstOrDefault(t => t.Value == "null");
             Assert.IsNotNull(nullToken);
             Assert.AreEqual(TokenType.Null, nullToken.Type,
                 "null before ] was lexed as Variable instead of Null");
@@ -387,8 +388,40 @@ namespace Tests
         public void KeywordsBeforeClosingBracket()
         {
             var tokens = LexicalParser.Parse("if this and true]");
-            var andToken = tokens.Find(t => t.Value == "and");
+            var andToken = tokens.FirstOrDefault(t => t.Value == "and");
             Assert.AreEqual(TokenType.Operator, andToken.Type);
+        }
+
+        [Test]
+        public void At_Field_IsThisPropertyAccess_AtTheColumnOfTheAt()
+        {
+            // T3.3 (DEC-6, 5.7): `@hp` lexes as `this.hp`, every token at the `@`.
+            var tokens = LexicalParser.Parse("x = @hp_2 + 1");
+            Assert.AreEqual(
+                new[] { "Variable x 1", "Operator = 3", "This this 5", "Operator . 5", "Variable hp_2 5", "Operator + 11", "Numeric 1 13" },
+                tokens.Select(t => t.Type + " " + t.Value + " " + t.Column).ToArray());
+        }
+
+        [TestCase("@")]
+        [TestCase("@ hp")]
+        [TestCase("@1")]
+        [TestCase("@if")]
+        [TestCase("@this")]
+        [TestCase("@true")]
+        [TestCase("@new")]
+        public void At_WithoutAFieldName_IsASyntaxError(string source)
+        {
+            var e = Assert.Throws<WarScript.Exception.SyntaxException>(() => LexicalParser.Parse(source));
+            StringAssert.Contains("'@' must be followed by a field name", e.Message);
+            Assert.AreEqual((1, 1), (e.Line, e.Column));
+        }
+
+        [Test]
+        public void Global_IsAKeyword()
+        {
+            // T3.3 (PROP-10): reserved; `globals` and `global_` stay names.
+            var tokens = LexicalParser.Parse("global globals global_");
+            Assert.AreEqual(new[] { TokenType.Keyword, TokenType.Variable, TokenType.Variable }, tokens.Select(t => t.Type).ToArray());
         }
     }
 }

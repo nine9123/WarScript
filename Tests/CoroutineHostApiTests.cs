@@ -3,6 +3,8 @@ using FixMath;
 using NUnit.Framework;
 using WarScript;
 using WarScript.Bytecode;
+using WarScript.Context.Definition;
+using WarScript.Expression.Value;
 
 namespace Tests
 {
@@ -23,7 +25,7 @@ namespace Tests
         public void UncaughtRaiseInsideCoroutine_KillsCoroutine_LogsError_LeavesNoRaisedState()
         {
             var (script, output) = TestHelper.Run("co_raise", @"
-fun co []
+fun co()
     yield
     raise ""boom""
 end
@@ -42,7 +44,7 @@ end
         public void RescueSpansYield_ExceptionAfterResumeIsStillCaught()
         {
             var (script, output) = TestHelper.Run("co_rescue", @"
-fun co []
+fun co()
     begin
         print ""before""
         yield
@@ -64,7 +66,7 @@ end
         public void InstructionBudgetExceededInsideCoroutine_KillsCoroutine()
         {
             var (script, output) = TestHelper.Run("co_budget", @"
-fun co []
+fun co()
     yield
     loop true
         x = 1
@@ -92,7 +94,7 @@ end
             // scripts must not rely on ensure for cleanup across yields when
             // the host may stop them.
             var (script, output) = TestHelper.Run("co_stop_ensure", @"
-fun co []
+fun co()
     begin
         print ""in""
         yield
@@ -117,7 +119,7 @@ end
         public void ZeroDtTick_DoesNotFireWait()
         {
             var (script, output) = TestHelper.Run("co_zero_dt", @"
-fun co []
+fun co()
     print ""start""
     yield wait 1.0
     print ""done""
@@ -138,7 +140,7 @@ end
         public void NegativeWaitDuration_FiresOnNextTick()
         {
             var (script, output) = TestHelper.Run("co_neg_wait", @"
-fun co []
+fun co()
     yield wait -1
     print ""fired""
 end
@@ -157,7 +159,7 @@ end
         public void LoopLocalsAccumulateAcrossRepeatedWaits()
         {
             var (script, output) = TestHelper.Run("co_locals", @"
-fun co []
+fun co()
     total = 0
     loop i in 0..3
         total += i + 10
@@ -181,23 +183,75 @@ end
         [Test]
         public void StopCoroutine_UnknownId_ReturnsFalse()
         {
-            var (script, _) = TestHelper.Run("co_bogus_stop", "fun co []\n    yield\nend\n");
+            var (script, _) = TestHelper.Run("co_bogus_stop", "fun co()\n    yield\nend\n");
             Assert.IsFalse(script.StopCoroutine(999));
         }
 
         [Test]
-        public void StartCoroutine_WrongArity_ReturnsMinusOneAndRaises()
+        public void StartCoroutine_WrongArity_ReturnsMinusOneAndANameError()
         {
-            var (script, _) = TestHelper.Run("co_wrong_arity", @"
-fun co [a]
+            var (script, output) = TestHelper.Run("co_wrong_arity", @"
+fun co(a)
     yield
 end
 ");
-            var id = script.StartCoroutine("co", null); // declared with 1 arg, given 0
+            var result = script.StartCoroutine("co", null, false, out var id); // declared with 1 arg, given 0
 
             Assert.AreEqual(-1, id);
-            Assert.IsTrue(script.ExceptionContext.IsRaised());
-            script.ExceptionContext.RescueException();
+            Assert.AreEqual(ScriptStatus.Error, result.Status);
+            Assert.AreEqual(ScriptErrorKind.NameError, result.Error.Kind);
+            Assert.AreEqual("Coroutine function 'co' with 0 arguments is not defined", result.Error.Message);
+            Assert.IsFalse(script.ExceptionContext.IsRaised(), "the error is the result's, logged at the outermost entry");
+            Assert.AreEqual(1, output.Count);
+        }
+
+        // ────────────────────────────────────────────────
+        //  Functions without bytecode (T2.1: no AST interpreter)
+        // ────────────────────────────────────────────────
+
+        private static (WarScriptLanguage script, List<string> output, System.Func<bool> called) ScriptWithHostFunction()
+        {
+            var output = new List<string>();
+            var called = false;
+            var script = new WarScriptLanguage("no_bytecode", "fun co()\n    yield\nend\n", null, (s, msg) => output.Add(msg));
+            script.GlobalDefinitionScope.AddFunction(new NativeFunctionDefinition(
+                new FunctionDetails("host_fn", new List<string>()),
+                args => { called = true; return WarValue.Null; }, "", ""));
+            script.Run();
+            return (script, output, () => called);
+        }
+
+        [Test]
+        public void Call_OnAFunctionWithoutBytecode_LogsAndDoesNothing()
+        {
+            var (script, output, called) = ScriptWithHostFunction();
+            var function = script.GetFunction("host_fn", 0);
+            Assert.IsNotNull(function);
+            Assert.IsNull(function.Definition.Compiled);
+
+            var result = script.Call(function);
+
+            Assert.AreEqual(ScriptStatus.Error, result.Status);
+            Assert.AreEqual(ScriptErrorKind.TypeError, result.Error.Kind);
+            Assert.IsFalse(called(), "the host function is not run through Call");
+            Assert.AreEqual(1, output.Count);
+            StringAssert.Contains("Cannot call 'host_fn' in 'no_bytecode': it has no bytecode", output[0]);
+            Assert.IsFalse(script.ExceptionContext.IsRaised());
+        }
+
+        [Test]
+        public void StartCoroutine_OnAFunctionWithoutBytecode_ReturnsMinusOneAndATypeError()
+        {
+            var (script, _, called) = ScriptWithHostFunction();
+
+            var result = script.StartCoroutine("host_fn", null, false, out var id);
+
+            Assert.AreEqual(-1, id);
+            Assert.IsFalse(called());
+            Assert.AreEqual(0, script.ActiveCoroutineCount);
+            Assert.AreEqual(ScriptErrorKind.TypeError, result.Error.Kind);
+            StringAssert.Contains("has no bytecode", result.Error.Message);
+            Assert.IsFalse(script.ExceptionContext.IsRaised());
         }
 
         // ────────────────────────────────────────────────
@@ -205,20 +259,73 @@ end
         // ────────────────────────────────────────────────
 
         [Test]
-        public void PlainCallHittingYield_StopsAtYield_AndSetsIsYielded()
+        public void PlainCallHittingYield_IsATypeError_AndDoesNotYield()
         {
+            // Q-15, SEM-14: nothing could resume a plain Call, which used to
+            // end silently at the yield.
             var (script, output) = TestHelper.Run("plain_yield", @"
-fun gen []
+fun gen()
     print ""a""
     yield
     print ""b""
 end
 ");
-            script.Call(script.GetFunction("gen", 0));
+            script.LogUnhandledErrors = false;
+            var result = script.Call(script.GetFunction("gen", 0));
 
-            Assert.IsTrue(script.IsYielded);
-            Assert.AreEqual(1, output.Count, "execution stops at the yield; there is no way to resume a plain Call");
-            Assert.AreEqual("a", output[0]);
+            Assert.AreEqual(ScriptStatus.Error, result.Status);
+            Assert.AreEqual(ScriptErrorKind.TypeError, result.Error.Kind);
+            Assert.AreEqual("Cannot yield outside a coroutine", result.Error.Message);
+            Assert.AreEqual(4, result.Error.Line);
+            Assert.IsFalse(script.IsYielded);
+            CollectionAssert.AreEqual(new[] { "a" }, output);
+        }
+
+        [Test]
+        public void YieldInAFunctionCalledFromACoroutine_StillSuspends()
+        {
+            var (script, output) = TestHelper.Run("co_yield", @"
+fun inner()
+    print ""a""
+    yield
+    print ""b""
+end
+fun outer()
+    inner()
+end
+");
+            var start = script.StartCoroutine("outer", null, false, out _);
+            Assert.IsTrue(start.IsOk);
+            CollectionAssert.AreEqual(new[] { "a" }, output);
+            Assert.IsTrue(script.TickCoroutines(F64.FromInt(1)).IsOk);
+            CollectionAssert.AreEqual(new[] { "a", "b" }, output);
+        }
+
+        [Test]
+        public void YieldInACallbackFromANativeInsideACoroutine_IsATypeError()
+        {
+            // The native's nested Call runs on another VM, which a coroutine
+            // tick cannot resume.
+            var (script, output) = TestHelper.Run("callback_yield", @"
+fun cb()
+    yield
+end
+fun co()
+    begin
+        call_back()
+    rescue err
+        print err
+    end
+end
+", setupScope: (s, scope) =>
+            {
+                scope.AddFunction(new NativeFunctionDefinition(
+                    new FunctionDetails("call_back", new List<string>()),
+                    _ => { s.Call(s.GetFunction("cb", 0)); return WarValue.Null; }, "", ""));
+            });
+
+            Assert.IsTrue(script.StartCoroutine("co", null, false, out _).IsOk);
+            CollectionAssert.AreEqual(new[] { "Cannot yield outside a coroutine" }, output);
         }
 
         // ────────────────────────────────────────────────
@@ -230,7 +337,7 @@ end
         {
             var hitLines = new List<int>();
             var (script, _) = TestHelper.Run("co_debug", @"
-fun co []
+fun co()
     a = 1
     yield
     b = 2

@@ -56,9 +56,11 @@ namespace Tests
         }
 
         [Test]
-        public void StringSubtraction()
+        public void TextRemove()
         {
-            var (_, output) = TestHelper.Run("test", "print \"hello world\" - \"world\"");
+            // Text subtraction is gone (PROP-7, T3.6); Text_remove replaces it.
+            var (_, output) = TestHelper.Run("test", "print Text_remove(\"hello world\", \"world\")",
+                (script, scope) => WarScript.Native.TextLibrary.Register(script, scope));
             Assert.AreEqual(new[] { "hello " }, output);
         }
 
@@ -88,10 +90,19 @@ namespace Tests
         }
 
         [Test]
-        public void NullDefault()
+        public void UndefinedVariable_RaisesNameError()
         {
-            var (_, output) = TestHelper.Run("test", "print x");
-            Assert.AreEqual(new[] { "null" }, output);
+            // DEC-5, 5.6: a name that was never assigned is not null.
+            var (_, output) = TestHelper.Run("test", @"
+                begin
+                    print x
+                rescue e
+                    print e
+                end
+                x = null
+                print x
+            ");
+            Assert.AreEqual(new[] { "undefined variable 'x'", "null" }, output);
         }
 
         // Conditions
@@ -179,7 +190,7 @@ namespace Tests
         public void IterableLoop()
         {
             var (_, output) = TestHelper.Run("test", @"
-                arr = {10, 20, 30}
+                arr = [10, 20, 30]
                 loop item in arr
                     print item
                 end
@@ -221,10 +232,10 @@ namespace Tests
         public void FunctionDefinitionAndCall()
         {
             var (_, output) = TestHelper.Run("test", @"
-                fun add [a, b]
+                fun add(a, b)
                     return a + b
                 end
-                print add [3, 4]
+                print add(3, 4)
             ");
             Assert.AreEqual(new[] { "7" }, output);
         }
@@ -233,13 +244,13 @@ namespace Tests
         public void FunctionRecursion()
         {
             var (_, output) = TestHelper.Run("test", @"
-                fun factorial [n]
+                fun factorial(n)
                     if n <= 1
                         return 1
                     end
-                    return n * factorial [n - 1]
+                    return n * factorial(n - 1)
                 end
-                print factorial [5]
+                print factorial(5)
             ");
             Assert.AreEqual(new[] { "120" }, output);
         }
@@ -250,11 +261,11 @@ namespace Tests
         public void ClassPropertyAccess()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class Point [x, y]
+                class Point(x, y)
                 end
-                p = new Point [3, 4]
-                print p :: x
-                print p :: y
+                p = new Point(3, 4)
+                print p.x
+                print p.y
             ");
             Assert.AreEqual(new[] { "3", "4" }, output);
         }
@@ -263,13 +274,13 @@ namespace Tests
         public void ClassMethod()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class Vec2 [x, y]
-                    fun length []
-                        return pow[pow[x, 2] + pow[y, 2], 0.5]
+                class Vec2(x, y)
+                    fun length()
+                        return pow(pow(@x, 2) + pow(@y, 2), 0.5)
                     end
                 end
-                v = new Vec2 [3, 4]
-                print round[v :: length []]
+                v = new Vec2(3, 4)
+                print round(v.length())
             ", delegate(WarScriptLanguage script, DefinitionScope scope)
             {
                 MathLibrary.Register(script, scope);
@@ -281,11 +292,11 @@ namespace Tests
         public void ClassPropertyMutation()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class Box [value]
+                class Box(value)
                 end
-                b = new Box [10]
-                b :: value = 20
-                print b :: value
+                b = new Box(10)
+                b.value = 20
+                print b.value
             ");
             Assert.AreEqual(new[] { "20" }, output);
         }
@@ -294,15 +305,15 @@ namespace Tests
         public void ClassInheritance()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class Animal [name]
-                    fun speak []
-                        return name + "" speaks""
+                class Animal(name)
+                    fun speak()
+                        return @name + "" speaks""
                     end
                 end
-                class Dog [name] : Animal [name]
+                class Dog(name) : Animal(name)
                 end
-                d = new Dog [""Rex""]
-                print d :: speak []
+                d = new Dog(""Rex"")
+                print d.speak()
             ");
             Assert.AreEqual(new[] { "Rex speaks" }, output);
         }
@@ -313,9 +324,9 @@ namespace Tests
         public void ArrayCreationAndAccess()
         {
             var (_, output) = TestHelper.Run("test", @"
-                arr = {10, 20, 30}
-                print arr{0}
-                print arr{2}
+                arr = [10, 20, 30]
+                print arr[0]
+                print arr[2]
             ");
             Assert.AreEqual(new[] { "10", "30" }, output);
         }
@@ -324,7 +335,7 @@ namespace Tests
         public void ArrayAppend()
         {
             var (_, output) = TestHelper.Run("test", @"
-                arr = {1, 2}
+                arr = [1, 2]
                 arr << 3
                 print arr
             ");
@@ -335,8 +346,8 @@ namespace Tests
         public void ArrayConcatenation()
         {
             var (_, output) = TestHelper.Run("test", @"
-                a = {1, 2}
-                b = {3, 4}
+                a = [1, 2]
+                b = [3, 4]
                 print a + b
             ");
             Assert.AreEqual(new[] { "[1, 2, 3, 4]" }, output);
@@ -348,21 +359,21 @@ namespace Tests
         public void LogicalAnd()
         {
             var (_, output) = TestHelper.Run("test", "print true and false");
-            Assert.AreEqual(new[] { "False" }, output);
+            Assert.AreEqual(new[] { "false" }, output);
         }
 
         [Test]
         public void LogicalOr()
         {
             var (_, output) = TestHelper.Run("test", "print false or true");
-            Assert.AreEqual(new[] { "True" }, output);
+            Assert.AreEqual(new[] { "true" }, output);
         }
 
         [Test]
         public void LogicalNot()
         {
             var (_, output) = TestHelper.Run("test", "print !true");
-            Assert.AreEqual(new[] { "False" }, output);
+            Assert.AreEqual(new[] { "false" }, output);
         }
 
         [Test]
@@ -370,11 +381,11 @@ namespace Tests
         {
             var (_, output) = TestHelper.Run("test", @"
                 x = 0
-                fun set_x []
+                fun set_x()
                     x = 1
                     return true
                 end
-                result = false and set_x []
+                result = false and set_x()
                 print x
             ");
             Assert.AreEqual(new[] { "0" }, output);
@@ -385,11 +396,11 @@ namespace Tests
         {
             var (_, output) = TestHelper.Run("test", @"
                 x = 0
-                fun set_x []
+                fun set_x()
                     x = 1
                     return true
                 end
-                result = true or set_x []
+                result = true or set_x()
                 print x
             ");
             Assert.AreEqual(new[] { "0" }, output);
@@ -405,7 +416,7 @@ namespace Tests
                 print 5 != 3
                 print ""a"" == ""a""
             ");
-            Assert.AreEqual(new[] { "True", "True", "True" }, output);
+            Assert.AreEqual(new[] { "true", "true", "true" }, output);
         }
 
         [Test]
@@ -415,7 +426,7 @@ namespace Tests
                 print null == null
                 print null != 5
             ");
-            Assert.AreEqual(new[] { "True", "True" }, output);
+            Assert.AreEqual(new[] { "true", "true" }, output);
         }
 
         // String Concatenation
@@ -480,7 +491,7 @@ namespace Tests
         [Test]
         public void NativeFunctionBinding()
         {
-            var (_, output) = TestHelper.Run("test", "print max [21, 2]", delegate(WarScriptLanguage script, DefinitionScope scope)
+            var (_, output) = TestHelper.Run("test", "print max(21, 2)", delegate(WarScriptLanguage script, DefinitionScope scope)
             {
                 MathLibrary.Register(script, scope);
             });
@@ -494,7 +505,8 @@ namespace Tests
         {
             var (script, output) = TestHelper.Run("test", @"
                 counter = 0
-                fun tick []
+                fun tick()
+                    global counter
                     counter = counter + 1
                     print counter
                 end
@@ -514,7 +526,7 @@ namespace Tests
         public void CallFunctionWithArguments()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun greet [name]
+                fun greet(name)
                     print ""hello "" + name
                 end
             ");
@@ -530,10 +542,11 @@ namespace Tests
         {
             var (script, output) = TestHelper.Run("test", @"
                 sum = 0
-                fun add [n]
+                fun add(n)
+                    global sum
                     sum = sum + n
                 end
-                fun get_sum []
+                fun get_sum()
                     return sum
                 end
             ");
@@ -546,7 +559,7 @@ namespace Tests
             var getSum = script.GetFunction("get_sum", 0);
             script.Call(getSum);
 
-            // get_sum returns via ReturnContext, not print — 
+            // get_sum returns its value, which Call() does not hand back (until T2.3) —
             // check that no exceptions were raised and the script is healthy
             Assert.IsFalse(script.ExceptionContext.IsRaised());
         }
@@ -612,11 +625,11 @@ namespace Tests
         public void CompoundAssignmentOnClassProperty()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class Entity [hp]
+                class Entity(hp)
                 end
-                e = new Entity [100]
-                e :: hp -= 25
-                print e :: hp
+                e = new Entity(100)
+                e.hp -= 25
+                print e.hp
             ");
             Assert.AreEqual(new[] { "75" }, output);
         }
@@ -720,9 +733,9 @@ namespace Tests
         public void CompoundAssignmentArrayElement()
         {
             var (_, output) = TestHelper.Run("test", @"
-                arr = {10, 20, 30}
-                arr{1} += 5
-                print arr{1}
+                arr = [10, 20, 30]
+                arr[1] += 5
+                print arr[1]
             ");
             Assert.AreEqual(new[] { "25" }, output);
         }
@@ -731,14 +744,14 @@ namespace Tests
         public void CompoundAssignmentInsideFunction()
         {
             var (_, output) = TestHelper.Run("test", @"
-                fun accumulate [n]
+                fun accumulate(n)
                     total = 0
                     loop i in 0..n
                         total += i
                     end
                     return total
                 end
-                print accumulate [10]
+                print accumulate(10)
             ");
             Assert.AreEqual(new[] { "45" }, output);
         }
@@ -790,8 +803,8 @@ namespace Tests
         public void UnaryMinus_NegativeLiteralInArray()
         {
             var (_, output) = TestHelper.Run("test", @"
-                arr = {1, -2, 3}
-                print arr{1}
+                arr = [1, -2, 3]
+                print arr[1]
             ");
             Assert.AreEqual(new[] { "-2" }, output);
         }
@@ -800,10 +813,10 @@ namespace Tests
         public void UnaryMinus_NegateFunctionResult()
         {
             var (_, output) = TestHelper.Run("test", @"
-                fun five []
+                fun five()
                     return 5
                 end
-                print -five []
+                print -five()
             ");
             Assert.AreEqual(new[] { "-5" }, output);
         }
@@ -856,10 +869,10 @@ namespace Tests
         public void InterpolationWithClassProperty()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class Entity [name, hp]
+                class Entity(name, hp)
                 end
-                e = new Entity [""Hero"", 100]
-                print ""{e :: name} has {e :: hp} hp""
+                e = new Entity(""Hero"", 100)
+                print ""{e.name} has {e.hp} hp""
             ");
             Assert.AreEqual(new[] { "Hero has 100 hp" }, output);
         }
@@ -868,10 +881,10 @@ namespace Tests
         public void InterpolationWithFunctionCall()
         {
             var (_, output) = TestHelper.Run("test", @"
-                fun double [n]
+                fun double(n)
                     return n * 2
                 end
-                print ""result: {double [5]}""
+                print ""result: {double(5)}""
             ");
             Assert.AreEqual(new[] { "result: 10" }, output);
         }
@@ -911,8 +924,8 @@ namespace Tests
         {
             // Array access inside interpolation — tests brace depth tracking
             var (_, output) = TestHelper.Run("test", @"
-                arr = {10, 20, 30}
-                print ""value: {arr{1}}""
+                arr = [10, 20, 30]
+                print ""value: {arr[1]}""
             ");
             Assert.AreEqual(new[] { "value: 20" }, output);
         }
@@ -936,10 +949,10 @@ namespace Tests
         public void InterpolationComplex()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class Unit [name, hp, max_hp]
+                class Unit(name, hp, max_hp)
                 end
-                u = new Unit [""Warrior"", 75, 100]
-                print ""{u :: name}: {u :: hp}/{u :: max_hp}""
+                u = new Unit(""Warrior"", 75, 100)
+                print ""{u.name}: {u.hp}/{u.max_hp}""
             ");
             Assert.AreEqual(new[] { "Warrior: 75/100" }, output);
         }
@@ -973,7 +986,7 @@ namespace Tests
         public void CoroutineBasicYield()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun sequence []
+                fun sequence()
                     print ""step 1""
                     yield
                     print ""step 2""
@@ -997,7 +1010,7 @@ namespace Tests
         public void CoroutineYieldWait()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun delayed []
+                fun delayed()
                     print ""start""
                     yield wait 1
                     print ""after 1 second""
@@ -1026,7 +1039,7 @@ namespace Tests
         {
             var (script, output) = TestHelper.Run("test", @"
                 ready = false
-                fun wait_for_ready []
+                fun wait_for_ready()
                     print ""waiting""
                     yield until ready
                     print ""done""
@@ -1056,10 +1069,11 @@ namespace Tests
         {
             var (script, output) = TestHelper.Run("test", @"
                 counter = 0
-                fun increment []
+                fun increment()
+                    global counter
                     counter += 1
                 end
-                fun wait_for_five []
+                fun wait_for_five()
                     print ""waiting""
                     yield until counter >= 5
                     print ""reached 5""
@@ -1087,7 +1101,7 @@ namespace Tests
         public void CoroutinePreservesVariables()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun sequence []
+                fun sequence()
                     name = ""hero""
                     hp = 100
                     print ""{name}: {hp}""
@@ -1114,7 +1128,7 @@ namespace Tests
         public void CoroutineWithArguments()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun greet [name, count]
+                fun greet(name, count)
                     print ""hello {name}""
                     yield
                     print ""goodbye {name} ({count})""
@@ -1136,7 +1150,7 @@ namespace Tests
         public void CoroutineLoop()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun pulse []
+                fun pulse()
                     print ""on""
                     yield
                     print ""off""
@@ -1162,7 +1176,7 @@ namespace Tests
         public void CoroutineStopById()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun forever []
+                fun forever()
                     print ""tick""
                     yield
                     print ""tick""
@@ -1182,12 +1196,12 @@ namespace Tests
         public void MultipleCoroutines()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun a []
+                fun a()
                     print ""a1""
                     yield
                     print ""a2""
                 end
-                fun b []
+                fun b()
                     print ""b1""
                     yield
                     print ""b2""

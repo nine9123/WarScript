@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
+using NUnit.Framework;
 using WarScript;
+using WarScript.Audit;
 using WarScript.Context.Definition;
 using WarScript.Expression.Value;
 
@@ -13,6 +15,12 @@ namespace Tests
     /// </summary>
     public static class TestHelper
     {
+        /// <summary>
+        /// Set by <see cref="AuditSuite"/> when the suite runs with auditing on
+        /// (T0.8): every <see cref="Run"/> reports into it, under the test's name.
+        /// </summary>
+        internal static AuditReport SuiteAudit;
+
         /// <summary>
         /// Execute source code and capture all print output.
         /// </summary>
@@ -30,10 +38,24 @@ namespace Tests
                 fileResolver: fileResolver,
                 logger: (s, msg) => output.Add(msg),
                 bytecodeResolver: bytecodeResolver);
+
+            var audit = SuiteAudit;
+            if (audit != null)
+            {
+                var test = TestContext.CurrentContext.Test;
+                var prefix = test.ClassName.Substring(test.ClassName.LastIndexOf('.') + 1) + "." + test.MethodName + ": ";
+                script.AuditSink = e => audit.Add(new AuditEvent(e.Kind, prefix + e.Script, e.Line, e.Function, e.Detail));
+            }
             
             setupScope?.Invoke(script, script.GlobalDefinitionScope);
             
-            script.Run();
+            var before = Invariants.Capture(script);
+            var result = script.Run();
+            // Run() returns a compile error (T2.3); tests written against v1
+            // expect it thrown as the SyntaxException it was.
+            if (result.Error?.CompileException != null)
+                throw result.Error.CompileException;
+            Invariants.Check(script, before);
             
             return (script, output);
         }

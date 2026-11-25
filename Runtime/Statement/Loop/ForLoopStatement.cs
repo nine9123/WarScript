@@ -1,6 +1,4 @@
 using WarScript.Expression;
-using WarScript.Expression.Value;
-using FixMath;
 
 namespace WarScript.Statement.Loop
 {
@@ -17,12 +15,11 @@ namespace WarScript.Statement.Loop
         internal IExpression UpperBound => _upperBound;
         internal IExpression Step => _step;
 
-        // Numeric fast-path state — mutable per-execution.
-        // Saved/restored in Execute() to handle recursive reentry
-        // (AST caching means the same node is shared across recursive calls).
-        private F64 _counter;
-        private F64 _upperBoundValue;
-        private F64 _stepValue;
+        /// <summary>The column of the range's <c>..</c> (0 = unknown), where the bound check <c>i &lt; limit</c> is reported (T3.8).</summary>
+        internal int RangeColumn { get; set; }
+
+        /// <summary>The column of the step after <c>by</c> (0 = unknown or no <c>by</c>), where a step that is not positive and the addition <c>i + step</c> are reported (T3.8).</summary>
+        internal int StepColumn { get; set; }
 
         public ForLoopStatement(WarScriptLanguage script, int rowNumber, string blockName,
             VariableExpression variable, IExpression lowerBound, IExpression upperBound)
@@ -42,53 +39,6 @@ namespace WarScript.Statement.Loop
             _lowerBound = lowerBound;
             _upperBound = upperBound;
             _step = step;
-        }
-
-        /// <summary>
-        /// Save and restore fast-path state around base.Execute() so recursive
-        /// reentry through the same cached AST node doesn't clobber the outer loop.
-        /// </summary>
-        public override void Execute()
-        {
-            var savedCounter = _counter;
-            var savedUpper = _upperBoundValue;
-            var savedStep = _stepValue;
-            try
-            {
-                base.Execute();
-            }
-            finally
-            {
-                _counter = savedCounter;
-                _upperBoundValue = savedUpper;
-                _stepValue = savedStep;
-            }
-        }
-
-        protected override void Init()
-        {
-            var lower = _lowerBound.Evaluate();
-            var upper = _upperBound.Evaluate();
-            var step = _step.Evaluate();
-
-            _counter = lower.Numeric;
-            _upperBoundValue = upper.Numeric;
-            _stepValue = step.Numeric;
-
-            _script.MemoryContext.GetScope().SetLocal(_variable.Name, lower);
-        }
-
-        protected override bool HasNext()
-        {
-            return _counter < _upperBoundValue;
-        }
-
-        protected override void PreIncrement() { }
-
-        protected override void PostIncrement()
-        {
-            _counter += _stepValue;
-            _script.MemoryContext.GetScope().SetLocal(_variable.Name, WarValue.FromNumeric(_counter));
         }
     }
 }

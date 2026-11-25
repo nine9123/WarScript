@@ -65,7 +65,7 @@ namespace WarScript.Native
             var function = Script.GetFunction(functionName, arguments.Length);
             if (function != null)
             {
-                if (function is NativeFunctionDefinition nativeFunction)
+                if (function.Definition is NativeFunctionDefinition nativeFunction)
                     nativeFunction.NativeBody(new List<WarValue>(arguments));
                 else
                     Script.Call(function, arguments);

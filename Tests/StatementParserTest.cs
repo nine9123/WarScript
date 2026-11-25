@@ -31,10 +31,10 @@ namespace Tests
         public void Function_Definition_And_Call()
         {
             var (_, output) = TestHelper.Run("test", @"
-                fun add [a, b]
+                fun add(a, b)
                     return a + b
                 end
-                print add [3, 4]
+                print add(3, 4)
             ");
             Assert.AreEqual(new[] { "7" }, output);
         }
@@ -56,13 +56,13 @@ namespace Tests
         public void Class_Properties_And_Methods()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class Vec2 [x, y]
-                    fun length []
-                        return pow[(pow[x, 2] + pow[y, 2]), 0.5]
+                class Vec2(x, y)
+                    fun length()
+                        return pow((pow(@x, 2) + pow(@y, 2)), 0.5)
                     end
                 end
-                v = new Vec2 [3, 4]
-                print round[v :: length []]
+                v = new Vec2(3, 4)
+                print round(v.length())
             ", delegate(WarScriptLanguage script, DefinitionScope scope)
             {
                 MathLibrary.Register(script, scope);
@@ -76,7 +76,7 @@ namespace Tests
             var output = new List<string>();
             var script = new WarScriptLanguage(
                 "test",
-                "print double [21]",
+                "print double(21)",
                 null,
                 (s, msg) => output.Add(msg));
 
@@ -113,11 +113,11 @@ namespace Tests
         {
             var (_, output) = TestHelper.Run("test", @"
                 x = 0
-                fun set_x[]
+                fun set_x()
                     x = 1
                     return true
                 end
-                if false and set_x[]
+                if false and set_x()
                     print ""branch taken""
                 end
                 print x

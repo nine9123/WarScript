@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Collections.Generic;
 using NUnit.Framework;
 using WarScript;
@@ -28,7 +29,7 @@ namespace Tests
         {
             var tokens = LexicalParser.Parse(src);
             // Strip any LineBreak/Comment tokens
-            var numeric = tokens.FindAll(t => t.Type == TokenType.Numeric);
+            var numeric = tokens.Where(t => t.Type == TokenType.Numeric).ToList();
             Assert.AreEqual(1, numeric.Count, $"Expected exactly one Numeric token in: {src}");
             return numeric[0];
         }
@@ -120,7 +121,7 @@ namespace Tests
             // Negative numbers are lexed as a single token when preceded by operator context
             // Test via expression where - is unambiguously a negative sign
             var tokens = LexicalParser.Parse("a = -1_000");
-            var num = tokens.Find(t => t.Type == TokenType.Numeric);
+            var num = tokens.FirstOrDefault(t => t.Type == TokenType.Numeric);
             Assert.IsNotNull(num);
             Assert.AreEqual("-1000", num.Value);
         }
@@ -218,10 +219,10 @@ end";
         public void Exec_InArray_Literal()
         {
             var src = @"
-dmgTable = {1_000, 2_500, 10_000}
-print dmgTable{0}
-print dmgTable{1}
-print dmgTable{2}";
+dmgTable = [1_000, 2_500, 10_000]
+print dmgTable[0]
+print dmgTable[1]
+print dmgTable[2]";
             Assert.AreEqual(new[] { "1000", "2500", "10000" }, Run(src));
         }
 
@@ -229,10 +230,10 @@ print dmgTable{2}";
         public void Exec_InFunctionArg()
         {
             var src = @"
-fun double[x]
+fun double(x)
   return x * 2
 end
-print double[50_000]";
+print double(50_000)";
             Assert.AreEqual(new[] { "100000" }, Run(src));
         }
 
@@ -275,7 +276,7 @@ print gold";
         public void Game_HealthClamp()
         {
             var src = @"
-fun clamp[val, lo, hi]
+fun clamp(val, lo, hi)
   if val < lo
     return lo
   end
@@ -284,7 +285,7 @@ fun clamp[val, lo, hi]
   end
   return val
 end
-hp = clamp[99_999, 0, 10_000]
+hp = clamp(99_999, 0, 10_000)
 print hp";
             Assert.AreEqual(new[] { "10000" }, Run(src));
         }

@@ -24,21 +24,12 @@ namespace WarScript
         private readonly WarScriptLanguage _script;
         private readonly CompiledFunction _compiled;
         private readonly DefinitionScope _definitionScope;
-        private readonly MemoryScope _memoryScope;
         private readonly WarValue[] _args;
         private readonly bool _loop;
 
         private readonly WarVM _vm;
-        private readonly MemoryScope _coroutineScope;
         private bool _started;
-
-        // Scopes the VM pushed for calls still in flight when it yielded
-        // (function locals, method class context, block scopes). They are set
-        // aside between ticks and pushed back on resume, so the VM's frames
-        // find them where they left them. Stored top-of-stack first.
-        private readonly List<MemoryScope> _suspendedMemory = new();
-        private readonly List<DefinitionScope> _suspendedDefinitions = new();
-        private readonly List<ClassData> _suspendedInstances = new();
+        private bool _faulted;
 
         // Yield timing
         private YieldType _yieldType;
@@ -48,7 +39,6 @@ namespace WarScript
             WarScriptLanguage script,
             CompiledFunction compiled,
             DefinitionScope definitionScope,
-            MemoryScope memoryScope,
             WarValue[] args,
             bool loop,
             int id)
@@ -56,14 +46,11 @@ namespace WarScript
             _script = script;
             _compiled = compiled;
             _definitionScope = definitionScope;
-            _memoryScope = memoryScope;
             _args = args;
             _loop = loop;
             Id = id;
 
             _vm = new WarVM(script);
-            _coroutineScope = script.MemoryContext.NewScope(memoryScope);
-            _coroutineScope.Poolable = false;
         }
 
         public bool IsReady(F64 dt)
@@ -78,29 +65,31 @@ namespace WarScript
             }
         }
 
-        public void Resume()
+        /// <summary>
+        /// Run the coroutine to its next yield or its end: a host entry.
+        /// Returns <c>Ok</c> (null value) when it yielded, completed or did
+        /// not run because it is complete or already running; otherwise the
+        /// error that ended this run (plan T2.3), which ends the coroutine (a
+        /// looping one too). As the outermost entry that error halts the
+        /// instance (PROP-3); nested (started or ticked by a native) it stays
+        /// raised for the calling script, like a nested <c>Call</c>'s
+        /// (PROP-1). A halted instance returns <c>Halted</c>.
+        /// </summary>
+        public ScriptResult Resume()
         {
-            if (IsComplete) return;
+            if (_script.IsHalted) return _script.HaltedResult();
+            if (IsComplete) return ScriptResult.Ok(WarValue.Null);
+            // Resumed from inside itself (a native it called ticked the
+            // coroutines): its VM is busy and must not be reset (T1.5).
+            if (_vm.IsRunning) return ScriptResult.Ok(WarValue.Null);
+            // A host entry (T1.5): the outermost one resets the instance's
+            // budgets. Too deeply nested, it does not run and the error
+            // stays raised for the native that started or ticked it.
+            if (!_script.BeginEntry()) return _script.FinishEntry(_script.EntryResult(WarValue.Null));
+            ScriptResult result = ScriptResult.Ok(WarValue.Null);
 
-            // Push scopes so the VM's SetGlobal writes to our coroutine scope
             _script.DefinitionContext.PushScope(_definitionScope);
-            _script.MemoryContext.PushScope(_memoryScope);
-            _script.MemoryContext.PushScope(_coroutineScope);
             _script.ClearYield();
-
-            int memoryBase = _script.MemoryContext.Depth;
-            int definitionBase = _script.DefinitionContext.Depth;
-            int instanceBase = _script.ClassInstanceContext.Depth;
-
-            for (int i = _suspendedMemory.Count - 1; i >= 0; i--)
-                _script.MemoryContext.PushScope(_suspendedMemory[i]);
-            for (int i = _suspendedDefinitions.Count - 1; i >= 0; i--)
-                _script.DefinitionContext.PushScope(_suspendedDefinitions[i]);
-            for (int i = _suspendedInstances.Count - 1; i >= 0; i--)
-                _script.ClassInstanceContext.PushValue(_suspendedInstances[i]);
-            _suspendedMemory.Clear();
-            _suspendedDefinitions.Clear();
-            _suspendedInstances.Clear();
 
             try
             {
@@ -114,39 +103,36 @@ namespace WarScript
                     _vm.ResumeCoroutine();
                 }
             }
+            catch (System.Exception e)
+            {
+                // Host fault: the VM has reset itself, so the coroutine is
+                // finished (a looping one too) and the fault is reported.
+                _faulted = true;
+                result = _script.HostFaultAtEntry(e);
+            }
             finally
             {
-                // Take off whatever the VM left above our own scopes: keep it
-                // for the next resume if suspended, otherwise discard it.
-                bool suspended = _vm.IsYielded;
-                while (_script.MemoryContext.Depth > memoryBase)
-                {
-                    if (suspended) _suspendedMemory.Add(_script.MemoryContext.DetachScope());
-                    else _script.MemoryContext.EndScope();
-                }
-                while (_script.DefinitionContext.Depth > definitionBase)
-                {
-                    var scope = _script.DefinitionContext.DetachScope();
-                    if (suspended) _suspendedDefinitions.Add(scope);
-                }
-                while (_script.ClassInstanceContext.Depth > instanceBase)
-                {
-                    var instance = _script.ClassInstanceContext.DetachValue();
-                    if (suspended) _suspendedInstances.Add(instance);
-                }
-
-                _script.MemoryContext.EndScope();  // coroutine scope
-                _script.MemoryContext.EndScope();  // user memory scope
+                // A suspended VM's frames keep their own instance and
+                // definitions (T3.5): nothing to set aside between ticks.
                 _script.DefinitionContext.EndScope();
 
+                // The coroutine's own unhandled error ends it. EndEntry clears
+                // it at the outermost entry (the instance then halts); nested,
+                // it stays raised for the native's caller (PROP-1).
                 if (_script.ExceptionContext.IsRaised())
-                    _script.ExceptionContext.PrintStackTrace();
-
-                _script.HaltFlags = WarScriptLanguage.HaltFlag.None;
+                {
+                    _faulted = true;
+                    result = _script.EntryResult(WarValue.Null);
+                }
+                _script.EndEntry();
             }
 
             // Determine next state
-            if (_vm.IsYielded)
+            if (_faulted)
+            {
+                IsComplete = true;
+            }
+            else if (_vm.IsYielded)
             {
                 _yieldType = _vm.SuspendedYieldType;
                 _waitRemaining = _vm.SuspendedWaitDuration;
@@ -167,6 +153,7 @@ namespace WarScript
                     IsComplete = true;
                 }
             }
+            return _script.FinishEntry(result);
         }
     }
 }

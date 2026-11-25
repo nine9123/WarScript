@@ -17,6 +17,16 @@ namespace WarScript
 
         private readonly WarScriptLanguage _script;
 
+        /// <summary>
+        /// The parser of a file's top level (T3.3), which collects its
+        /// imports and checks that they come first; null in nested blocks
+        /// and bodies, where an import is an error.
+        /// </summary>
+        private readonly List<ImportStatement> _imports;
+
+        /// <summary>Whether the top level has had a statement other than an import (definitions included).</summary>
+        private bool _pastImports;
+
         // Cached vararg arrays: passing a shared array to a `params` parameter reuses it
         // instead of allocating a fresh one on every call. (TokensStack only reads them.)
         private static readonly TokenType[] StatementLeadTypes =
@@ -24,45 +34,96 @@ namespace WarScript
         private static readonly string[] IfBranchKeywords = { "elif", "else" };
         private static readonly string[] CommaValue = { "," };
         
-        private StatementParser(WarScriptLanguage script, TokensStack tokens, CompositeStatement compositeStatement)
+        private StatementParser(WarScriptLanguage script, TokensStack tokens, CompositeStatement compositeStatement,
+            List<ImportStatement> imports = null)
         {
             _script = script;
             Tokens = tokens;
             _compositeStatement = compositeStatement;
+            _imports = imports;
         }
 
-        private static void Parse(StatementParser parent, CompositeStatement compositeStatement, DefinitionScope definitionScope)
+        /// <summary>
+        /// Parses a nested block; <paramref name="body"/> enters a new body
+        /// (a function, method or class body), null keeps the current one.
+        /// </summary>
+        private static void Parse(StatementParser parent, CompositeStatement compositeStatement, DefinitionScope definitionScope,
+            ParseBody? body = null)
         {
-            parent._script.DefinitionContext.PushScope(definitionScope);
+            var script = parent._script;
+            var outerBody = script.ParsingBody;
+            if (body != null) script.ParsingBody = body.Value;
+            script.DefinitionContext.PushScope(definitionScope);
             try
             {
-                var parser = new StatementParser(parent._script, parent.Tokens, compositeStatement);
+                var parser = new StatementParser(script, parent.Tokens, compositeStatement);
                 while (parser.HasNextStatement())
-                    parser.ParseExpression();
+                    parser.ParseStatement();
             }
             finally
             {
-                parent._script.DefinitionContext.EndScope();
+                script.DefinitionContext.EndScope();
+                script.ParsingBody = outerBody;
             }
         }
 
-        public static void Parse(WarScriptLanguage script, List<Token.Token> tokens, CompositeStatement compositeStatement)
-        {
-            var parser = new StatementParser(script, new TokensStack(tokens), compositeStatement);
-            while (parser.HasNextStatement())
-                parser.ParseExpression();
+        public static void Parse(WarScriptLanguage script, IReadOnlyList<Token.Token> tokens, CompositeStatement compositeStatement) =>
+            ParseTopLevel(script, tokens, compositeStatement);
 
-            // At the top level, anything left over is a construct we cannot
-            // start a statement with (stray `end`, dangling `else`, a literal…).
-            // Silently stopping here would discard the rest of the script.
-            if (parser.Tokens.TryPeek(out var leftover))
-                throw new SyntaxException(
-                    $"Unexpected `{leftover.Value}` at line {leftover.RowNumber} — not a valid start of a statement");
+        /// <summary>
+        /// Parses a file into a <see cref="ParsedModule"/> (T3.3): its
+        /// top-level statements go into a new block named
+        /// <paramref name="name"/>, its definitions into the current
+        /// definition scope.
+        /// </summary>
+        internal static ParsedModule ParseModule(WarScriptLanguage script, IReadOnlyList<Token.Token> tokens, string name)
+        {
+            var topLevel = new CompositeStatement(script, null, name);
+            var imports = ParseTopLevel(script, tokens, topLevel);
+            return new ParsedModule(imports, topLevel, script.DefinitionContext.GetScope());
+        }
+
+        private static List<ImportStatement> ParseTopLevel(WarScriptLanguage script, IReadOnlyList<Token.Token> tokens, CompositeStatement compositeStatement)
+        {
+            var imports = new List<ImportStatement>();
+            var outerBody = script.ParsingBody;
+            script.ParsingBody = ParseBody.TopLevel;
+            try
+            {
+                var errorsBefore = script.CompileErrorCount;
+                var parser = new StatementParser(script, new TokensStack(tokens), compositeStatement, imports);
+                while (true)
+                {
+                    while (parser.HasNextStatement())
+                        parser.ParseStatement();
+
+                    // At the top level, anything left over is a construct we cannot
+                    // start a statement with (stray `end`, dangling `else`, a literal…).
+                    // Silently stopping here would discard the rest of the script.
+                    if (!parser.Tokens.TryPeek(out var leftover)) break;
+                    var error = new SyntaxException(
+                        System.FormattableString.Invariant($"Unexpected `{leftover.Value}` at line {leftover.RowNumber} — not a valid start of a statement"), leftover.RowNumber, leftover.Column);
+                    if (!script.RecoverFromParseError(error)) throw error;
+                    parser.SkipStatement();
+                }
+
+                // The syntax errors recovered from (T3.8) end the compile
+                // here, before this file is compiled: the code skipped would
+                // only cause more errors. The first is thrown; every one has
+                // been recorded.
+                var firstError = script.CompileErrorSince(errorsBefore);
+                if (firstError != null) throw firstError;
+            }
+            finally
+            {
+                script.ParsingBody = outerBody;
+            }
+            return imports;
         }
 
         /// <summary>
         /// Parse a lambda body from the shared token stream.
-        /// Called by ExpressionReader when it encounters <c>fun [params]</c>
+        /// Called by ExpressionReader when it encounters <c>fun(params)</c>
         /// in expression position. Parses statements until <c>end</c> and
         /// consumes the <c>end</c> keyword.
         /// </summary>
@@ -72,16 +133,19 @@ namespace WarScript
             CompositeStatement body,
             DefinitionScope scope)
         {
+            var outerBody = script.ParsingBody;
+            script.ParsingBody = ParseBody.Lambda;
             script.DefinitionContext.PushScope(scope);
             try
             {
                 var parser = new StatementParser(script, tokens, body);
                 while (parser.HasNextStatement())
-                    parser.ParseExpression();
+                    parser.ParseStatement();
             }
             finally
             {
                 script.DefinitionContext.EndScope();
+                script.ParsingBody = outerBody;
             }
             tokens.Next(TokenType.Keyword, "end");
         }
@@ -108,22 +172,172 @@ namespace WarScript
             }
         }
 
-        private void ParseExpression()
+        /// <summary>
+        /// Parses the next statement. While <see cref="WarScriptLanguage.Compile"/>
+        /// runs, a syntax error in it is recorded and the statement skipped
+        /// (<see cref="SkipStatement"/>), so the parser goes on with the next
+        /// one and a compile lists every syntax error of a file (T3.8);
+        /// otherwise the error is thrown. An error in a statement of a nested
+        /// block is recovered from in that block.
+        /// </summary>
+        private void ParseStatement()
         {
-            var token = Tokens.Next(TokenType.Keyword, StatementLeadTypes);
+            var start = Tokens.Position;
+            try
+            {
+                ParseExpression();
+            }
+            catch (SyntaxException e)
+            {
+                if (!_script.RecoverFromParseError(e)) throw;
+                Tokens.Seek(start);
+                SkipStatement();
+            }
+        }
+
+        /// <summary>
+        /// Skips the statement that starts at the next token, for the error
+        /// recovery (T3.8): at least that token, then everything up to the
+        /// first token at its block level that starts a later line and can
+        /// start a statement, or closes the block the statement is in
+        /// (<c>end</c>, <c>elif</c>, <c>else</c>, <c>rescue</c>,
+        /// <c>ensure</c>). A block the statement opens (<c>if</c>,
+        /// <c>loop</c>, <c>begin</c>, <c>fun</c>, <c>class</c>,
+        /// <c>enum</c>) is skipped to its <c>end</c>, a <c>[</c> or <c>{</c>
+        /// (an argument list or array literal, which may span lines; a line
+        /// break ends anything else, parentheses included) to the one
+        /// closing it, unless a line inside it starts after anything but
+        /// <c>,</c>, <c>[</c> or <c>{</c>, or with a keyword other than
+        /// <c>fun</c>, outside every block: the bracket was left unclosed.
+        /// A block never closed is skipped to the end of the file.
+        /// </summary>
+        private void SkipStatement()
+        {
+            int blocks = 0, brackets = 0, row = 0;
+            var first = true;
+            var continues = false; // the last token skipped was ',', a call's '(' or '['
+            while (Tokens.TryPeek(out var token))
+            {
+                var isKeyword = token.Type == TokenType.Keyword;
+                if (!first && blocks == 0)
+                {
+                    var newLine = token.RowNumber > row;
+                    if (newLine && (!continues || isKeyword && token.Value != "fun")) brackets = 0;
+                    if (brackets == 0)
+                    {
+                        if (isKeyword && IsBlockCloser(token.Value)) return;
+                        if (newLine && CanStartStatement(token)) return;
+                    }
+                }
+                Tokens.Next();
+                first = false;
+                row = token.RowNumber;
+                continues = token.Type == TokenType.GroupDivider
+                    && (token.Value == "," || token.Value == "(" || token.Value == "[");
+                if (isKeyword)
+                {
+                    switch (token.Value)
+                    {
+                        case "if":
+                        case "loop":
+                        case "begin":
+                        case "fun":
+                        case "class":
+                        case "enum":
+                            blocks++;
+                            break;
+                        case "end":
+                            if (blocks > 0) blocks--;
+                            break;
+                    }
+                }
+                else if (token.Type == TokenType.GroupDivider)
+                {
+                    switch (token.Value)
+                    {
+                        case "(":
+                        case "[":
+                            brackets++;
+                            break;
+                        case ")":
+                        case "]":
+                            if (brackets > 0) brackets--;
+                            break;
+                    }
+                }
+            }
+        }
+
+        private static bool IsBlockCloser(string keyword) =>
+            keyword == "end" || keyword == "elif" || keyword == "else" || keyword == "rescue" || keyword == "ensure";
+
+        /// <summary>A token a statement starts with, for <see cref="SkipStatement"/>.</summary>
+        private static bool CanStartStatement(Token.Token token)
+        {
             switch (token.Type)
             {
                 case TokenType.Variable:
-                case TokenType.Operator:
                 case TokenType.This:
-                    ParseExpressionStatement(token);
-                    break;
+                    return true;
                 case TokenType.Keyword:
-                    ParseKeywordStatement(token);
-                    break;
+                    return !IsBlockCloser(token.Value) && token.Value != "in" && token.Value != "by";
+                case TokenType.Operator:
+                    return token.Value == "(" || token.Value == "-" || token.Value == "!" || token.Value == "new";
                 default:
-                    throw new SyntaxException($"Statement can't start with the following lexeme `{token}`");
+                    return false;
             }
+        }
+
+        private void ParseExpression()
+        {
+            var token = Tokens.Next(TokenType.Keyword, StatementLeadTypes);
+            var added = _compositeStatement.StatementsToExecute.Count;
+            try
+            {
+                // Imports come first in a file (T3.3, 5.8): before any
+                // other statement or definition, never in a block or body.
+                // The v1 frontend of the migration tool allows them anywhere.
+                var isImport = token.Type == TokenType.Keyword && token.Value == "import";
+                if (isImport && !_script.ParsingV1)
+                {
+                    if (_imports == null)
+                        throw new SyntaxException("'import' is allowed only at the top of a file, not inside a block or a body", token.RowNumber, token.Column);
+                    if (_pastImports)
+                        throw new SyntaxException("'import' must come before every other statement of the file", token.RowNumber, token.Column);
+                }
+                else if (!isImport)
+                {
+                    _pastImports = true;
+                }
+
+                switch (token.Type)
+                {
+                    case TokenType.Variable:
+                    case TokenType.Operator:
+                    case TokenType.This:
+                        ParseExpressionStatement(token);
+                        break;
+                    case TokenType.Keyword:
+                        ParseKeywordStatement(token);
+                        break;
+                    default:
+                        throw new SyntaxException($"Statement can't start with the following lexeme `{token}`");
+                }
+            }
+            catch (SyntaxException e)
+            {
+                // An error that names no position of its own is reported at
+                // the start of the innermost statement it was found in (T3.1).
+                e.Locate(token.RowNumber, token.Column);
+                throw;
+            }
+
+            // The statements this one produced (desugared ones too) start
+            // at its first token.
+            var statements = _compositeStatement.StatementsToExecute;
+            for (var i = added; i < statements.Count; i++)
+                if (statements[i].Column == 0 && statements[i].RowNumber == token.RowNumber)
+                    statements[i].Column = token.Column;
         }
 
         private void ParseExpressionStatement(Token.Token rowToken)
@@ -159,6 +373,7 @@ namespace WarScript
                 case "yield":   ParseYieldStatement(token);           break;
                 case "const":   ParseConstStatement(token);           break;
                 case "enum":    ParseEnumStatement(token);            break;
+                case "global":  ParseGlobalStatement(token);          break;
                 default:
                     throw new SyntaxException($"Failed to parse a keyword: {token.Value}");
             }
@@ -184,7 +399,7 @@ namespace WarScript
                 if (type.Value == "else")
                     caseCondition = new ConstantExpression(WarValue.True); // else has no condition
                 else
-                    caseCondition = ExpressionReader.ReadExpression(_script, Tokens);
+                    caseCondition = RequireExpression(ExpressionReader.ReadExpression(_script, Tokens), type, "a condition");
 
                 // read case statements
                 var caseStatement = new CompositeStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName);
@@ -201,7 +416,9 @@ namespace WarScript
         private void ParseClassDefinition(Token.Token rowToken)
         {
             // read class details
-            var classDetails = ReadClassDetails();
+            Tokens.TryPeek(out var nameToken);
+            var classDetails = ReadClassDetails(declaration: true);
+            CheckDuplicate(d => d.AddClass(classDetails.Name, _script.ParsingFile, nameToken.RowNumber), nameToken);
 
             // read base types
             var baseTypes = new List<ClassDetails>();
@@ -210,40 +427,116 @@ namespace WarScript
                 while (Tokens.Peek(TokenType.GroupDivider, ":", CommaValue))
                 {
                     Tokens.Next();
-                    baseTypes.Add(ReadClassDetails());
+                    baseTypes.Add(ReadClassDetails(declaration: false));
                 }
             }
 
             // add class definition
             var classScope = _script.DefinitionContext.NewScope();
-            var classStatement = new ClassStatement(_script, rowToken.RowNumber, classDetails.Name);
+            var classStatement = new ClassStatement(_script, rowToken.RowNumber, classDetails.Name)
+            {
+                Column = rowToken.Column // definitions are not in the statement list ParseExpression positions (T3.1)
+            };
             var classDefinition = new ClassDefinition(classDetails, baseTypes, classStatement, classScope);
             _script.DefinitionContext.GetScope().AddClass(classDefinition);
 
             // parse class's statements
-            Parse(this, classStatement, classScope);
+            _script.ParsingClassDepth++;
+            try
+            {
+                Parse(this, classStatement, classScope, ParseBody.ClassBody);
+            }
+            finally
+            {
+                _script.ParsingClassDepth--;
+            }
             Tokens.Next(TokenType.Keyword, "end");
         }
 
-        private ClassDetails ReadClassDetails()
+        /// <summary>
+        /// Records a function or class definition in the namespace of the
+        /// scope it goes into (PROP-12), or throws the duplicate-definition
+        /// error at <paramref name="at"/>, its name. Not for v1 scripts.
+        /// </summary>
+        private void CheckDuplicate(System.Func<DeclaredDefinitions, string> add, Token.Token at)
+        {
+            if (_script.ParsingV1) return;
+            var scope = _script.DefinitionContext.GetScope();
+            var message = add(scope.Declared ??= new DeclaredDefinitions());
+            if (message != null) throw new SyntaxException(message, at.RowNumber, at.Column);
+        }
+
+        /// <summary>
+        /// A function that is not a method may not shadow a native at any
+        /// arity it can be called with (T3.8, PROP-12, DEC-21): throws at
+        /// <paramref name="at"/>, its name. A method only shadows the native
+        /// for bare calls inside its class, and keeps the log line of
+        /// <see cref="DefinitionScope.AddFunction(FunctionDefinition)"/>. Not
+        /// for v1 scripts.
+        /// </summary>
+        private void CheckShadowsNative(FunctionDetails details, Token.Token at)
+        {
+            if (_script.ParsingV1) return;
+            var scope = _script.DefinitionContext.GetScope();
+            for (var arity = details.MinArity; arity <= details.Arguments.Count; arity++)
+                if (scope.GetFunction(details.Name, arity) is NativeFunctionDefinition)
+                    throw new SyntaxException(System.FormattableString.Invariant(
+                        $"Function '{details.Name}' with {arity} argument{(arity == 1 ? "" : "s")} shadows a native function"),
+                        at.RowNumber, at.Column);
+        }
+
+        /// <summary>
+        /// A parameter list names each parameter once (T3.8, PROP-29):
+        /// throws at <paramref name="parameter"/> when
+        /// <paramref name="parameters"/> already has it. Not for v1 scripts.
+        /// </summary>
+        internal static void CheckParameter(WarScriptLanguage script, List<string> parameters, Token.Token parameter)
+        {
+            if (!script.ParsingV1 && parameters.Contains(parameter.Value))
+                throw new SyntaxException("Parameter '" + parameter.Value + "' is declared twice",
+                    parameter.RowNumber, parameter.Column);
+        }
+
+        /// <summary>
+        /// A <c>[</c> after a definition's name is the legacy parameter list
+        /// (<c>fun f [a]</c>, <c>class C [x]</c>; T3.12): say how it is
+        /// written now rather than report a missing <c>end</c>.
+        /// </summary>
+        internal static void RejectLegacyParameters(TokensStack tokens, Token.Token name, string what)
+        {
+            if (tokens.TryPeekSameLine(out var next) && next.Type == TokenType.GroupDivider && next.Value == "[")
+                throw new SyntaxException("Parameters are written in parentheses: " + what, next.RowNumber, next.Column);
+        }
+
+        private void RejectLegacyParameters(Token.Token name) =>
+            RejectLegacyParameters(Tokens, name, name.Value + "(...)");
+
+        /// <summary>
+        /// Reads <c>Name(a, b)</c>: a class's name and constructor
+        /// parameters (<paramref name="declaration"/>: each named once), or a
+        /// base type and the parameters passed on to it.
+        /// </summary>
+        private ClassDetails ReadClassDetails(bool declaration)
         {
             var className = Tokens.Next(TokenType.Variable);
+            RejectLegacyParameters(className);
             var classArguments = new List<string>();
 
-            if (Tokens.Peek(TokenType.GroupDivider, "["))
+            if (Tokens.Peek(TokenType.GroupDivider, "("))
             {
-                Tokens.Next(); // skip open square bracket
+                Tokens.Next(); // skip open parenthesis
 
-                while (!Tokens.Peek(TokenType.GroupDivider, "]"))
+                while (!Tokens.Peek(TokenType.GroupDivider, ")"))
                 {
                     var argumentToken = Tokens.Next(TokenType.Variable);
+                    if (declaration) CheckParameter(_script, classArguments, argumentToken);
                     classArguments.Add(argumentToken.Value);
 
                     if (Tokens.Peek(TokenType.GroupDivider, ","))
                         Tokens.Next();
                 }
 
-                Tokens.Next(TokenType.GroupDivider, "]"); // skip close square bracket
+                Tokens.Next(TokenType.GroupDivider, ")"); // skip close parenthesis
             }
 
             return new ClassDetails(className.Value, classArguments);
@@ -252,17 +545,19 @@ namespace WarScript
         private void ParseFunctionDefinition(Token.Token rowToken)
         {
             var name = Tokens.Next(TokenType.Variable);
+            RejectLegacyParameters(name);
             var arguments = new List<string>();
             var defaults = new List<(string Name, IExpression DefaultExpr)>();
             var minArity = -1;
 
-            if (Tokens.Peek(TokenType.GroupDivider, "["))
+            if (Tokens.Peek(TokenType.GroupDivider, "("))
             {
-                Tokens.Next(TokenType.GroupDivider, "["); // skip open square bracket
+                Tokens.Next(TokenType.GroupDivider, "("); // skip open parenthesis
 
-                while (!Tokens.Peek(TokenType.GroupDivider, "]"))
+                while (!Tokens.Peek(TokenType.GroupDivider, ")"))
                 {
                     var argumentToken = Tokens.Next(TokenType.Variable);
+                    CheckParameter(_script, arguments, argumentToken);
                     arguments.Add(argumentToken.Value);
 
                     // Check for default value: param = expr
@@ -283,7 +578,7 @@ namespace WarScript
                         Tokens.Next();
                 }
 
-                Tokens.Next(TokenType.GroupDivider, "]"); // skip close square bracket
+                Tokens.Next(TokenType.GroupDivider, ")"); // skip close parenthesis
             }
 
             // build block name — prefix with class name if inside a class
@@ -291,14 +586,20 @@ namespace WarScript
                 ? _compositeStatement.BlockName + "#" + name.Value
                 : name.Value;
 
-            var functionStatement = new FunctionStatement(_script, rowToken.RowNumber, blockName);
+            var functionStatement = new FunctionStatement(_script, rowToken.RowNumber, blockName)
+            {
+                Column = rowToken.Column // definitions are not in the statement list ParseExpression positions (T3.1)
+            };
             var functionScope = _script.DefinitionContext.NewScope();
             var functionDetails = new FunctionDetails(name.Value, arguments, minArity);
+            CheckDuplicate(d => d.AddFunction(name.Value, functionDetails.MinArity, arguments.Count, _script.ParsingFile, name.RowNumber), name);
+            if (!(_compositeStatement is ClassStatement)) CheckShadowsNative(functionDetails, name);
             var functionDefinition = new FunctionDefinition(functionDetails, functionStatement, functionScope);
             _script.DefinitionContext.GetScope().AddFunction(functionDefinition);
 
-            // parse function statements
-            Parse(this, functionStatement, functionScope);
+            // parse function statements: a function directly in a class body is a method
+            Parse(this, functionStatement, functionScope,
+                _compositeStatement is ClassStatement ? ParseBody.Method : ParseBody.Function);
             Tokens.Next(TokenType.Keyword, "end");
 
             // Desugar default parameter values.
@@ -321,7 +622,7 @@ namespace WarScript
                 var assign = new AssignmentOperator(
                     _script,
                     new VariableExpression(_script, paramName),
-                    defaultExpr);
+                    defaultExpr) { Desugared = true };
                 assignBody.AddStatement(new ExpressionStatement(_script, line, blockName, assign));
 
                 var condition = new ConditionStatement(_script, line, blockName);
@@ -343,7 +644,7 @@ namespace WarScript
             var loopExpression = ExpressionReader.ReadExpression(_script, Tokens);
             if (ReferenceEquals(loopExpression, _script.NullExpr))
                 throw new SyntaxException(
-                    $"'loop' at line {rowToken.RowNumber} requires a condition or an iterable");
+                    System.FormattableString.Invariant($"'loop' at line {rowToken.RowNumber} requires a condition or an iterable"));
 
             AbstractLoopStatement loopStatement;
 
@@ -351,24 +652,25 @@ namespace WarScript
             {
                 // loop <variable> in <bounds>
                 Tokens.Next(TokenType.Keyword, "in");
-                var bounds = ExpressionReader.ReadExpression(_script, Tokens);
+                var bounds = RequireExpression(ExpressionReader.ReadExpression(_script, Tokens), rowToken, "an iterable or a range after 'in'");
 
                 if (Tokens.Peek(TokenType.GroupDivider, ".."))
                 {
-                    Tokens.Next(TokenType.GroupDivider, "..");
-                    var upperBound = ExpressionReader.ReadExpression(_script, Tokens);
+                    var range = Tokens.Next(TokenType.GroupDivider, "..");
+                    var upperBound = RequireExpression(ExpressionReader.ReadExpression(_script, Tokens), rowToken, "an upper bound after '..'");
 
                     if (Tokens.Peek(TokenType.Keyword, "by"))
                     {
                         // loop <variable> in <lower_bound>..<upper_bound> by <step>
-                        Tokens.Next(TokenType.Keyword, "by");
-                        var step = ExpressionReader.ReadExpression(_script, Tokens);
-                        loopStatement = new ForLoopStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName, variable, bounds, upperBound, step);
+                        var by = Tokens.Next(TokenType.Keyword, "by");
+                        var stepColumn = Tokens.TryPeekSameLine(out var stepToken) ? stepToken.Column : by.Column;
+                        var step = RequireExpression(ExpressionReader.ReadExpression(_script, Tokens), rowToken, "a step after 'by'");
+                        loopStatement = new ForLoopStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName, variable, bounds, upperBound, step) { RangeColumn = range.Column, StepColumn = stepColumn };
                     }
                     else
                     {
                         // loop <variable> in <lower_bound>..<upper_bound>
-                        loopStatement = new ForLoopStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName, variable, bounds, upperBound);
+                        loopStatement = new ForLoopStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName, variable, bounds, upperBound) { RangeColumn = range.Column };
                     }
                 }
                 else
@@ -388,6 +690,20 @@ namespace WarScript
             Tokens.Next(TokenType.Keyword, "end");
 
             _compositeStatement.AddStatement(loopStatement);
+        }
+
+        /// <summary>
+        /// Rejects an empty expression where a block header needs one (an
+        /// <c>if</c>/<c>elif</c> condition, a loop's iterable, bounds or
+        /// step), which <see cref="ExpressionReader.ReadExpression"/> reads
+        /// as null: <c>if</c> alone, <c>loop i in 0..</c> (T3.8 review).
+        /// </summary>
+        private IExpression RequireExpression(IExpression expression, Token.Token keyword, string what)
+        {
+            if (!ReferenceEquals(expression, _script.NullExpr)) return expression;
+            throw new SyntaxException(
+                System.FormattableString.Invariant($"'{keyword.Value}' at line {keyword.RowNumber} requires {what}"),
+                keyword.RowNumber, keyword.Column);
         }
 
         private void ParseBreakStatement(Token.Token rowToken)
@@ -453,10 +769,16 @@ namespace WarScript
             var pathToken = Tokens.Next(TokenType.Text);
             var statement = new ImportStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName, pathToken.Value);
             _compositeStatement.AddStatement(statement);
+            _imports?.Add(statement);
         }
         
         private void ParseYieldStatement(Token.Token rowToken)
         {
+            // A class body runs as a constructor frame (T1.1): it cannot
+            // suspend (T3.3, PROP-21).
+            if (_script.ParsingBody == ParseBody.ClassBody && !_script.ParsingV1)
+                throw new SyntaxException("'yield' is not allowed in a class body", rowToken.RowNumber, rowToken.Column);
+
             YieldType yieldType;
             IExpression expression = null;
 
@@ -483,6 +805,39 @@ namespace WarScript
                     yieldType, expression));
         }
 
+        /// <summary>
+        /// <c>global a, b</c> (T3.3, PROP-10): one or more names separated by
+        /// commas on the line of the keyword (a name may follow a comma on
+        /// the next line). Allowed in a function, method, lambda or class
+        /// body, nested blocks included; at the top level every assignment
+        /// already writes a global, so there it is an error.
+        /// </summary>
+        private void ParseGlobalStatement(Token.Token rowToken)
+        {
+            if (_script.ParsingBody == ParseBody.TopLevel)
+                throw new SyntaxException(
+                    "'global' is allowed only in a function, method, lambda or class body: a top-level assignment already writes a global",
+                    rowToken.RowNumber, rowToken.Column);
+
+            var names = new List<string>();
+            while (true)
+            {
+                // The first name is on the keyword's line; later ones may follow a comma's line break.
+                var hasName = names.Count == 0 ? Tokens.PeekSameLine(TokenType.Variable) : Tokens.Peek(TokenType.Variable);
+                if (!hasName)
+                    throw new SyntaxException(
+                        "'global' is a reserved word: it must be followed by the names it declares, separated by commas",
+                        rowToken.RowNumber, rowToken.Column);
+                names.Add(Tokens.Next(TokenType.Variable).Value);
+                if (!Tokens.PeekSameLine(TokenType.GroupDivider, ","))
+                    break;
+                Tokens.Next(); // the comma
+            }
+
+            _compositeStatement.AddStatement(
+                new GlobalStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName, names));
+        }
+
         // ────────────────────────────────────────────────────────
         //  const / enum
         // ────────────────────────────────────────────────────────
@@ -502,13 +857,13 @@ namespace WarScript
             var assign = new AssignmentOperator(
                 _script,
                 new VariableExpression(_script, name.Value),
-                valueExpr);
+                valueExpr) { DeclaresConstant = true };
             _compositeStatement.AddStatement(
                 new ExpressionStatement(_script, rowToken.RowNumber, _compositeStatement.BlockName, assign));
         }
 
         /// <summary>
-        /// Desugars an enum into a class with numeric properties and a name[] method,
+        /// Desugars an enum into a class with numeric properties and a name() method,
         /// plus a singleton instance assigned to the enum name.
         ///
         /// <code>
@@ -526,7 +881,7 @@ namespace WarScript
         ///     PHYSICAL = 0
         ///     MAGICAL = 1
         ///     TRUE = 5
-        ///     fun name [value]
+        ///     fun name(value)
         ///         if value == 0 return "PHYSICAL" end
         ///         if value == 1 return "MAGICAL" end
         ///         if value == 5 return "TRUE" end
@@ -536,8 +891,8 @@ namespace WarScript
         /// DamageType = new DamageType
         /// </code>
         ///
-        /// Access: <c>DamageType :: PHYSICAL</c> → 0
-        /// Reverse: <c>DamageType :: name [DamageType :: PHYSICAL]</c> → "PHYSICAL"
+        /// Access: <c>DamageType.PHYSICAL</c> → 0
+        /// Reverse: <c>DamageType.name(DamageType.PHYSICAL)</c> → "PHYSICAL"
         /// </summary>
         private void ParseEnumStatement(Token.Token rowToken)
         {
@@ -547,11 +902,16 @@ namespace WarScript
 
             // Collect members: (name, numericValue)
             var members = new List<(string Name, int Value)>();
+            var memberNames = new HashSet<string>();
             var nextValue = 0;
 
             while (!Tokens.Peek(TokenType.Keyword, "end"))
             {
                 var memberName = Tokens.Next(TokenType.Variable);
+                // Each member once (T3.8, PROP-29).
+                if (!memberNames.Add(memberName.Value) && !_script.ParsingV1)
+                    throw new SyntaxException("Enum member '" + memberName.Value + "' is already declared in enum '" + enumName.Value + "'",
+                        memberName.RowNumber, memberName.Column);
 
                 // Optional explicit value: MEMBER = <numeric literal>
                 if (Tokens.PeekSameLine(TokenType.Operator, "="))
@@ -575,9 +935,11 @@ namespace WarScript
 
             // Class with no constructor args — properties are set in the body
             var classDetails = new ClassDetails(enumName.Value, new List<string>());
+            CheckDuplicate(d => d.AddClass(enumName.Value, _script.ParsingFile, enumName.RowNumber), enumName);
             var classScope = _script.DefinitionContext.NewScope();
             var classStatement = new ClassStatement(_script, line, enumName.Value);
-            var classDefinition = new ClassDefinition(classDetails, new List<ClassDetails>(), classStatement, classScope);
+            var classDefinition = new ClassDefinition(classDetails, new List<ClassDetails>(), classStatement, classScope)
+                { IsEnum = true };
             _script.DefinitionContext.GetScope().AddClass(classDefinition);
 
             // Constructor body: assign each member as a property
@@ -586,7 +948,7 @@ namespace WarScript
                 var assign = new AssignmentOperator(
                     _script,
                     new VariableExpression(_script, memberName),
-                    new ConstantExpression(WarValue.FromNumeric(memberValue)));
+                    new ConstantExpression(WarValue.FromNumeric(memberValue))) { Desugared = true };
                 classStatement.AddStatement(
                     new ExpressionStatement(_script, line, enumName.Value, assign));
             }
@@ -599,7 +961,7 @@ namespace WarScript
                 new ExpressionStatement(_script, line, enumName.Value,
                     new AssignmentOperator(_script,
                         new VariableExpression(_script, "values"),
-                        new ArrayExpression(_script, valuesElements))));
+                        new ArrayExpression(_script, valuesElements)) { Desugared = true }));
 
             // Add `names` property: array of all string names
             var namesElements = new List<IExpression>();
@@ -609,16 +971,16 @@ namespace WarScript
                 new ExpressionStatement(_script, line, enumName.Value,
                     new AssignmentOperator(_script,
                         new VariableExpression(_script, "names"),
-                        new ArrayExpression(_script, namesElements))));
+                        new ArrayExpression(_script, namesElements)) { Desugared = true }));
 
             // Add `count` property: number of members
             classStatement.AddStatement(
                 new ExpressionStatement(_script, line, enumName.Value,
                     new AssignmentOperator(_script,
                         new VariableExpression(_script, "count"),
-                        new ConstantExpression(WarValue.FromNumeric(members.Count)))));
+                        new ConstantExpression(WarValue.FromNumeric(members.Count))) { Desugared = true }));
 
-            // Build name[] method: maps numeric value → string name
+            // Build name() method: maps numeric value → string name
             var nameMethodBody = new FunctionStatement(_script, line, enumName.Value + "#name");
             var nameMethodScope = _script.DefinitionContext.NewScope();
 
@@ -635,7 +997,7 @@ namespace WarScript
                 _script.DefinitionContext.EndScope();
             }
 
-            // Body of name[]: chain of if value == N return "NAME" end
+            // Body of name(): chain of if value == N return "NAME" end
             foreach (var (memberName, memberValue) in members)
             {
                 var condition = new ConditionStatement(_script, line, enumName.Value + "#name");
@@ -663,12 +1025,18 @@ namespace WarScript
                 _script,
                 new VariableExpression(_script, enumName.Value),
                 new ClassInstanceOperator(_script,
-                    new ClassExpression(_script, enumName.Value, new List<IExpression>())));
+                    new ClassExpression(_script, enumName.Value, new List<IExpression>())))
+                { DeclaresConstant = true };
             _compositeStatement.AddStatement(
                 new ExpressionStatement(_script, line, blockName, instantiate));
 
             // Protect the enum variable from reassignment
             _script.ConstantNames.Add(enumName.Value);
+
+            // Its members, for `E.X` (T3.8, PROP-29): only an enum at the
+            // top level of a file is a global the compiler can name.
+            if (_script.ParsingBody == ParseBody.TopLevel && _script.ParsingClassDepth == 0 && !_script.ParsingV1)
+                _script.DeclareEnum(enumName.Value, memberNames);
         }
     }
 }

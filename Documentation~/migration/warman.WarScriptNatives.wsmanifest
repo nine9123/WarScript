@@ -1,0 +1,140 @@
+warscript-manifest 2
+function add_game_rule 1 ruleId
+function clear_game_rules 0
+function complete_quest 1 questKey
+function doodad_begin 2 doodadId prefab editorFolder
+function doodad_config_bool 2 property value
+function doodad_config_float 2 property value
+function doodad_config_int 2 property value
+function doodad_config_string 2 property value
+function doodad_define 2 doodadId prefab editorFolder
+function doodad_end 0
+function editor_biome 1 biomeName
+function editor_clear_all_doodads 0
+function editor_clear_doodads 1 doodadId
+function editor_clear_rect_doodads 4 x1 z1 x2 z2
+function editor_count_doodads 1 doodadId
+function editor_get_depth 0
+function editor_get_height 2 x y
+function editor_get_texture 2 x y
+function editor_get_water 2 x y
+function editor_get_width 0
+function editor_new_room 3 name width height
+function editor_noise_height 4 seed scale amplitude baseHeight
+function editor_paint 5 x y width height layerIndex
+function editor_paint_fill 1 layerIndex
+function editor_place 6 doodadId x y z rotation scale
+function editor_place_at_terrain 5 doodadId gridX gridY rotation scale
+function editor_ramp 5 x y width height enabled
+function editor_remove_water 4 x y width height
+function editor_resize 2 width height
+function editor_save 0
+function editor_scatter 8 doodadId count minX minY maxX maxY minScale maxScale
+function editor_scatter_seeded 9 doodadId count seed minX minY maxX maxY minScale maxScale
+function editor_set_detail 3 x y detailType
+function editor_set_height 3 x y height
+function editor_set_ramp 3 x y hasRamp
+function editor_set_texture 3 x y layerIndex
+function editor_set_water 3 x y height
+function editor_shift_height 1 change
+function editor_smooth_height 4 cx cy radius strength
+function editor_terrain 5 x y width height terrainHeight
+function editor_terrain_fill 1 terrainHeight
+function editor_water 6 x y width height terrainHeight waterHeight
+function emit_chat_message 1 message
+function enemy_preset_define 1 mesh
+function engine_get_additional_input_delay 0
+function engine_get_map_reset_seconds 0
+function engine_get_max_players 0
+function engine_get_maximum_tick_time 0
+function engine_get_required_buffered_ticks 0
+function engine_set_additional_input_delay 1 value
+function engine_set_map_reset_seconds 1 value
+function engine_set_max_players 1 value
+function engine_set_maximum_tick_time 1 value
+function engine_set_required_buffered_ticks 1 value
+function expire_all_maps 0
+function forget_quest 1 questKey
+function get_object 1 instanceId
+function job_begin 1 classId
+function job_end 0
+function job_hidden 0
+function job_modifier 1 modifierId
+function job_name 1 translationKey
+function job_skill 1 skillId
+function job_sprite 1 spriteName
+function map_begin 2 mapId mapNameTKey
+function map_default_modifier 1 modifierName
+function map_end 0
+function map_enemy 2 enemyPresetName weight
+function map_global_modifier 1 modifierName
+function map_global_modifier_interval 1 interval
+function map_has_elites 0
+function map_no_portals 0
+function map_room 1 roomName
+function npc_add_option 2 instanceId targetId label
+function npc_add_script_option 4 instanceId targetId label script
+function npc_clear_options 1 instanceId
+function npc_setup 1 instanceId unitMesh name dialog
+function object_add_output 3 instanceId property targetId
+function object_clear_outputs 2 instanceId property
+function object_exists 1 instanceId
+function object_set_bool 3 instanceId property value
+function object_set_float 3 instanceId property value
+function object_set_int 3 instanceId property value
+function object_set_label 2 instanceId translationKey
+function object_set_script 2 instanceId script
+function object_set_string 3 instanceId property value
+function object_set_text 3 instanceId property text
+function open_game_rules 0
+function print_game_map_status 0
+function quest_define 4 questId nameTKey descTKey groupTKey isWorldQuest
+function remove_units 1 group
+function reset_attributes 0
+function room_biome 1 biomeName
+function room_define 1 roomId
+function room_end 0
+function room_music 1 clipName
+function room_no_portals 0
+function room_script 1 scriptPath
+function run_script 3 path function message
+function run_script 4 path function message message2
+function run_script 5 path function message message2 message3
+function save_clear 0
+function save_current_slot 0
+function save_delete_slot 1 slotName
+function save_get 1 key
+function save_get_bool 2 key defaultValue
+function save_get_fixed 2 key defaultValue
+function save_get_int 2 key defaultValue
+function save_get_string 2 key defaultValue
+function save_get_table 1 key
+function save_has 1 key
+function save_list_slots 0
+function save_load_from_disk 1 slotName
+function save_new_slot 1 slotName
+function save_remove 1 key
+function save_set 2 key value
+function save_set_bool 2 key value
+function save_set_fixed 2 key value
+function save_set_int 2 key value
+function save_set_string 2 key value
+function save_set_table 2 key value
+function save_slot_exists 1 slotName
+function save_to_disk 0
+function set_map_expire_timer 2 mapName seconds
+function sound_define 2 name type clips background volume_change pitch_change load_async override_mixer recipe variants score tune
+function spawn_units 6 preset count x y z radius
+function t 2 key value
+function teleport_players 3 x y z
+function teleport_units 4 group x y z
+function timer_create 3 interval repeating callbackName
+function timer_destroy 1 id
+function timer_destroy_all 0
+function timer_is_active 1 id
+function timer_pause 1 id
+function timer_remaining 1 id
+function timer_resume 1 id
+function translation_create 1 name
+function translation_set 2 key value
+function units_alive 1 group

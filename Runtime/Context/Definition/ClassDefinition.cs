@@ -37,6 +37,38 @@ namespace WarScript.Context.Definition
         /// </summary>
         public CompiledFunction CompiledConstructor { get; set; }
 
+        /// <summary>
+        /// The fields this class declares itself (5.7): its constructor
+        /// parameters and the names its class body assigns (bare, or as
+        /// <c>@x</c> / <c>this.x</c>) without declaring them <c>global</c>.
+        /// An instance's fields are those of every class part it has (5.5).
+        /// Set by the compiler, and by the loader from the file; null for a
+        /// class the host registered, whose fields are not known, so that
+        /// accessing any property of its instances is allowed (PROP-15, T3.6).
+        /// Setting it also indexes the fields (<see cref="ClassDetails.Fields"/>, T3.4).
+        /// </summary>
+        internal HashSet<string>? Fields
+        {
+            get => _fields;
+            set
+            {
+                _fields = value;
+                ClassDetails.SetDeclaredFields(value);
+            }
+        }
+
+        private HashSet<string>? _fields;
+
+        /// <summary>
+        /// True for the class of an <c>enum</c> (the parser's desugar, a
+        /// host <c>[WsEnum]</c>, a native manifest's <c>enum</c>; stored in
+        /// the file since format 12). Its members are constant (T3.8,
+        /// PROP-28): a script's property write to an instance of it is a
+        /// TypeError (<c>WarVM</c>'s <c>SetProperty</c>), so the compiler
+        /// may type <c>E.X</c> from the declaration.
+        /// </summary>
+        internal bool IsEnum { get; set; }
+
         public ClassDefinition(
             ClassDetails classDetails,
             List<ClassDetails> baseTypes,

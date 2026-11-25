@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using WarScript.Exception;
 
 namespace WarScript.Expression.Operator.Extensions
 {
@@ -8,7 +9,8 @@ namespace WarScript.Expression.Operator.Extensions
         {
             { "!",    Operator.Not },
             { "new",  Operator.ClassInstance },
-            { "::",   Operator.ClassProperty },
+            { ".",    Operator.ClassProperty },
+            { ".new", Operator.NestedClassInstance },
             { "as",   Operator.ClassCast },
             { "is",   Operator.ClassInstanceOf },
             { "*",    Operator.Multiplication },
@@ -39,11 +41,7 @@ namespace WarScript.Expression.Operator.Extensions
             if (OperatorMap.TryGetValue(value, out var op))
                 return op;
 
-            var trimmed = value.Trim();
-            if (trimmed == ":: new" || (trimmed.StartsWith("::") && trimmed.EndsWith("new")))
-                return Operator.NestedClassInstance;
-
-            throw new System.Exception($"Cannot parse '{value}' to an operator");
+            throw new SyntaxException($"Cannot parse '{value}' to an operator");
         }
 
         public static UnaryOperatorExpression ToUnaryExpression(this Operator op, WarScriptLanguage script, IExpression operand) =>
@@ -52,7 +50,7 @@ namespace WarScript.Expression.Operator.Extensions
                 Operator.Not           => new NotOperator(script, operand),
                 Operator.ClassInstance => new ClassInstanceOperator(script, operand),
                 Operator.Negate        => new NegateOperator(script, operand),
-                _ => throw new System.Exception($"Operator {op} is not a unary operator")
+                _ => throw new SyntaxException($"Operator {op} is not a unary operator")
             };
 
         public static BinaryOperatorExpression ToBinaryExpression(this Operator op, WarScriptLanguage script, IExpression left, IExpression right) =>
@@ -79,14 +77,14 @@ namespace WarScript.Expression.Operator.Extensions
                 Operator.ArrayAppend          => new ArrayAppendOperator(script, left, right),
                 Operator.ArrayValue           => new ArrayValueOperator(script, left, right),
                 Operator.AdditionAssignment       => new AssignmentOperator(script, left,
-                    new AdditionOperator(script, left, right)),
+                    new AdditionOperator(script, left, right)) { CompoundOperator = "+=" },
                 Operator.SubtractionAssignment    => new AssignmentOperator(script, left,
-                    new SubtractionOperator(script, left, right)),
+                    new SubtractionOperator(script, left, right)) { CompoundOperator = "-=" },
                 Operator.MultiplicationAssignment => new AssignmentOperator(script, left,
-                    new MultiplicationOperator(script, left, right)),
+                    new MultiplicationOperator(script, left, right)) { CompoundOperator = "*=" },
                 Operator.DivisionAssignment       => new AssignmentOperator(script, left,
-                    new DivisionOperator(script, left, right)),
-                _ => throw new System.Exception($"Operator {op} is not a binary operator")
+                    new DivisionOperator(script, left, right)) { CompoundOperator = "/=" },
+                _ => throw new SyntaxException($"Operator {op} is not a binary operator")
             };
 
         public static bool IsBinary(this Operator op) => !IsUnary(op);
@@ -129,7 +127,7 @@ namespace WarScript.Expression.Operator.Extensions
                 Operator.SubtractionAssignment    => 0,
                 Operator.MultiplicationAssignment => 0,
                 Operator.DivisionAssignment       => 0,
-                _ => throw new System.Exception($"Operator {op} has no defined precedence")
+                _ => throw new SyntaxException($"Operator {op} has no defined precedence")
             };
 
         public static bool GreaterThan(this Operator op, Operator other) =>

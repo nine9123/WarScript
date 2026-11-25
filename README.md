@@ -9,8 +9,9 @@
 ---
 
 WarScript is a custom scripting language designed to be embedded into C# applications and Unity
-projects. It provides a simple, Ruby-flavoured syntax for scripting game logic, automation, and
-runtime behaviour without recompiling your project.
+projects. It provides a small, readable syntax — `end`-terminated blocks, `f(x)` calls, `[1, 2]`
+arrays and `obj.x` members — for scripting game logic, automation, and runtime behaviour without
+recompiling your project.
 
 Every WarScript number is a **32.32 fixed-point value** (`FixMath.F64`) rather than a float, so the
 same script produces bit-identical results on every machine and platform — it is built to be the
@@ -69,8 +70,8 @@ using WarScript;
 using WarScript.Context.Definition;
 using WarScript.Expression.Value;
 
-// 1. Create the script. The logger receives everything `print` emits and any
-//    uncaught error's stack trace.
+// 1. Create the script. The logger receives everything `print` emits and the
+//    runtime's own log lines (an uncaught error with its call stack, warnings).
 var script = new WarScriptLanguage(
     scriptName:   "example",
     sourceCode:   sourceCode,
@@ -83,24 +84,38 @@ WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
 
 // 3. Run() parses, compiles to bytecode, and executes all top-level statements.
 //    This is also what makes functions callable — always call it first.
-script.Run();
+//    No entry point throws for a script error: check the ScriptResult.
+ScriptResult run = script.Run();
+if (!run.IsOk) Debug.LogError(run.Error);    // "example:3:0: DivisionByZero: Division by zero"
 
 // 4. Call into the script. Functions are looked up by (name, argument count).
-var tick = script.GetFunction("tick", 1);
-script.Call(tick, WarValue.FromNumeric(F64.Ratio(1, 60)));
+FunctionHandle tick = script.GetFunction("tick", 1);   // null if there is no tick[dt]
+ScriptResult r = script.Call(tick, WarValue.FromNumeric(F64.Ratio(1, 60)));
+// r.Value is tick's return value when r.IsOk
 
 // 5. If your scripts use `yield`, drive coroutines once per tick.
 script.TickCoroutines(F64.Ratio(1, 60));
+
+// 6. Optional, for lockstep games: a 64-bit hash of everything the script has
+//    printed and of its globals' current values. Compare it across machines
+//    (for example once per tick) to locate a desync.
+ulong stateHash = script.ComputeStateHash();
 ```
 
-There is **no separate compile step to opt into** — `Run()` always compiles the script to bytecode,
-and every language feature (including `yield`) runs on the bytecode VM. Saving/loading bytecode
+`Run()` compiles the script to bytecode if it has not been compiled yet. To find compile errors
+without running anything, call `Compile()` first: it returns a `CompileResult` (`Success` and
+`Diagnostics`, each with a severity, message, script name and line) instead of throwing, and later
+calls return the same result. The entry points (`Run`, `Call`, `StartCoroutine`, `TickCoroutines`)
+return a `ScriptResult` — see [Results and errors](#results-and-errors); on a script that does not
+compile they return an `Error` result of kind `CompileError` and run nothing. Every language feature (including `yield`) runs on the bytecode VM. Saving/loading bytecode
 files is an optional build-time optimisation, not a requirement. See
 [Bytecode serialization](#bytecode-serialization).
 
 ## Language Guide
 
 Every example below has been executed against the runtime; the `# →` comments show real output.
+The normative reference (every operator, scope and error rule) is
+[`Documentation~/LANGUAGE.md`](Documentation~/LANGUAGE.md).
 
 ### Comments
 
@@ -122,9 +137,8 @@ data = null
 
 print x         # → 42
 print name      # → hello
-print active    # → True
+print active    # → true
 print data      # → null
-print never_set # → null
 ```
 
 ### Types
@@ -134,10 +148,10 @@ WarScript has 7 value types:
 | Type | Example | Notes |
 |---|---|---|
 | **Numeric** | `42`, `0.5`, `-3` | `F64` 32.32 fixed-point — *not* a float or double |
-| **Logical** | `true`, `false` | prints as `True` / `False` |
+| **Logical** | `true`, `false` | prints as `true` / `false` |
 | **Text** | `"hello"` | interpolation, escapes, and raw `"""..."""` |
-| **Array** | `{1, 2, 3}` | prints as `[1, 2, 3]` |
-| **Class** | `new Point [1, 2]` | prints as the class name |
+| **Array** | `[1, 2, 3]` | prints as `[1, 2, 3]` |
+| **Class** | `new Point(1, 2)` | prints as the class name |
 | **Null** | `null` | |
 | **NativeObject** | supplied by the host | opaque handle to a C# object (e.g. `F64Vec3`) |
 
@@ -163,8 +177,8 @@ fixed-point nature:
 
 ```ruby
 print 1 / 3      # → 0.3333333332557231
-print sqrt [2]   # → 1.4142135614529252
-print pow [2, 10]# → 1023.999994755   (not exactly 1024)
+print sqrt(2)   # → 1.4142135614529252
+print pow(2, 10)# → 1023.999994755   (not exactly 1024)
 ```
 
 - Integer part range is ±2147483647; fractional precision past 9 digits is truncated.
@@ -184,17 +198,17 @@ print 10 / 4    # → 2.5
 print 10 % 3    # → 1
 
 # Comparison
-print 1 == 1    # → True
-print 1 != 2    # → True
-print 1 < 2     # → True
-print 2 <= 2    # → True
-print 3 > 2     # → True
-print 3 >= 4    # → False
+print 1 == 1    # → true
+print 1 != 2    # → true
+print 1 < 2     # → true
+print 2 <= 2    # → true
+print 3 > 2     # → true
+print 3 >= 4    # → false
 
 # Logical
-print true and false   # → False
-print true or false    # → True
-print !true            # → False
+print true and false   # → false
+print true or false    # → true
+print !true            # → false
 
 # Compound assignment
 x = 10
@@ -204,17 +218,34 @@ x *= 2    # 24
 x /= 4    # 6
 ```
 
-Comparison coerces to text when the operands differ, so `1 == "1"` is `True` and `"a" < "b"` is
-`True`. `null == null` is `True`, but `null == 0` is `False`.
+Operators do not coerce. `+` concatenates when either operand is text, adds two numbers and joins
+two arrays; `-`, `/`, `%` and unary `-` take numbers; `*` takes numbers or a text and a count;
+`<`, `<=`, `>`, `>=` take two numbers or two texts (compared ordinally); `<<` needs an array.
+Anything else raises a `TypeError` such as `Cannot apply '-' to text and number`. When both
+operand types are visible in the source (literals, interpolated text, array literals, `null`,
+`true`/`false`, a `const` with such a value, a member, `count`, `values`, `names` or `name(...)`
+of an enum declared at the top level, a host constant or `[WsEnum]` (or a native manifest's typed
+`const` or `enum`), or another operator's result: `"Sir {name}" - "Sir "`,
+`-"x"`, `1 < 2 < 3`, `5.hp`, `TITLE - "Sir "` after `const TITLE = "Sir Bob"`), the same
+message is a compile error instead (so are range-loop bounds `<` rejects, `loop i in 0.."3"`); a
+value from a variable or a call is not inferred and raises at runtime. `==` and `!=`
+never raise: values of different types are simply not equal, so `1 == "1"` is `false`,
+`null == null` is `true` and `null == 0` is `false`. Arrays compare element by element; class
+instances compare by identity, so two instances with the same fields are not equal, while an
+instance and a cast of it (`d == (d as Base)`) are.
 
 ### Strings
 
 ```ruby
 print "hello" + " world"        # → hello world   (concatenate)
-print "hello world" - "world"   # → "hello "      (remove first occurrence)
 print "ab" * 3                  # → ababab        (repeat)
-print "n=" + 5                  # → n=5           (numbers coerce to text)
+print "n=" + 5                  # → n=5           (text + anything is text)
+print "abc"[1]                  # → b             (one-character text)
 ```
+
+There is no text subtraction; `Text_remove(s, sub)` removes every occurrence of `sub`.
+Text is immutable: `s[0] = "x"` raises a `TypeError`. Reading past either end raises an
+`IndexError`, as for arrays.
 
 #### Interpolation
 
@@ -233,7 +264,7 @@ print "sum: {1 + 2}"                            # → sum: 3
 print $"Hello {name}"                           # → Hello hero
 ```
 
-Braces nest, so `"{arr{0}}"` indexes inside an interpolation, and a text literal *inside* an
+Any expression fits in a hole (`"{arr[0]}"`, `"{p.name()}"`), and a text literal *inside* an
 interpolation keeps its own braces and quotes: `"result: {"a}b"}"` is `result: a}b`.
 
 #### Escapes
@@ -254,11 +285,11 @@ print "a\nb"                # → two lines
 you carry WarScript source, JSON, or anything else brace- and quote-heavy as a value.
 
 ```ruby
-snippet = """print "{greeting}, {party{0}}""""
+snippet = """print "{greeting}, {party[0]}""""
 
 dialog = """
 if reputation > 50
-    npc_say ["Good to see you again."]
+    npc_say("Good to see you again.")
 end
 """
 ```
@@ -271,32 +302,43 @@ raw. `$"""..."""` is a syntax error — raw literals do not interpolate; concate
 
 ### Arrays
 
-Arrays use `{}` for literals and `{index}` for access (zero-based).
+Arrays use `[...]` for literals and `[index]` for access (zero-based).
 
 ```ruby
-arr = {1, 2, 3}
-print arr{0}              # → 1
+arr = [1, 2, 3]
+print arr[0]              # → 1
 arr << 4                  # append
 print arr                 # → [1, 2, 3, 4]
-arr{1} = 99               # assign by index
+arr[1] = 99               # assign by index
 print arr                 # → [1, 99, 3, 4]
-print Array_length [arr]  # → 4
+print Array_length(arr)  # → 4
 
-mixed = {1, "a", true, null}
-print mixed               # → [1, a, True, null]
+mixed = [1, "a", true, null]
+print mixed               # → [1, a, true, null]
 ```
 
-Reading an out-of-range or negative index yields `null` — it is not an error.
+The index must be a number (a fraction truncates toward zero, so `arr[1.9]` is `arr[1]`); any
+other index, or indexing anything but an array or text, raises a `TypeError`. Reading or writing
+an index below 0 or past the end raises an `IndexError` (`Index 3 is out of bounds (length 3)`):
+arrays never grow by index assignment — append with `<<`. Assigning a property of something that
+is not a class instance (`x.hp = 5` with `x = null`) raises a `TypeError`, as reading it does.
+Reading or writing a property an instance does not declare (its classes' constructor parameters
+and the names their class bodies assign) raises a `NameError` (`'hp' is not a field of class
+'Unit'`); a declared field the class body has not assigned yet reads as `null`. When no class of
+the script, its imports or the host has a field or a method of that name, `obj.x` (or
+`obj.x(...)`) is already a compile error: `'hpp' is not a field or method of any class`. So a
+script that reads the fields of an instance another script made must know a class declaring them.
+(Not checked while the host has registered a class without its fields; a generated `[WsEnum]`
+counts with its members.)
 
-**Nested arrays cannot be indexed in one expression.** `grid{0}{1}` silently parses as something
-else; assign to a temporary first:
+Indexes chain, and any value can be indexed — a call's result, a property, a literal:
 
 ```ruby
-grid = {{1, 2}, {3, 4}}
-row = grid{0}
-print row{1}     # → 2
-
-print grid{0}{1} # → [1]   ← WRONG, do not do this
+grid = [[1, 2], [3, 4]]
+print grid[0][1]     # → 2
+grid[1][0] = 30      # assign through a chain
+print grid           # → [[1, 2], [30, 4]]
+print "abc"[1]       # → b
 ```
 
 See [`Array_*` helpers](#standard-library) for search, insert, remove, and copy.
@@ -330,13 +372,15 @@ loop i in 0..3
     print i          # → 0, 1, 2
 end
 
-# For with a step
+# For with a step (ranges only count up: the loop runs while i < 10, so a
+# step of 0 or less is an error — at compile time when it is a literal or a
+# number const, else an ArgumentError when the loop starts)
 loop i in 0..10 by 5
     print i          # → 0, 5
 end
 
 # Foreach over an array
-loop item in {"a", "b"}
+loop item in ["a", "b"]
     print item       # → a, b
 end
 ```
@@ -359,36 +403,86 @@ The loop variable is local to the loop and does not clobber a global of the same
 
 ### Functions
 
-Parameters are declared in `[]` and functions are called with `[]`.
+Parameters are declared in `()` and functions are called with `()`.
 
 ```ruby
-fun add [a, b]
+fun add(a, b)
     return a + b
 end
-print add [3, 4]     # → 7
+print add(3, 4)     # → 7
 
-fun fib [n]
+fun fib(n)
     if n < 2
         return n
     end
-    return fib [n - 1] + fib [n - 2]
+    return fib(n - 1) + fib(n - 2)
 end
-print fib [10]       # → 55
+print fib(10)       # → 55
 ```
 
 Functions are resolved by **(name, argument count)** — two functions with the same name and
-different arities are distinct.
+different arities are distinct. Defining a function again with an arity the first one already
+takes (counting the arities its default parameters allow), or a class name again, is a compile
+error — in the same file, in a class (methods), or anywhere among a script and the files it
+imports, which share one namespace. So is a function with the name and an arity of a native
+(`fun abs(n)` against the stdlib's `abs`: `Function 'abs' with 1 argument shadows a native
+function`); a method may take a native's name, and then a bare call inside its class reaches the
+method (the host log says `Shadowing native function 'abs'`).
+
+A call to a name that no function of the script, its imports, their classes' methods or the host
+defines is a compile error (`Function 'heal' is not defined`), and so is a call with an argument
+count no function of that name takes, which lists the counts it does take (`Function 'add' takes
+2 arguments, not 3`). A call compiles when the name is a global written anywhere (it may hold a
+lambda); if it holds no function at runtime the call raises a `NameError`. A function defined
+inside another function or a block is never found by a call.
+
+#### Locals and globals
+
+Inside a function, method or lambda, every name the body assigns is a **local of the whole body**
+(an `if` does not start a new scope), and globals are read freely. Writing a global takes a
+`global` declaration, placed before any use of the name in that body; assigning a declared global
+creates it if it does not exist yet. At the top level every assignment writes a global, inside an
+`if`, a loop or a `begin` block too (only `loop` and `rescue` variables are limited to their block).
+
+```ruby
+count = 0
+label = "hits"
+
+fun bump(n)
+    global count          # required to write the global
+    total = n * 2         # a local of bump
+    count = count + total
+    return label + ": " + count     # reading a global needs no declaration
+end
+print bump(3)            # → hits: 6
+```
+
+The compiler rejects what would otherwise be a silent mistake:
+
+- reading a local before its first assignment in the source (`count = count + 1` in a function
+  without `global count`) — *variable 'count' is read before it is assigned*;
+- a `loop` or `rescue` variable with the name of a parameter, a local, a declared global or an
+  enclosing loop/rescue variable of the same body (those variables exist only inside their block);
+- `global x` after `x` was used, or for a parameter `x`.
+- reading a global that no file of the script and its imports ever writes (at the top level, as
+  a `const` or `enum`, or through `global`) and the host does not define when the script
+  compiles — *undefined variable 'x'*. A name written only on a path that does not run still
+  compiles, and reading it before it is written raises a `NameError` at runtime.
+
+Methods follow the same rules: a bare name in a method is a local or a global, and the instance's
+fields are reached with `@x` / `this.x`. In a class body a bare assignment declares a field
+(unless the name is declared `global`), and a bare read finds a field first, then a global.
 
 #### Default parameters
 
 Trailing parameters may have defaults. The function is registered at every valid arity.
 
 ```ruby
-fun greet [name, greeting = "Hello"]
+fun greet(name, greeting = "Hello")
     return greeting + ", " + name
 end
-print greet ["World"]           # → Hello, World
-print greet ["World", "Hi"]     # → Hi, World
+print greet("World")           # → Hello, World
+print greet("World", "Hi")     # → Hi, World
 ```
 
 Passing `null` explicitly also triggers the default — there is no way to distinguish "missing" from
@@ -397,74 +491,83 @@ Passing `null` explicitly also triggers the default — there is no way to disti
 #### Named arguments
 
 ```ruby
-fun create_unit [name, hp, team]
+fun create_unit(name, hp, team)
     print "{name} ({hp} HP) on team {team}"
 end
-create_unit [team: "Red", name: "Soldier", hp: 100]   # → Soldier (100 HP) on team Red
+create_unit(team: "Red", name: "Soldier", hp: 100)   # → Soldier (100 HP) on team Red
 ```
+
+A parameter given no argument is `null` (so it takes its default). Naming a parameter twice is a
+compile error, and so is a name that is not a parameter of the function. Named arguments are matched
+when the call is parsed, so define the function above the call (or in an import): a call to a
+function defined further down passes them in the order written.
 
 #### Multi-line calls
 
 Argument lists may span lines:
 
 ```ruby
-print add [
+print add(
     1,
     2
-]                    # → 3
+)                    # → 3
 ```
 
 ### Lambdas / first-class functions
 
-Functions are values. `fun [params] ... end` is valid in any expression position.
+Functions are values. `fun(params) ... end` is valid in any expression position.
 
 ```ruby
-double = fun [x] return x * 2 end
-print double [5]     # → 10
+double = fun(x) return x * 2 end
+print double(5)     # → 10
 
 # Pass one in
-fun apply [arr, f]
-    result = {}
+fun apply(arr, f)
+    result = []
     loop item in arr
-        result << f [item]
+        result << f(item)
     end
     return result
 end
-print apply [{1, 2, 3}, fun [x] return x * 10 end]   # → [10, 20, 30]
+print apply([1, 2, 3], fun(x) return x * 10 end)   # → [10, 20, 30]
 
 # Return one out
-fun pick_strategy [mode]
+fun pick_strategy(mode)
     if mode == "aggressive"
-        return fun [u] return u :: attack [] end
+        return fun(u) return u.attack() end
     end
-    return fun [u] return u :: defend [] end
+    return fun(u) return u.defend() end
 end
 
 # Store them in arrays
-ops = {fun [a, b] return a + b end, fun [a, b] return a * b end}
-f = ops{0}
-print f [3, 4]       # → 7
+ops = [fun(a, b) return a + b end, fun(a, b) return a * b end]
+f = ops[0]
+print f(3, 4)       # → 7
 ```
 
-**Lambdas do not close over enclosing locals.** They see their own parameters and globals only:
+Calling a function value with fewer arguments than it has parameters passes `null` for the rest
+(so default parameters apply); extra arguments are ignored.
+
+**Lambdas do not close over enclosing locals.** They see their own parameters and locals and the
+globals; reading a parameter, local or loop variable of the code around them is a compile error:
 
 ```ruby
 factor = 3                              # global
-f = fun [x] return x * factor end
-print f [5]                             # → 15   ✔ globals work
+f = fun(x) return x * factor end
+print f(5)                             # → 15   ✔ globals work
 
-fun outer []
+fun outer()
     n = 10                              # local to `outer`
-    g = fun [x] return x + n end
-    return g [1]
+    g = fun(x) return x + n end        # ✘ compile error: closures are not supported: 'n' ...
+    return g(1)
 end
-print outer []                          # → 1null   ✘ `n` is null inside the lambda
 ```
 
 ### Constants
 
-Immutable globals. Reassignment is rejected at **parse time** with a `SyntaxException`, so it fails
-before anything runs.
+Immutable globals. Reassignment is rejected when the script compiles (a `SyntaxException`), so it
+fails before anything runs: anywhere in the script, above the declaration too, and in the files it
+imports.
 
 ```ruby
 const MAX_HP = 100
@@ -479,8 +582,9 @@ print HALF     # → 50
 
 ### Enums
 
-Named numeric constants grouped under a class instance, accessed with `::`. The enum name itself is
-protected from reassignment.
+Named numeric constants grouped under a class instance, accessed with `.`. The enum name itself is
+protected from reassignment, and so are its members: `e = DamageType` then `e.PHYSICAL = 3` is a
+`TypeError` (`Cannot assign to 'PHYSICAL' of enum 'DamageType': enum members are constant`).
 
 ```ruby
 enum DamageType
@@ -489,18 +593,22 @@ enum DamageType
     TRUE = 5
 end
 
-print DamageType :: PHYSICAL   # → 0
-print DamageType :: MAGICAL    # → 1
-print DamageType :: TRUE       # → 5
-print DamageType :: name [0]   # → PHYSICAL
-print DamageType :: values     # → [0, 1, 5]
-print DamageType :: names      # → [PHYSICAL, MAGICAL, TRUE]
-print DamageType :: count      # → 3
+print DamageType.PHYSICAL   # → 0
+print DamageType.MAGICAL    # → 1
+print DamageType.TRUE       # → 5
+print DamageType.name(0)   # → PHYSICAL
+print DamageType.values     # → [0, 1, 5]
+print DamageType.names      # → [PHYSICAL, MAGICAL, TRUE]
+print DamageType.count      # → 3
 
-loop v in DamageType :: values
-    print DamageType :: name [v]
+loop v in DamageType.values
+    print DamageType.name(v)
 end
 ```
+
+A name after `DamageType.` that is none of its members, `values`, `names`, `count` or `name` is a
+compile error (`'PHYSCAL' is not a member of enum 'DamageType'`), for an enum declared at the top
+level of the script or of a file it imports.
 
 Members auto-increment from the previous value; an explicit value resets the counter:
 
@@ -516,68 +624,108 @@ end
 
 ### Classes
 
-Constructor parameters are declared in `[]`; properties and methods are reached with `::`.
+Constructor parameters are declared in `()`; properties and methods are reached with `.`.
 
 ```ruby
-class Point [x, y]
-    fun magnitude []
-        return sqrt [this :: x * this :: x + this :: y * this :: y]
+class Point(x, y)
+    fun magnitude()
+        return sqrt(this.x * this.x + this.y * this.y)
     end
 end
 
-p = new Point [3, 4]
-print p :: x               # → 3
-print p :: magnitude []    # → 5.000000085681677   (fixed-point sqrt)
+p = new Point(3, 4)
+print p.x               # → 3
+print p.magnitude()    # → 5.000000085681677   (fixed-point sqrt)
 
-p :: x = 10                # properties are assignable
-print p :: x               # → 10
+p.x = 10                # properties are assignable
+print p.x               # → 10
+```
+
+`new` passes exactly one argument per constructor parameter (pass `null` for one you leave
+empty): `new Point(3)` is a compile error, `Class 'Point' takes 2 arguments, not 1`, and so is `new`
+of a class that is not defined. Where the compiler cannot tell which class `obj.new Part(...)`
+makes, the wrong number of arguments is an `ArgumentError` when it runs.
+
+Inside a class, `@x` is shorthand for `this.x`: `return sqrt(@x * @x + @y * @y)`. A lambda has
+no `this`, so `this` and `@x` cannot be used in one, and a class body cannot `yield` (it runs as the
+constructor; a function it calls still can).
+
+`global` is a reserved word. `global a, b` declares, in a function, method, lambda or class body,
+that `a` and `b` are the instance's globals; at the top level it is an error (see
+[Locals and globals](#locals-and-globals)). In a method, a bare name is a local or a global, never a
+field: use `@x`.
+
+The **fields** of a class are its constructor parameters, the names its body assigns (bare or as
+`@x = ...`) and the fields of its base classes. `@x` / `this.x` in a method or the class body is
+checked against them when the script compiles: `'shield' is not a field of class 'Unit'`. A method
+cannot add a field. An instance has one field per name, shared by every class of its inheritance
+chain, so two base classes may not bind parameters of the same name to different arguments:
+`class C(p, q) : Sub(q, p), Mul(p, q)` with `Sub(a, b)` and `Mul(a, b)` is a compile error
+(`'a' is bound twice in class 'C'`); name the base parameters differently. This holds for base
+classes defined in an imported file too. *(v2 in progress: when a base class comes from a
+bytecode import, or is registered by the host, the field check is skipped and the binding error is
+a rescuable TypeError at `new`.)*
+
+```ruby
+g = 5
+class Unit(hp)
+    armor = 2                  # a field
+    seen = g                   # reads the global g
+    fun hit(d)
+        @hp = @hp - (d - @armor)
+        return @hp
+    end
+end
 ```
 
 #### Inheritance
 
 ```ruby
-class Animal [name]
-    fun speak []
-        return this :: name + " makes a sound"
+class Animal(name)
+    fun speak()
+        return this.name + " makes a sound"
     end
 end
 
-class Dog [name] : Animal [name]
-    fun speak []
-        return this :: name + " says woof"
+class Dog(name) : Animal(name)
+    fun speak()
+        return this.name + " says woof"
     end
 end
 
-d = new Dog ["Rex"]
-print d :: speak []   # → Rex says woof
-print d :: name       # → Rex
+d = new Dog("Rex")
+print d.speak()   # → Rex says woof
+print d.name       # → Rex
 ```
 
 Multiple inheritance is supported — list each base with the arguments to forward:
 
 ```ruby
-class User [email]
-    fun get_email [] return this :: email end
+class User(email)
+    fun get_email() return this.email end
 end
-class Person [name]
-    fun get_name [] return this :: name end
+class Person(name)
+    fun get_name() return this.name end
 end
-class Student [email, name] : User [email], Person [name]
+class Student(email, name) : User(email), Person(name)
 end
 
-s = new Student ["a@b.c", "Ann"]
-print s :: get_email []   # → a@b.c
-print s :: get_name []    # → Ann
+s = new Student("a@b.c", "Ann")
+print s.get_email()   # → a@b.c
+print s.get_name()    # → Ann
 ```
 
 #### Type tests and casts
 
 ```ruby
-print d is Dog       # → True
-print d is Animal    # → True
+print d is Dog       # → true
+print d is Animal    # → true
 a = d as Animal      # cast, or null if incompatible
-print a :: name      # → Rex
+print a.name      # → Rex
 ```
+
+The class after `is` or `as` must be a class of the script, its imports or the host: `d is Dgo`
+is a compile error, `Class 'Dgo' is not defined`.
 
 ### Exception handling
 
@@ -635,7 +783,7 @@ suspends it; the host's next `TickCoroutines(dt)` call continues from exactly th
 local variables intact.
 
 ```ruby
-fun patrol []
+fun patrol()
     print "moving to point A"
     yield wait 2.0            # resume ~2 seconds later
     print "moving to point B"
@@ -655,26 +803,28 @@ end
 | `yield wait N` | after `N` seconds of accumulated `dt` |
 | `yield until <condition>` | on the first tick where the condition is truthy (re-evaluated each tick) |
 
-`yield` works anywhere — inside loops, inside `if` blocks, inside `begin`/`rescue`, and inside
-nested function and lambda calls, because the whole VM state is suspended:
+`yield` works anywhere in a coroutine — inside loops, inside `if` blocks, inside `begin`/`rescue`, and inside
+nested function and lambda calls, because the whole VM state is suspended. Outside a coroutine (a
+function called from the top-level code or by `Call()`) it is the rescuable `TypeError`
+`Cannot yield outside a coroutine`; a `yield` in the top-level code itself ends `Run()`:
 
 ```ruby
-fun do_step [n]
+fun do_step(n)
     print "step {n}"
     yield
     print "step {n} done"
 end
 
-fun main_routine []
-    do_step [1]
-    do_step [2]
+fun main_routine()
+    do_step(1)
+    do_step(2)
 end
 ```
 
 `begin`/`rescue` survives a suspension, so this catches normally:
 
 ```ruby
-fun risky []
+fun risky()
     begin
         yield
         raise "boom"
@@ -689,23 +839,23 @@ Coroutines read and write the script's globals, so a coroutine and the host see 
 #### Starting coroutines from script
 
 ```ruby
-fun patrol [] print "go" yield print "stop" end
+fun patrol() print "go" yield print "stop" end
 
-id = start_coroutine ["patrol", {}]         # the args array is REQUIRED, even when empty
-loop_id = start_coroutine_loop ["patrol", {}]   # restarts automatically when it finishes
-stop_coroutine [id]
-stop_all_coroutines []
+id = start_coroutine("patrol", [])         # the args array is REQUIRED, even when empty
+loop_id = start_coroutine_loop("patrol", [])   # restarts automatically when it finishes
+stop_coroutine(id)
+stop_all_coroutines()
 ```
 
-> `start_coroutine ["patrol"]` — with only one argument — fails with
-> `Function 'start_coroutine' with 1 args is not defined`, because native functions are matched on
-> exact arity. Always pass the second argument: `start_coroutine ["patrol", {}]`.
+> `start_coroutine("patrol")` — with only one argument — does not compile:
+> `Function 'start_coroutine' takes 2 arguments, not 1`, because native functions are matched on
+> exact arity. Always pass the second argument: `start_coroutine("patrol", [])`.
 
 Arguments are passed as an array and bound to the coroutine function's parameters:
 
 ```ruby
-fun greet [name] print "hi {name}" yield print "bye {name}" end
-start_coroutine ["greet", {"hero"}]
+fun greet(name) print "hi {name}" yield print "bye {name}" end
+start_coroutine("greet", ["hero"])
 ```
 
 **A coroutine started from script (or from C#) does nothing further until the host calls
@@ -714,9 +864,13 @@ start_coroutine ["greet", {"hero"}]
 ### Import
 
 ```ruby
+# comments may come first
 import "utils"
 import "ai/patrol"
 ```
+
+Imports come first in a file: an `import` after any other statement or definition, or inside a
+block or a function, is a compile error.
 
 The path is resolved by the `fileResolver` delegate you pass to the constructor; WarScript never
 touches the filesystem itself. Return the imported script's source, or `null` if it cannot be found.
@@ -729,7 +883,30 @@ var script = new WarScriptLanguage("main", source,
     logger: (s, msg) => Debug.Log(msg));
 ```
 
-Imports are cached per script instance, and import cycles are detected.
+Imports are resolved when the script is compiled (`Compile()`, or the first `Run`/`Call`): every
+imported file is compiled before the file that imports it, so an import cycle (reported with its
+path, `Circular import: a -> b -> a`), a path the resolvers cannot answer, a resolver that throws
+and an error in an imported file are compile errors, and nothing runs. Each file's top-level code
+runs once per script instance, before the script's own top-level code: dependencies first, in the
+order the imports are written. An error in an import's top-level code stops `Run` there (the
+import runs again on the next `Run`), and a `yield` in it, or in a function it calls, is a
+`TypeError` (`Cannot yield while importing 'path'`): an import cannot suspend. A `const` or `enum` of an imported file cannot be reassigned by the
+importer, nor one of the importer by an import, and a named-argument call to an imported function is put in its parameter order. A
+script and its imports share one namespace: a function (name and arity) or class that two of them
+define is a compile error at the second definition, naming the file of the first; importing the
+same file through two imports is not. The imported functions and classes belong to the script as
+soon as it compiles, so the host can `GetFunction` and `Call` them before `Run`; only the imported
+files' top-level code waits for `Run`.
+
+Saving bytecode (`SaveBytecode`) also resolves the imports, so the build step needs a
+`fileResolver` too; the file holds only the script's own definitions and the list of the paths it
+imports. Bytecode is resolved like source: the imports of a file loaded through a
+`bytecodeResolver` are compile errors of the importing script when they cannot be resolved, and
+`LoadBytecode` resolves the loaded file's imports (through the same resolvers) before it installs
+anything — a missing, unreadable or broken import, an import cycle or a definition the script and
+an import both define makes it throw `InvalidDataException` (the compile error is its
+`InnerException`) and leaves the instance unchanged. After `LoadBytecode` the imported functions
+and classes can be called before `Run`, as after `Compile`.
 
 #### Importing precompiled bytecode
 
@@ -760,33 +937,33 @@ whether the bytecode it holds is still that file. `ScriptRunner` exposes the hoo
 ## Standard Library
 
 Registered by `WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope)`. Note the
-naming: **Math and Utility functions are unprefixed, Array functions carry an `Array_` prefix.**
+naming: **Math and Utility functions are unprefixed, Array and Text functions carry an `Array_` / `Text_` prefix.**
 
 ### Math
 
 Fixed-point implementations from FixPointCS — deterministic across platforms, but approximate
-compared with real arithmetic (`pow [2, 10]` is `1023.999994755`).
+compared with real arithmetic (`pow(2, 10)` is `1023.999994755`).
 
 | Function | Description |
 |---|---|
-| `pow [base, exp]` | `base` raised to `exp` |
-| `sqrt [n]` | square root |
-| `floor [n]` / `ceil [n]` / `round [n]` | rounding (`round` is half-up) |
-| `abs [n]` | absolute value |
-| `min [a, b]` / `max [a, b]` | smaller / larger |
-| `clamp [n, lo, hi]` | clamp `n` to the range |
-| `sign [n]` | `-1`, `0`, or `1` |
-| `lerp [a, b, t]` | linear interpolation |
-| `sin [radians]` / `cos [radians]` / `tan [radians]` | trigonometry |
-| `asin [n]` / `acos [n]` / `atan2 [y, x]` | inverse trigonometry |
-| `deg_to_rad [degrees]` / `rad_to_deg [radians]` | angle conversion |
-| `pi []` | π — note the empty argument list |
+| `pow(base, exp)` | `base` raised to `exp` |
+| `sqrt(n)` | square root |
+| `floor(n)` / `ceil(n)` / `round(n)` | rounding (`round` is half-up) |
+| `abs(n)` | absolute value |
+| `min(a, b)` / `max(a, b)` | smaller / larger |
+| `clamp(n, lo, hi)` | clamp `n` to the range |
+| `sign(n)` | `-1`, `0`, or `1` |
+| `lerp(a, b, t)` | linear interpolation |
+| `sin(radians)` / `cos(radians)` / `tan(radians)` | trigonometry |
+| `asin(n)` / `acos(n)` / `atan2(y, x)` | inverse trigonometry |
+| `deg_to_rad(degrees)` / `rad_to_deg(radians)` | angle conversion |
+| `pi()` | π — note the empty argument list |
 
 ```ruby
-print floor [1.7]        # → 1
-print clamp [10, 0, 5]   # → 5
-print lerp [0, 10, 0.5]  # → 5
-print pi []              # → 3.141592653701082
+print floor(1.7)        # → 1
+print clamp(10, 0, 5)   # → 5
+print lerp(0, 10, 0.5)  # → 5
+print pi()              # → 3.141592653701082
 ```
 
 There are deliberately **no random functions** — `System.Random` is a lockstep desync source.
@@ -796,38 +973,48 @@ Deterministic randomness is supplied by the host as its own module.
 
 | Function | Description |
 |---|---|
-| `Array_length [arr]` | element count |
-| `Array_contains [arr, value]` | `true` if present |
-| `Array_index_of [arr, value]` | index of first occurrence, or `-1` |
-| `Array_insert [arr, index, value]` | insert at index |
-| `Array_remove_at [arr, index]` | remove at index, return the removed element |
-| `Array_remove [arr, value]` | remove first occurrence, return `true` if found |
-| `Array_pop [arr]` | remove and return the last element |
-| `Array_clear [arr]` | remove all elements |
-| `Array_copy [arr]` | shallow copy |
+| `Array_length(arr)` | element count |
+| `Array_contains(arr, value)` | `true` if present |
+| `Array_index_of(arr, value)` | index of first occurrence, or `-1` |
+| `Array_insert(arr, index, value)` | insert at index |
+| `Array_remove_at(arr, index)` | remove at index, return the removed element |
+| `Array_remove(arr, value)` | remove first occurrence, return `true` if found |
+| `Array_pop(arr)` | remove and return the last element |
+| `Array_clear(arr)` | remove all elements |
+| `Array_copy(arr)` | shallow copy |
 
 ```ruby
-arr = {10, 20, 30, 40}
-print Array_contains [arr, 20]   # → True
-print Array_index_of [arr, 30]   # → 2
-print Array_pop [arr]            # → 40
+arr = [10, 20, 30, 40]
+print Array_contains(arr, 20)   # → true
+print Array_index_of(arr, 30)   # → 2
+print Array_pop(arr)            # → 40
 print arr                        # → [10, 20, 30]
+```
+
+### Text
+
+| Function | Description |
+|---|---|
+| `Text_remove(s, sub)` | `s` without any occurrence of `sub` (ordinal); an empty `sub` returns `s` |
+
+```ruby
+print Text_remove("banana", "na")   # → ba
 ```
 
 ### Coroutine
 
 | Function | Description |
 |---|---|
-| `start_coroutine [name, args]` | start a coroutine, returns its id |
-| `start_coroutine_loop [name, args]` | start a coroutine that restarts when it completes |
-| `stop_coroutine [id]` | stop one coroutine |
-| `stop_all_coroutines []` | stop every coroutine |
+| `start_coroutine(name, args)` | start a coroutine, returns its id |
+| `start_coroutine_loop(name, args)` | start a coroutine that restarts when it completes |
+| `stop_coroutine(id)` | stop one coroutine |
+| `stop_all_coroutines()` | stop every coroutine |
 
 ### Utility
 
 | Function | Description |
 |---|---|
-| `is_null [object]` | `true` if the value is null |
+| `is_null(object)` | `true` if the value is null |
 
 ### Built-in statements
 
@@ -846,17 +1033,150 @@ var fn = script.GetFunction("tick", 1);  // lookup is by (name, argument count)
 script.Call(fn, WarValue.FromNumeric(dt));
 ```
 
+`GetFunction` returns a `FunctionHandle` (`Name`, `Arity`, `Instance`, `IsDefined`), or null when the
+instance defines no such function yet — compile first (`Run()` or `Compile()`). The handle names the
+function rather than holding its bytecode: every `Call` runs what the instance defines under that name
+and arity at that moment, so a handle obtained once keeps working after `Reload()` and
+`LoadBytecode()`. Calling a handle whose function the new source removed returns an `Error` result of
+kind `NameError` (and, from the host, halts the instance like any other error). A handle belongs to
+the instance that returned it; passing it to another instance throws `ArgumentException`.
+
+`Call(fn, params WarValue[])` allocates the argument array on every call. For a per-frame hot path,
+keep one buffer and pass a span of it — `Call(FunctionHandle, ReadOnlySpan<WarValue>)` copies the
+arguments onto the VM stack, keeps nothing, and allocates nothing of its own:
+
+```csharp
+_args[0] = WarValue.FromNumeric(dt);                 // WarValue[] _args = new WarValue[1], allocated once
+script.Call(fn, new ReadOnlySpan<WarValue>(_args));  // or _args.AsSpan(0, n)
+```
+
+Missing arguments (a span shorter than the arity) are null, so default parameters apply; extra ones
+are ignored.
+
 `Run()` compiles on first use and caches; calling it again re-executes the top-level statements. The
-AST is discarded after compilation — the bytecode is the source of truth.
+AST is discarded after compilation — the bytecode is the source of truth. `Compile()` does the
+compile step on its own and reports errors as diagnostics:
+
+```csharp
+var compiled = script.Compile();         // lex + parse + compile; runs nothing; idempotent
+if (!compiled.Success)
+    foreach (var d in compiled.Diagnostics)
+        Debug.LogError(d);               // "example:4:1: error: more than 255 arguments in a call"
+```
+
+Every error is reported, not just the first. After a syntax error the parser skips that statement
+and goes on with the next one; a file with syntax errors lists them all and is then not compiled,
+so the code skipped causes no errors of its own. Otherwise the compiler goes on with the next
+statement after an error, and the checks that need the whole script and its imports (an unknown
+function, class, `.` name or variable, a write to a constant) report every error they find; the
+`CompileError` result of `Run()`/`Call()` carries the first.
+
+A successful compile can also carry warnings (`Severity` `Warning`), such as
+`local 'x' is assigned but never read` for a function local nothing reads — usually a typo on the
+left of an assignment — and `unreachable code after 'return'` (or `'break'`, `'next'`, `'raise'`)
+for a statement that follows one in the same block. Set `WarningsAsErrors = true` before the first compile (a mod archive build
+should) to make any warning fail the compile like an error:
+
+```csharp
+script.WarningsAsErrors = true;
+var compiled = script.Compile();         // fails on "example:3:5: error: local 'helth' is assigned but never read"
+```
+
+A diagnostic has the line and column of the error (columns count from 1; a tab is one column). The
+`CompileError` result's `ScriptError` has them too, plus the source line (`SourceLine`), and its
+text shows that line with a caret under the column:
+
+```
+example:2:10: CompileError: Unexpected character '?' at line 2
+    if x ?
+         ^
+```
+
+An error in an imported file names that file, and the line and column in it.
+
+The constructor no longer lexes, so a malformed source shows up in `Compile()` (or as the
+`CompileError` result of `Run()`), not in `new WarScriptLanguage(...)`. Register natives and
+`[WsConst]`/`[WsEnum]` bindings before compiling: assignments to constants are checked when the script compiles.
+
+### Results and errors
+
+`Run()`, `Call()`, `StartCoroutine(..., out id)` and `TickCoroutines(dt)` return a `ScriptResult`
+and never throw for a script error:
+
+```csharp
+ScriptResult r = script.Call(script.GetFunction("compute", 2)!,
+                             WarValue.FromNumeric(F64.FromInt(3)),
+                             WarValue.FromNumeric(F64.FromInt(4)));
+if (r.IsOk)
+    Debug.Log(r.Value);                  // the function's return value (Run: null)
+else
+    Debug.LogError(r.Error);             // "file:line:column: Kind: message"
+```
+
+| `Status` | Meaning | `Value` | `Error` |
+|---|---|---|---|
+| `Ok` | The entry completed. | The return value (`TickCoroutines`: the number of active coroutines) | null |
+| `Error` | A script error escaped the entry, or the script does not compile (`Kind` `CompileError`). The instance is now halted. | null | The error |
+| `Halted` | The instance was already halted, so nothing ran. | null | The fault that halted it |
+| `HostFault` | A C# exception occurred inside the VM (a VM bug or a host failure). The instance is now halted. | null | The error, with `HostException` set |
+
+A `ScriptError` has a `Kind`, a `Message`, the raised `Value`, a `ScriptName`, a `Line` and a
+`CallStack`, innermost frame first. Every runtime error has its kind: `DivisionByZero`, `TypeError`
+(an operation on the wrong kind of value), `NameError` (an undefined function, method, class or
+import), `AssertionFailed`, `LimitExceeded` (stack overflow, text or array too long, nesting),
+`InstructionBudgetExceeded`, `MemoryBudgetExceeded`, `NativeError` (a native threw), `ArgumentError`
+and `TypeError` from `NativeHelper`'s argument checks, and `Raised` for a `raise` statement. Its
+`ToString()` prints the source line with a caret, then the frames:
+
+```
+main:2:14: DivisionByZero: Division by zero
+    return x / 0
+             ^
+  at inner (main:2:14)
+  at outer (main:6:12)
+  at <script> (main:8:1)
+```
+
+Frames are named after the compiled function: `<script>` for top-level code, `Unit#ctor` for a
+constructor, `<lambda>`, and a method by its own name. A frame's column is that of the operator,
+call, `new` or index being executed when it is on the statement's line, otherwise the statement's.
+The source line is shown for errors in the instance's own script, not in an import; code loaded
+from a bytecode file has no columns (0) and no source line. Scripts still see a
+rescued error as its message text. A native raises a specific kind by throwing
+`ScriptErrorException(kind, message)`; any other exception it throws is a `NativeError`.
+
+A native that calls back into its own instance gets the callback's error as its
+result, and the error also continues in the calling script, where `begin/rescue` can catch it; a
+host fault in such a callback stops the calling script too.
+
+**Halting.** An error (or host fault) that escapes the outermost entry halts the instance: its
+coroutines are cleared, `IsHalted` becomes true and `Fault` holds the error, the error is logged as
+`[WarScript] ` + `ScriptError.ToString()` (unless `LogUnhandledErrors` is false), and the `Faulted`
+event fires. From then on every entry returns `Halted` at once, without running anything, until the
+host calls `ClearFault()` or `Reload(...)`. Neither undoes state the script changed before the
+fault. Halting is deterministic, so every peer halts the same instance at the same point.
+
+```csharp
+script.Faulted += (instance, error) => Debug.LogError($"{instance.ScriptName} halted: {error}");
+// ...later, once the host has dealt with it:
+script.ClearFault();
+```
+
+**Instance label.** Many instances can run the same script, so `ScriptName` alone does not say
+which one failed. Set `script.InstanceLabel = "unit-42"` (any text; null by default): every
+`ScriptError` the instance reports carries it as `error.InstanceLabel` (as it was when the error was
+reported), and every line the runtime itself logs starts with `[unit-42] `, e.g.
+`[unit-42] [WarScript] patrol:12:0: DivisionByZero: Division by zero`. `print` output is the
+script's and is not prefixed; `ScriptError.ToString()` does not include the label.
 
 ### Passing values in and out
 
-`Call()` returns `void`. To get a result back, have the script write a global and read it from the
-host:
+`Call()` returns the function's return value in its result's `Value`. Globals are the other way:
+have the script write a global and read it from the host:
 
 ```csharp
 // script:  result = 0
-//          fun compute [a, b] result = a + b return result end
+//          fun compute(a, b) global result result = a + b return result end
 script.Call(script.GetFunction("compute", 2)!,
             WarValue.FromNumeric(F64.FromInt(3)),
             WarValue.FromNumeric(F64.FromInt(4)));
@@ -888,6 +1208,15 @@ if (v.IsText)    { string s = v.TextValue; }
 if (v.IsArray)   { var list = v.ArrayValue; }
 ```
 
+**Values from another instance.** A value one instance returned may be passed to another (a room
+handing a unit to a map script, say). Plain data crosses freely: numbers, text, arrays, and class
+instances whose fields the other script reads and writes (`u.hp = 0`). Code does not: calling a
+method of a class instance another instance created, instantiating one of its nested classes, or
+calling a function value (a lambda, a `FunctionValue` in a `NativeObject`) another instance compiled
+raises a rescuable `TypeError` "Cannot call method 'heal': it belongs to another script instance".
+Instances the host builds itself (`new ClassData(...)` without an owner, such as generated `[WsEnum]`
+values) belong to no instance and may be used anywhere.
+
 `F64` has **no** conversion operator to `int`/`float`/`double`: `(int)someF64` does not compile. Use
 `F64.RoundToInt(x)` to round or `F64.FromInt(n)` to build. Comparisons against `int` do work, so
 `someF64 == 3` is fine.
@@ -903,7 +1232,7 @@ public class WarScriptHost : MonoBehaviour
     private static readonly F64 Dt = F64.Ratio(1, 60);   // exact 1/60, no float involved
 
     private WarScriptLanguage _script;
-    private FunctionDefinition _tick;
+    private FunctionHandle _tick;
 
     void Awake()
     {
@@ -916,6 +1245,8 @@ public class WarScriptHost : MonoBehaviour
 
     void FixedUpdate()
     {
+        if (_script.IsHalted) return;   // an earlier error stopped this instance; see Fault
+
         if (_tick != null)
             _script.Call(_tick, WarValue.FromNumeric(Dt));
 
@@ -924,20 +1255,30 @@ public class WarScriptHost : MonoBehaviour
 }
 ```
 
+Skipping a halted instance is optional — every entry of a halted instance returns `Halted` at once —
+but it makes the intent explicit. Errors are logged through the logger as they halt the instance; a
+host that wants more (a UI message, a telemetry event) subscribes to `Faulted`.
+
 ### Coroutine API
 
 ```csharp
-int id    = script.StartCoroutine("patrol", new[] { WarValue.FromText("A") });
-int id2   = script.StartCoroutine("pulse", Array.Empty<WarValue>(), loop: true);
+ScriptResult started = script.StartCoroutine("patrol", new[] { WarValue.FromText("A") }, false, out int id);
+int id2   = script.StartCoroutine("pulse", Array.Empty<WarValue>(), loop: true);   // id only
+ScriptResult s2 = script.StartCoroutine("patrol", buffer.AsSpan(0, 1), false, out int id3); // span overload
 bool ok   = script.StopCoroutine(id);
 script.StopAllCoroutines();
-int alive = script.TickCoroutines(dt);        // resume all ready coroutines; returns the live count
+ScriptResult tick = script.TickCoroutines(dt);  // resume all ready coroutines; Ok: Value = the live count
 int count = script.ActiveCoroutineCount;
 ```
 
-`StartCoroutine` runs the function immediately up to its first `yield`, then returns. It returns
-`-1` if the function could not be found. Each call creates an independent coroutine with its own
-state, so the same function can run several times concurrently.
+`StartCoroutine` runs the function immediately up to its first `yield`, then returns the result of
+that first run. The id is `-1` (and the result an `Error`) if the function could not be found.
+`TickCoroutines` resumes the ready coroutines newest first and stops at the first error a resumed
+coroutine ends with, returning it; the remaining coroutines do not run, and the error halts the
+instance (see [Results and errors](#results-and-errors)). Each call creates an independent coroutine with its own
+state, so the same function can run several times concurrently. A coroutine keeps a copy of its arguments (a
+looping one restarts with them), so the caller may reuse its array or span buffer once
+`StartCoroutine` returns.
 
 ### Adding native functions
 
@@ -980,7 +1321,7 @@ public static partial class CombatModule
 ```
 
 Run **WarScript → Generate Bindings** in Unity. The generator emits a `Register(script, scope)` that
-wires up functions (with marshaling), enums (as `::`-accessible class instances with `name[]`,
+wires up functions (with marshaling), enums (as class instances whose members are read with `.`, with `name()`,
 `values`, `names`, `count`), and consts (as immutable globals). Function names are **not** prefixed
 with the module name.
 
@@ -993,17 +1334,59 @@ aborts the whole run. Use `F64`. Because an `F64` parameter cannot carry a C# co
 model an optional numeric as `WarValue x = default` and read
 `x.IsNumeric ? x.Numeric : fallback` (an omitted argument arrives as `Null`).
 
+### Native manifest: checking scripts without the game
+
+Every **Generate Bindings** run also writes `WarScriptNatives.wsmanifest` next to the project's
+`Assets` folder: the name and parameters of every `[WsFunction]`, every `[WsConst]` and every
+`[WsEnum]` with its members. `NativeManifest` reads it and declares those names on an instance as
+stubs, so the compiler checks a script against the game's natives where the game isn't running:
+
+```csharp
+var script = new WarScriptLanguage(name, source, fileResolver, logger);
+WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);   // real natives win
+NativeManifest.Parse(File.ReadAllText("WarScriptNatives.wsmanifest")).Register(script);
+CompileResult c = script.Compile();   // unknown functions, wrong arities, unknown globals... are errors
+```
+
+A stub function that is called raises a rescuable error, a stub global or constant holds `null` (the
+compiler types a constant's reads with the type its line gives, as it types a real host constant
+with its value: `MAX_UNITS - "x"` is a compile error either way), and a manifest enum works like the
+generated one. Natives you register by hand aren't in the generated
+file: `NativeManifest.FromScript(script).ToString()` writes the manifest of an instance after
+everything is registered (natives, host globals, constants, enums and host classes). The headless
+runner takes one: `WarScript.Runner mod.ws --manifest WarScriptNatives.wsmanifest --compile-only`.
+Add `--import-root <mod folder>` when the mod names its imports from its root (as the game's
+resolver does) and `--warnings-as-errors` to fail on warnings too.
+
+The format is one entry per line (`#` starts a comment), after the header `warscript-manifest 2`
+(a `warscript-manifest 1` file, whose constants have no type, is still read):
+
+```
+function spawn_unit 1 kind team     # name, required count, parameters
+global player
+const MAX_UNITS number              # optional type: number, logical, text or array
+enum Team Red=0 Blue=1
+class Unit kind                     # constructor parameters
+fields Unit hp                      # optional: without it any `u.x` is accepted
+method Unit move 2 x y
+```
+
 ### Safety budgets
 
 ```csharp
-script.InstructionBudget = 100_000;     // max bytecode instructions per Run()/Call()/coroutine resume
-script.MemoryBudget      = 1_000_000;   // max tracked heap bytes per Run()/Call()/coroutine resume
+script.InstructionBudget = 100_000;     // max bytecode instructions per host entry
+script.MemoryBudget      = 1_000_000;   // max tracked heap bytes per host entry
 ```
 
-`0` (the default) means unlimited. Both are enforced per host invocation, so a coroutine gets a
-fresh budget on every resume.
+`0` (the default) means unlimited. A budget is reset at every **outermost** host entry — `Run()`,
+`Call()`, each coroutine resume in `TickCoroutines` — and shared by everything that runs inside it:
+callbacks a native makes into the same instance, imports, constructors and coroutines the script
+starts all draw from the same budget.
 
-`Instruction budget exceeded` is raised as a normal script error and is reliably catchable:
+An exhausted **instruction budget** is not recoverable from script. Once it runs out, every further
+instruction raises the same error again, so no `rescue` or `ensure` body runs: the entry ends with
+an `Error` result of kind `InstructionBudgetExceeded` (its line and call stack are where the budget
+ran out), and the instance halts like for any other unhandled error.
 
 ```ruby
 begin
@@ -1011,15 +1394,15 @@ begin
         x = i
     end
 rescue err
-    print "caught: " + err     # → caught: Instruction budget exceeded
+    print "caught: " + err     # never runs: the entry ends with InstructionBudgetExceeded
 end
-print "still running"
 ```
 
-`Memory budget exceeded` is raised at allocation sites (strings, arrays, class instances) but is
-**only catchable at some of them** — for example `s = s + s` can be rescued, while
-`arr << "data"` currently escapes `begin`/`rescue` and stops the script with an uncaught error.
-Treat the memory budget as a hard backstop rather than a recoverable condition.
+`Memory budget exceeded` (kind `MemoryBudgetExceeded`) is raised at allocation sites — strings,
+arrays, class instances — before anything is allocated, and `begin`/`rescue` can catch it. The
+memory already counted stays counted until the next outermost entry, so a rescue body that
+allocates again (`print "caught: " + err`) can exceed the budget a second time. Treat the memory
+budget as a backstop rather than a recoverable condition.
 
 ### Debugger
 
@@ -1045,16 +1428,20 @@ current frames as `FunctionName:Line` entries.
 ```csharp
 LexicalParser.ClearCache();       // the lexer caches globally by source string
 script.Reload(newSource);
-tickFunc = script.GetFunction("tick", 1);   // old handles are stale — re-acquire
+script.Call(tickFunc, dt);                 // handles survive: this runs the new tick
 ```
 
 Global variables survive; function and class definitions are replaced; **all coroutines are
 stopped** (they hold bytecode that no longer exists), and top-level statements are *not* re-executed.
+`Reload` also clears a fault, so a halted instance runs again. Unlike the entry points, it
+**throws** a `SyntaxException` when the new source does not compile; `Compile()` then returns its
+diagnostics. The old definitions are gone at that point, so the next entry returns the
+`CompileError` result until a `Reload` with source that compiles.
 
 ```
-counter = 5; bump[] → 6         # before reload
+counter = 5; bump() → 6         # before reload
 # reload with `counter += 100`
-bump[] → 106                    # global preserved, new body
+bump() → 106                    # global preserved, new body
 ```
 
 ### Bytecode serialization
@@ -1075,14 +1462,18 @@ var tick = script.GetFunction("tick", 1);
 ```
 
 Coroutines and `yield` behave identically whether the bytecode came from `Run()` or `LoadBytecode()`.
+`LoadBytecode` does not clear a fault (only `Reload` and `ClearFault` do), and does not run the
+top-level statements.
 
 `LoadBytecode` covers the entry point. To skip the front end for what the entry point imports as
 well, give the constructor a `bytecodeResolver` — see
 [Importing precompiled bytecode](#importing-precompiled-bytecode).
 
-> The serialized format version is `1`, but numeric constants are stored as the 64-bit **F64 raw**.
-> Files produced before the fixed-point migration share the version byte yet are binary
-> incompatible — regenerate them from source.
+> A `.wsbc` file starts with a format version (currently `14`) and a hash of the opcode table, and
+> the loader accepts only an exact match, so bytecode written by another WarScript version must be
+> regenerated from source. The loader verifies everything it reads: a truncated, corrupt or
+> mismatched file makes `LoadBytecode` throw `InvalidDataException` and leaves the instance
+> unchanged.
 
 ## Coroutines: making `yield` work
 
@@ -1094,29 +1485,29 @@ always one of the following.
 A coroutine only makes progress when **the host resumes it**. There are exactly two required
 ingredients:
 
-1. Start it with `StartCoroutine(...)` (C#) or `start_coroutine ["name", {}]` (script).
+1. Start it with `StartCoroutine(...)` (C#) or `start_coroutine("name", [])` (script).
 2. Call `script.TickCoroutines(dt)` once per tick, forever.
 
 ### Troubleshooting table
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Code up to the first `yield` runs once, and calling the function again restarts it from the top | The function was invoked with `script.Call(fn)` instead of being started as a coroutine. `Call()` executes until the first `yield`, then returns — the suspended state is discarded. | `script.StartCoroutine("fn", args)` |
+| `Call()` returns a `TypeError` `Cannot yield outside a coroutine` (and the instance halts) | The function was invoked with `script.Call(fn)` (or called from the top-level code, or from a native's callback) instead of being started as a coroutine. Only a coroutine can be suspended and resumed. | `script.StartCoroutine("fn", args)` |
 | Code up to the first `yield` runs, then nothing ever happens again | The host never calls `TickCoroutines(dt)`. | Call `script.TickCoroutines(dt)` every tick |
 | `yield` advances but `yield wait N` never completes | `dt` is zero (paused game), or is not in seconds. | Pass real elapsed seconds as `F64` — e.g. `F64.Ratio(1, 60)` |
-| `StartCoroutine` returns `-1` and nothing runs | The function name/arity does not resolve: called **before `Run()`**, wrong argument count, or the name is a **class method** (only top-level functions can be coroutines). | Call `Run()` first; match the arity; move the body to a top-level function |
-| Nothing in the script runs at all, and the log shows `Coroutine function 'x' ... is not defined` | `StartCoroutine` was called before `Run()`. The failure leaves a raised error pending, which then aborts the following `Run()` before its first statement. | Always `Run()` before starting coroutines |
-| Log shows `Function 'start_coroutine' with 1 args is not defined` | Native functions match on exact arity. | `start_coroutine ["name", {}]` — pass the args array even when empty |
+| `StartCoroutine` returns `-1` and nothing runs | The function name/arity does not resolve: wrong argument count, or the name is a **class method** (only top-level functions can be coroutines). The result's `Error` says which (a `NameError`). Like any error at a host entry, it also halts the instance. | Match the arity; move the body to a top-level function; `ClearFault()` |
+| Compile error `Function 'start_coroutine' takes 2 arguments, not 1` | Native functions match on exact arity. | `start_coroutine("name", [])` — pass the args array even when empty |
 | A `loop`+`yield` coroutine only advances one iteration per tick | Correct by design: one resume per coroutine per `TickCoroutines` call, regardless of how large `dt` is. | Tick more often, or don't `yield` in the inner loop |
 | A looping coroutine seems to skip a tick between repetitions | Also by design: `loop: true` restarts the function on the *next* tick after it completes. | — |
-| The coroutine vanished silently | An uncaught error inside a coroutine logs its message and drops that coroutine (`ActiveCoroutineCount` decreases). Or the code path ran `Reload()` / `LoadBytecode()`, both of which stop all coroutines. | Check the logger output; restart coroutines after a reload |
-| `script.IsYielded` is stuck `true` | `Call()`ing a function that hits a `yield` sets this script-level flag and nothing clears it. It is not a reliable signal. | Use `ActiveCoroutineCount`; call `script.ClearYield()` if you need the flag reset |
+| Every coroutine stopped, and nothing runs any more | An uncaught error inside a coroutine ended it, and — because `TickCoroutines` is a host entry — halted the instance, which clears all coroutines. `TickCoroutines` returned that error, `IsHalted` is true and `Fault` holds it. | Check the logger output or the result; `ClearFault()` and restart them |
+| A coroutine vanished | The code path ran `Reload()` / `LoadBytecode()`, both of which stop all coroutines, or a script called `stop_coroutine`. | Restart coroutines after a reload |
+| `script.IsYielded` is stuck `true` | A `yield` in the top-level code ends `Run()` and sets this script-level flag, and nothing clears it. It is not a reliable signal. | Use `ActiveCoroutineCount`; call `script.ClearYield()` if you need the flag reset |
 
 ### A correct, minimal end-to-end example
 
 ```ruby
 # patrol.ws
-fun patrol [waypoints]
+fun patrol(waypoints)
     loop wp in waypoints
         print "moving to {wp}"
         yield wait 1.0
@@ -1150,12 +1541,15 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 
 **Syntax**
 
-- `{` and `}` are **array** delimiters, not block delimiters. Blocks end with `end`.
-- Array indexing is `arr{i}`; function arguments use `[` and `]`; property access is `::`.
-- `grid{0}{1}` does not chain — assign the inner array to a temporary first.
-- There is no postfix call on an index expression (`arr{0}[args]`) — use a temporary.
+- Blocks end with `end`. Arrays are `[1, 2]`; `{` and `}` appear only in text interpolation (`"{x}"`).
+- Array indexing is `arr[i]` (and chains: `grid[0][1]`); calls and parameter lists use `(` and `)`; members are `obj.x`.
+- A `(` right after a name is a call, even with a space between (`f (x)` is `f(x)`); `f [x]` indexes a variable `f`.
+- Only a name can be called: `arr[0](args)` and `f(x)(y)` are syntax errors — put the value in a variable first.
+- Compound assignment evaluates its target twice, so a call (or `new`, `=`, `<<`) in it is a compile error:
+  `g()[0] += 1` → `The target of '+=' is evaluated twice and calls 'g'`. Write `row = g()` then `row[0] += 1`.
 - A `fun` nested inside another `fun` is not callable from the outer body; use a lambda value.
-- `this` outside a class method throws a host-level exception rather than a script error.
+- `this` (or `@x`) outside every class is a compile error (`'this' and '@' fields can only be used
+  inside a class`).
 - A raw `"""..."""` literal cannot contain a run of three quotes, and does not interpolate.
 - An unknown escape sequence, an unterminated literal, and an unterminated `{` interpolation are
   all syntax errors — they used to be accepted silently.
@@ -1166,27 +1560,35 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 
 **Semantics**
 
-- Reading an undefined variable, or an out-of-range array index, yields `null` silently.
-- Lambdas have no closures — parameters and globals only.
+- Reading a variable that was never assigned raises a `NameError` (`undefined variable 'x'`) —
+  a compile error when nothing in the script, its imports or the host defines the name; a
+  variable assigned `null` reads as `null`. An out-of-range index raises an `IndexError`.
+- Lambdas have no closures — their own parameters and locals, and globals; reading a local of the
+  code around one is a compile error.
 - Default parameters cannot distinguish an omitted argument from an explicit `null`.
 - Functions are keyed by `(name, arity)`; native functions require an exact arity match.
-- Comparison coerces to text across types, so `1 == "1"` is `True`.
-- Booleans print as `True`/`False`, and arrays print as `[1, 2, 3]` even though the literal is `{1, 2, 3}`.
+- Operators do not coerce: mixed types raise a `TypeError` (except `text + anything`, which
+  concatenates), and `==` across types is `false`, so `1 == "1"` is `false`.
+- Text subtraction is gone; use `Text_remove(s, sub)`.
+- Booleans print as `true`/`false`, and arrays print as `[1, 2, 3]`, like their literal.
 
 **Numerics**
 
-- Every number is `F64` fixed point. `sqrt [25]` is `5.000000085681677`, not `5`; compare with a
+- Every number is `F64` fixed point. `sqrt(25)` is `5.000000085681677`, not `5`; compare with a
   tolerance in tests.
 - Integer part range ±2147483647; fractional digits past 9 are truncated.
 
 **Host**
 
-- `Call()` returns `void` — pass results back through a global.
+- `Run()`, `Call()`, `StartCoroutine()` and `TickCoroutines()` never throw for a script error; they
+  return a `ScriptResult`. An unhandled error halts the instance until `ClearFault()` or `Reload()`.
+  `Reload()` and `LoadBytecode()` do throw (`SyntaxException`, `InvalidDataException`).
 - Register libraries and bindings **before** `Run()`.
 - `LexicalParser` caches globally by source string; call `LexicalParser.ClearCache()` for hot reload.
-- `Reload()` and `LoadBytecode()` stop all coroutines and invalidate previously obtained
-  `FunctionDefinition` handles.
-- `MemoryBudget` is not reliably catchable from script (see [Safety budgets](#safety-budgets)).
+- `Reload()` and `LoadBytecode()` stop all coroutines. `FunctionHandle`s survive them and call the
+  new definitions; a handle whose function is gone returns a `NameError` result.
+- An exhausted `InstructionBudget` cannot be rescued from script, and an exhausted `MemoryBudget`
+  stays exhausted for the rest of the entry (see [Safety budgets](#safety-budgets)).
 
 ## License
 

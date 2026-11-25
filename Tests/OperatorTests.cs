@@ -26,7 +26,7 @@ namespace Tests
         [TestCase("!",   Operator.Not)]
         [TestCase("(",   Operator.LeftParen)]
         [TestCase(")",   Operator.RightParen)]
-        [TestCase("::",  Operator.ClassProperty)]
+        [TestCase(".",  Operator.ClassProperty)]
         [TestCase("<<",  Operator.ArrayAppend)]
         [TestCase("new", Operator.ClassInstance)]
         [TestCase("and", Operator.LogicalAnd)]
@@ -38,9 +38,9 @@ namespace Tests
             Assert.AreEqual(expected, input.ToOperator());
         }
 
-        [TestCase(":: new")]
-        [TestCase("::  new")]
-        [TestCase("::   new")]
+        [TestCase(".new")]
+        [TestCase(".new")]
+        [TestCase(".new")]
         public void ToOperator_NestedClassInstance_VariableWhitespace(string input)
         {
             Assert.AreEqual(Operator.NestedClassInstance, input.ToOperator());
@@ -49,7 +49,7 @@ namespace Tests
         [Test]
         public void ToOperator_InvalidInput_Throws()
         {
-            Assert.Throws<System.Exception>(() => "???".ToOperator());
+            Assert.Throws<WarScript.Exception.SyntaxException>(() => "???".ToOperator());
         }
     }
 }

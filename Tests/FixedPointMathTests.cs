@@ -102,7 +102,7 @@ namespace Tests
         public void ArrayIndex_FractionalTruncatesTowardZero()
         {
             // index 2.9 must truncate to 2 (toward zero), not round to 3 or floor.
-            var (s, o) = RunMath("arr = {10, 20, 30}\nassert arr{2.9} == 30\nassert arr{0.99} == 10\n");
+            var (s, o) = RunMath("arr = [10, 20, 30]\nassert arr[2.9] == 30\nassert arr[0.99] == 10\n");
             AssertClean(s, o);
         }
 
@@ -130,7 +130,7 @@ namespace Tests
         public void Round_HalfUp_Positive()
         {
             // Fixed64.Round is half-up: 0.5→1, 2.5→3 (NOT banker's, which gives 2).
-            var (s, o) = RunMath("assert round[0.5] == 1\nassert round[2.5] == 3\nassert round[1.4] == 1\n");
+            var (s, o) = RunMath("assert round(0.5) == 1\nassert round(2.5) == 3\nassert round(1.4) == 1\n");
             AssertClean(s, o);
         }
 
@@ -138,7 +138,7 @@ namespace Tests
         public void Round_HalfUp_Negative()
         {
             // half-up means -0.5 → 0 (toward +inf at the .5 tie), -1.5 → -1.
-            var (s, o) = RunMath("assert round[0 - 0.5] == 0\nassert round[0 - 1.5] == 0 - 1\n");
+            var (s, o) = RunMath("assert round(0 - 0.5) == 0\nassert round(0 - 1.5) == 0 - 1\n");
             AssertClean(s, o);
         }
 
@@ -146,10 +146,10 @@ namespace Tests
         public void Floor_And_Ceil_Negatives()
         {
             var (s, o) = RunMath(
-                "assert floor[2.7] == 2\n" +
-                "assert ceil[2.1] == 3\n" +
-                "assert floor[0 - 2.1] == 0 - 3\n" +   // floor toward -inf
-                "assert ceil[0 - 2.9] == 0 - 2\n");    // ceil toward +inf
+                "assert floor(2.7) == 2\n" +
+                "assert ceil(2.1) == 3\n" +
+                "assert floor(0 - 2.1) == 0 - 3\n" +   // floor toward -inf
+                "assert ceil(0 - 2.9) == 0 - 2\n");    // ceil toward +inf
             AssertClean(s, o);
         }
 
@@ -258,9 +258,9 @@ namespace Tests
             // sqrt is a fixed-point approximation; assert within a tolerance band
             // rather than exact equality. abs(sqrt(2)^2 - 2) must be small.
             var (s, o) = RunMath(
-                "r = sqrt[2.0]\n" +
+                "r = sqrt(2.0)\n" +
                 "d = r * r - 2\n" +
-                "assert abs[d] < 0.001\n");
+                "assert abs(d) < 0.001\n");
             AssertClean(s, o);
         }
 
@@ -268,7 +268,7 @@ namespace Tests
         public void Sqrt_PerfectSquare_NearExact()
         {
             // sqrt(4) ≈ 2 but not necessarily bit-exact — tolerance assert.
-            var (s, o) = RunMath("r = sqrt[4.0]\nassert abs[r - 2] < 0.001\n");
+            var (s, o) = RunMath("r = sqrt(4.0)\nassert abs(r - 2) < 0.001\n");
             AssertClean(s, o);
         }
 
@@ -276,7 +276,7 @@ namespace Tests
         public void Pow_ApproximatesWithinTolerance()
         {
             // pow(2,10) ≈ 1024 but approximate; band assert.
-            var (s, o) = RunMath("p = pow[2.0, 10.0]\nassert abs[p - 1024] < 0.5\n");
+            var (s, o) = RunMath("p = pow(2.0, 10.0)\nassert abs(p - 1024) < 0.5\n");
             AssertClean(s, o);
         }
 
@@ -286,15 +286,15 @@ namespace Tests
             // sin^2 + cos^2 ≈ 1 for an arbitrary angle.
             var (s, o) = RunMath(
                 "a = 0.7\n" +
-                "v = sin[a] * sin[a] + cos[a] * cos[a]\n" +
-                "assert abs[v - 1] < 0.001\n");
+                "v = sin(a) * sin(a) + cos(a) * cos(a)\n" +
+                "assert abs(v - 1) < 0.001\n");
             AssertClean(s, o);
         }
 
         [Test]
         public void Pi_IsApproximatelyCorrect()
         {
-            var (s, o) = RunMath("p = pi[]\nassert p > 3.14\nassert p < 3.15\n");
+            var (s, o) = RunMath("p = pi()\nassert p > 3.14\nassert p < 3.15\n");
             AssertClean(s, o);
         }
 
@@ -306,15 +306,15 @@ namespace Tests
         public void Clamp_Min_Max_Abs_Sign_Exact()
         {
             var (s, o) = RunMath(
-                "assert clamp[5, 0, 3] == 3\n" +
-                "assert clamp[0 - 5, 0, 3] == 0\n" +
-                "assert clamp[1.5, 0, 3] == 1.5\n" +
-                "assert min[2, 5] == 2\n" +
-                "assert max[2, 5] == 5\n" +
-                "assert abs[0 - 4.5] == 4.5\n" +
-                "assert sign[0 - 3] == 0 - 1\n" +
-                "assert sign[3] == 1\n" +
-                "assert sign[0] == 0\n");
+                "assert clamp(5, 0, 3) == 3\n" +
+                "assert clamp(0 - 5, 0, 3) == 0\n" +
+                "assert clamp(1.5, 0, 3) == 1.5\n" +
+                "assert min(2, 5) == 2\n" +
+                "assert max(2, 5) == 5\n" +
+                "assert abs(0 - 4.5) == 4.5\n" +
+                "assert sign(0 - 3) == 0 - 1\n" +
+                "assert sign(3) == 1\n" +
+                "assert sign(0) == 0\n");
             AssertClean(s, o);
         }
 
@@ -322,9 +322,9 @@ namespace Tests
         public void Lerp_Endpoints_AndMidpoint()
         {
             var (s, o) = RunMath(
-                "assert lerp[0, 10, 0] == 0\n" +
-                "assert lerp[0, 10, 1] == 10\n" +
-                "assert lerp[0, 10, 0.5] == 5\n");
+                "assert lerp(0, 10, 0) == 0\n" +
+                "assert lerp(0, 10, 1) == 10\n" +
+                "assert lerp(0, 10, 0.5) == 5\n");
             AssertClean(s, o);
         }
 

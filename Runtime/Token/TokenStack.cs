@@ -5,7 +5,7 @@ namespace WarScript.Token
 {
     public class TokensStack
     {
-        private readonly List<Token> _tokens;
+        private readonly IReadOnlyList<Token> _tokens;
         private int _position;
 
         /// <summary>
@@ -22,7 +22,7 @@ namespace WarScript.Token
         private static bool IsEmptyToken(TokenType type) =>
             type == TokenType.LineBreak || type == TokenType.Comment;
 
-        public TokensStack(List<Token> tokens)
+        public TokensStack(IReadOnlyList<Token> tokens)
         {
             _tokens = tokens;
         }
@@ -48,7 +48,7 @@ namespace WarScript.Token
                     }
                 }
             }
-            throw new SyntaxException($"After `{Previous()}` declaration expected any of the following lexemes `{type}, {string.Join(", ", types)}`");
+            throw Unexpected(new SyntaxException($"After `{Previous()}` declaration expected any of the following lexemes `{type}, {string.Join(", ", types)}`"));
         }
 
         /// <summary>
@@ -77,7 +77,7 @@ namespace WarScript.Token
                     }
                 }
             }
-            throw new SyntaxException($"After `{Previous()}` declaration expected `{type}, {value}` lexeme");
+            throw Unexpected(new SyntaxException($"After `{Previous()}` declaration expected `{type}, {value}` lexeme"));
         }
 
         // Advance and return the next non-empty token unconditionally
@@ -90,6 +90,12 @@ namespace WarScript.Token
         public void Back()
         {
             _position--;
+        }
+
+        /// <summary>Moves back to a <see cref="Position"/> read earlier (the parser's error recovery, T3.8).</summary>
+        internal void Seek(int position)
+        {
+            _position = position;
         }
 
         public bool HasNext()
@@ -174,6 +180,17 @@ namespace WarScript.Token
         }
 
         private Token Previous() => _tokens[_position - 1];
+
+        /// <summary>
+        /// Locate an error about the next token at that token (T3.1), or at
+        /// the last one when the script ended.
+        /// </summary>
+        private SyntaxException Unexpected(SyntaxException e)
+        {
+            if (_position < _tokens.Count) return e.Locate(_tokens[_position].RowNumber, _tokens[_position].Column);
+            if (_tokens.Count > 0) return e.Locate(_tokens[_tokens.Count - 1].RowNumber, _tokens[_tokens.Count - 1].Column);
+            return e;
+        }
 
         private void SkipEmptyTokens()
         {

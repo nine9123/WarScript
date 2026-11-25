@@ -15,7 +15,7 @@ namespace Tests
         {
             var output = new List<string>();
             var script = new WarScriptLanguage("test", @"
-                arr = {}
+                arr = []
                 loop 1 == 1
                     arr << ""data""
                 end
@@ -63,10 +63,10 @@ namespace Tests
         {
             var output = new List<string>();
             var script = new WarScriptLanguage("test", @"
-                class Big [a, b, c, d, e, f, g, h]
+                class Big(a, b, c, d, e, f, g, h)
                 end
                 loop 1 == 1
-                    x = new Big [1,2,3,4,5,6,7,8]
+                    x = new Big(1,2,3,4,5,6,7,8)
                 end
             ", null, (s, msg) => output.Add(msg));
             script.InstructionBudget = 1000000;
@@ -82,7 +82,7 @@ namespace Tests
         public void NormalScriptCompletesWithinBudget()
         {
             var (_, output) = TestHelper.Run("test", @"
-                arr = {}
+                arr = []
                 loop i in 0..10
                     arr << i
                 end
@@ -100,11 +100,11 @@ namespace Tests
         public void ZeroBudgetMeansUnlimited()
         {
             var (_, output) = TestHelper.Run("test", @"
-                arr = {}
+                arr = []
                 loop i in 0..1000
                     arr << i
                 end
-                assert arr{999} == 999
+                assert arr[999] == 999
                 print ""ok""
             ", setupScope: (s, _) =>
             {
@@ -143,7 +143,7 @@ namespace Tests
                 s.MemoryBudget = 10000;
             });
 
-            Assert.AreEqual(new[] { "True" }, output);
+            Assert.AreEqual(new[] { "true" }, output);
         }
 
         [Test]
@@ -152,7 +152,7 @@ namespace Tests
             var (_, output) = TestHelper.Run("test", @"
                 msg = null
                 begin
-                    arr = {}
+                    arr = []
                     loop 1 == 1
                         arr << ""data""
                     end
@@ -198,8 +198,8 @@ namespace Tests
         {
             var output = new List<string>();
             var script = new WarScriptLanguage("test", @"
-                fun grow []
-                    arr = {}
+                fun grow()
+                    arr = []
                     loop 1 == 1
                         arr << ""data""
                     end
@@ -218,8 +218,8 @@ namespace Tests
         {
             var output = new List<string>();
             var script = new WarScriptLanguage("test", @"
-                fun make_stuff []
-                    arr = {}
+                fun make_stuff()
+                    arr = []
                     loop i in 0..10
                         arr << ""item""
                     end
@@ -242,8 +242,8 @@ namespace Tests
         {
             var output = new List<string>();
             var script = new WarScriptLanguage("test", @"
-                fun grow []
-                    arr = {}
+                fun grow()
+                    arr = []
                     loop i in 0..100
                         arr << ""item""
                     end
@@ -261,7 +261,9 @@ namespace Tests
             script.Call(func);
             Assert.IsTrue(output.Exists(o => o.Contains("Memory budget exceeded")));
 
-            // Generous budget — should succeed
+            // Generous budget — should succeed (once the host has cleared
+            // the fault that halted the instance, T2.4)
+            script.ClearFault();
             script.MemoryBudget = 1000000;
             output.Clear();
             script.Call(func);
@@ -275,9 +277,9 @@ namespace Tests
         {
             var output = new List<string>();
             var script = new WarScriptLanguage("test", @"
-                a = {}
+                a = []
                 loop 1 == 1
-                    a = a + {1, 2, 3, 4, 5}
+                    a = a + [1, 2, 3, 4, 5]
                 end
             ", null, (s, msg) => output.Add(msg));
             script.InstructionBudget = 1000000;

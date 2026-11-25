@@ -11,7 +11,7 @@ assert "a\"b" == "a" + q + "b"
 assert "she said \"hi\"" == "she said " + q + "hi" + q
 
 # ── 2. Escaped backslash ──
-assert "a\\b" - "\\" == "ab"
+assert Text_remove("a\\b", "\\") == "ab"
 assert "\\" + "\\" == "\\\\"
 
 # ── 3. Escaped braces suppress interpolation ──
@@ -46,13 +46,13 @@ assert "{"{name}"}" == "hero"
 assert "{"\""}" == q
 
 # ── 9. The point of all this: a snippet carried as a value ──
-fun option [label, action]
+fun option(label, action)
     return label + " -> " + action
 end
 
-snippet = """print "{greeting}, {party{0}}""""
-assert snippet == "print \"\{greeting\}, \{party\{0\}\}\""
-assert option ["Ask about the war", snippet] == "Ask about the war -> " + snippet
+snippet = """print "{greeting}, {party[0]}""""
+assert snippet == "print \"\{greeting\}, \{party[0]\}\""
+assert option("Ask about the war", snippet) == "Ask about the war -> " + snippet
 
 # ── 10. Escapes survive concatenation and repetition ──
 assert ("\t" + "\n") * 2 == "\t\n\t\n"

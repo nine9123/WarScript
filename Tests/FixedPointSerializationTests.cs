@@ -35,7 +35,7 @@ namespace Tests
         public void RoundTrip_FractionalConstant_ExactRaw()
         {
             // 0.5 is exactly representable; after reload it must print identically.
-            var (s1, _) = TestHelper.Run("t", "fun f []\n  print 0.5\nend\n");
+            var (s1, _) = TestHelper.Run("t", "fun f()\n  print 0.5\nend\n");
             var (s2, o2) = RoundTrip(s1);
             s2.Call(s2.GetFunction("f", 0));
             Assert.AreEqual(new[] { "0.5" }, o2);
@@ -50,7 +50,7 @@ namespace Tests
             // (not a re-parsed-from-double approximation) was serialized.
             var (s1, _) = TestHelper.Run("t",
                 "result = false\n" +
-                "fun check []\n  result = (0.7 == 0.7)\n  assert 0.7 + 0.3 > 0.99\nend\n");
+                "fun check()\n  result = (0.7 == 0.7)\n  assert 0.7 + 0.3 > 0.99\nend\n");
             var (s2, o2) = RoundTrip(s1);
             s2.Call(s2.GetFunction("check", 0));
             Assert.IsFalse(s2.ExceptionContext.IsRaised(),
@@ -60,7 +60,7 @@ namespace Tests
         [Test]
         public void RoundTrip_NegativeFractional()
         {
-            var (s1, _) = TestHelper.Run("t", "fun f []\n  print 0 - 2.5\nend\n");
+            var (s1, _) = TestHelper.Run("t", "fun f()\n  print 0 - 2.5\nend\n");
             var (s2, o2) = RoundTrip(s1);
             s2.Call(s2.GetFunction("f", 0));
             Assert.AreEqual(new[] { "-2.5" }, o2);
@@ -69,7 +69,7 @@ namespace Tests
         [Test]
         public void RoundTrip_MaxIntegerPart()
         {
-            var (s1, _) = TestHelper.Run("t", "fun f []\n  print 2147483647\nend\n");
+            var (s1, _) = TestHelper.Run("t", "fun f()\n  print 2147483647\nend\n");
             var (s2, o2) = RoundTrip(s1);
             s2.Call(s2.GetFunction("f", 0));
             Assert.AreEqual(new[] { "2147483647" }, o2);
@@ -102,7 +102,7 @@ namespace Tests
         public void RoundTrip_ArithmeticAfterReload_ExactIdentities()
         {
             var (s1, _) = TestHelper.Run("t",
-                "fun calc []\n" +
+                "fun calc()\n" +
                 "  assert 0.5 + 0.25 == 0.75\n" +
                 "  assert 10 / 4 == 2.5\n" +
                 "end\n");
@@ -116,11 +116,11 @@ namespace Tests
         public void RoundTrip_NumericSeparatorFraction_PreservesValue()
         {
             // Underscores are stripped by the lexer; the resulting raw must round-trip.
-            var (s1, _) = TestHelper.Run("t", "fun f []\n  print 3.141_592\nend\n");
+            var (s1, _) = TestHelper.Run("t", "fun f()\n  print 3.141_592\nend\n");
             var (s2a, o2) = RoundTrip(s1);
             s2a.Call(s2a.GetFunction("f", 0));
             // Whatever 3.141592 formats to, it must be identical before and after.
-            var (sCtrl, oCtrl) = TestHelper.Run("t2", "fun f []\n  print 3.141592\nend\n");
+            var (sCtrl, oCtrl) = TestHelper.Run("t2", "fun f()\n  print 3.141592\nend\n");
             sCtrl.Call(sCtrl.GetFunction("f", 0));
             Assert.AreEqual(oCtrl, o2);
         }

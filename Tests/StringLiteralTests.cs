@@ -115,7 +115,7 @@ namespace Tests
                 b = 3
                 print $""{a} + {b} = {a + b}"" == ""{a} + {b} = {a + b}""
             ");
-            Assert.AreEqual(new[] { "True" }, output);
+            Assert.AreEqual(new[] { "true" }, output);
         }
 
         [Test]
@@ -174,14 +174,14 @@ namespace Tests
         public void EmptyRawLiteral()
         {
             var (_, output) = TestHelper.Run("test", "print \"\"\"\"\"\" == \"\"");
-            Assert.AreEqual(new[] { "True" }, output);
+            Assert.AreEqual(new[] { "true" }, output);
         }
 
         [Test]
         public void RawLiteralHoldingOnlyItsDelimiterLinesIsEmpty()
         {
             var (_, output) = TestHelper.Run("test", "text = \"\"\"\n    \"\"\"\nprint text == \"\"");
-            Assert.AreEqual(new[] { "True" }, output);
+            Assert.AreEqual(new[] { "true" }, output);
         }
 
         [Test]
@@ -250,8 +250,8 @@ namespace Tests
             var source = string.Join("\n",
                 "snippet = \"\"\"",
                 "greeting = \"hello\"",
-                "party = {1, 2, 3}",
-                "print \"{greeting}, {party{0}} of {party{2}}\"",
+                "party = [1, 2, 3]",
+                "print \"{greeting}, {party[0]} of {party[2]}\"",
                 "\"\"\"",
                 "print snippet");
 
@@ -267,18 +267,19 @@ namespace Tests
         public void RawLiteralSourceCanBePassedThroughAFunction()
         {
             var (_, output) = TestHelper.Run("test", string.Join("\n",
-                "fun option [label, action]",
+                "fun option(label, action)",
                 "    return label + \" -> \" + action",
                 "end",
-                "print option [\"Ask about the war\", \"\"\"npc_say [\"It ended.\"]\"\"\"]"));
+                "print option(\"Ask about the war\", \"\"\"npc_say(\"It ended.\")\"\"\")"));
 
-            Assert.AreEqual(new[] { "Ask about the war -> npc_say [\"It ended.\"]" }, output);
+            Assert.AreEqual(new[] { "Ask about the war -> npc_say(\"It ended.\")" }, output);
         }
 
         [Test]
         public void StringLiteralScript()
         {
-            var (script, output) = TestHelper.RunFile("test_string_literals.ws");
+            var (script, output) = TestHelper.RunFile("test_string_literals.ws",
+                (s, scope) => WarScript.Native.TextLibrary.Register(s, scope));
 
             Assert.IsFalse(script.ExceptionContext.IsRaised(),
                 $"Script raised an unhandled exception. Output:\n{string.Join("\n", output)}");

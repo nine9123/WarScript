@@ -14,6 +14,19 @@ namespace WarScript.Expression
     {
         private readonly Stack<IExpression> _operands;
         private readonly Stack<Operator.Operator> _operators;
+
+        /// <summary>
+        /// The token of each operator on <see cref="_operators"/>, in step
+        /// with it: the expression an operator builds, and errors about it,
+        /// are positioned there (T3.1).
+        /// </summary>
+        private readonly Stack<Token.Token> _operatorTokens;
+
+        /// <summary>
+        /// The token-list index of each operator on <see cref="_operators"/>,
+        /// in step with it, for <see cref="WarScriptLanguage.ExpressionSpans"/>.
+        /// </summary>
+        private readonly Stack<int> _operatorIndexes;
         public TokensStack Tokens { get; private set; }
 
         private WarScriptLanguage _script;
@@ -31,6 +44,8 @@ namespace WarScript.Expression
             _script = script;
             _operands = new Stack<IExpression>();
             _operators = new Stack<Operator.Operator>();
+            _operatorTokens = new Stack<Token.Token>();
+            _operatorIndexes = new Stack<int>();
             Tokens = tokens;
         }
 
@@ -71,6 +86,8 @@ namespace WarScript.Expression
             // even if ReadExpression threw mid-parse.
             reader._operands.Clear();
             reader._operators.Clear();
+            reader._operatorTokens.Clear();
+            reader._operatorIndexes.Clear();
             reader._script = null!;
             reader.Tokens = null!;
             (_pool ??= new Stack<ExpressionReader>()).Push(reader);
@@ -94,7 +111,7 @@ namespace WarScript.Expression
                 case TokenType.Text:
                     return true;
                 case TokenType.GroupDivider:
-                    return token.Value == "{";   // array literal
+                    return token.Value == "[";   // array literal, or an index after an operand
                 case TokenType.Keyword:
                     return token.Value == "fun";  // lambda in expression position
                 default:
@@ -105,10 +122,12 @@ namespace WarScript.Expression
         private IExpression ReadExpression()
         {
             var lastWasOperand = false;
+            var lastRow = 0;
 
             while (HasNextToken())
             {
                 var token = Tokens.Next();
+                lastRow = token.RowNumber;
                 switch (token.Type)
                 {
                     case TokenType.Operator:
@@ -120,7 +139,18 @@ namespace WarScript.Expression
                         switch (op)
                         {
                             case Operator.Operator.LeftParen:
+                                // A '(' after an operand is not a call (the lexer
+                                // made it a grouping one): `f(x)(y)`, `arr[0](y)`,
+                                // `x (1)` after a literal. Pushing it would drop the
+                                // operand on its left without a word (T3.12 review).
+                                if (lastWasOperand)
+                                    throw new SyntaxException(
+                                        System.FormattableString.Invariant($"Unexpected `(` at line {token.RowNumber}: expected an operator or end of expression") +
+                                        " (only a name can be called: put a call's or an element's result in a variable first)",
+                                        token.RowNumber, token.Column);
                                 _operators.Push(op);
+                                _operatorTokens.Push(token);
+                                _operatorIndexes.Push(Tokens.Position - 1);
                                 lastWasOperand = false;
                                 break;
                             case Operator.Operator.RightParen:
@@ -128,8 +158,13 @@ namespace WarScript.Expression
                                     ApplyTopOperator();
                                 if (_operators.Count == 0)
                                     throw new SyntaxException(
-                                        $"Unbalanced ')' at line {token.RowNumber}");
+                                        System.FormattableString.Invariant($"Unbalanced ')' at line {token.RowNumber}"), token.RowNumber, token.Column);
                                 _operators.Pop();
+                                _operatorTokens.Pop();
+                                var leftParen = _operatorIndexes.Pop();
+                                // A parenthesized operand spans its parentheses.
+                                if (_operands.Count > 0)
+                                    Span(_operands.Peek(), leftParen, Tokens.Position - 1);
                                 lastWasOperand = true;
                                 break;
                             default:
@@ -138,20 +173,32 @@ namespace WarScript.Expression
                                        && _operators.Peek().GreaterThan(op))
                                     ApplyTopOperator();
                                 _operators.Push(op);
+                                _operatorTokens.Push(token);
+                                _operatorIndexes.Push(Tokens.Position - 1);
                                 lastWasOperand = false;
                                 break;
                         }
                         break;
 
                     default:
+                        // `[` after an operand indexes it (T3.12): `grid[0][1]`,
+                        // `f(x)[0]`, `(a + b)[0]`, `obj.items[0][1]`. (A name's
+                        // own first index is read with the name, below.)
+                        if (lastWasOperand && token.Type == TokenType.GroupDivider && token.Value == "[")
+                        {
+                            ReadPostfixIndex(token);
+                            break;
+                        }
+
                         // Two operands in a row means an operator is missing
                         // (`x = 1 2`, `print a b`). Without this check the first
                         // operand would be silently discarded.
                         if (lastWasOperand)
                             throw new SyntaxException(
-                                $"Unexpected `{token.Value}` at line {token.RowNumber}: expected an operator or end of expression");
+                                System.FormattableString.Invariant($"Unexpected `{token.Value}` at line {token.RowNumber}: expected an operator or end of expression"), token.RowNumber, token.Column);
 
                         var value = token.Value;
+                        var first = Tokens.Position - 1;
                         IExpression operand;
                         switch (token.Type)
                         {
@@ -166,22 +213,22 @@ namespace WarScript.Expression
                                 break;
                             case TokenType.Text:
                                 operand = new ConstantExpression(WarValue.FromText(value));
-                                // allow indexing on string literals: "hello"{0}
-                                if (Tokens.PeekSameLine(TokenType.GroupDivider, "{"))
-                                {
-                                    Tokens.Next(TokenType.GroupDivider, "{");
-                                    var textIndex = ReadExpression(_script, this);
-                                    Tokens.Next(TokenType.GroupDivider, "}");
-                                    operand = new ArrayValueOperator(_script, operand, textIndex);
-                                }
                                 break;
-                            case TokenType.GroupDivider when token.Value == "{":
+                            case TokenType.GroupDivider when token.Value == "[":
                                 operand = ReadArrayInstance();
                                 break;
                             case TokenType.Null:
-                                operand = _script.NullExpr;
+                                // Not NullExpr: that stands for an empty expression, which
+                                // a block header rejects (StatementParser.RequireExpression).
+                                operand = new ConstantExpression(WarValue.Null);
                                 break;
                             case TokenType.This:
+                                // A lambda has no `this` (T3.3, PROP-16); `@x` is lexed as `this.x`.
+                                if (_script.ParsingBody == ParseBody.Lambda && !_script.ParsingV1)
+                                    throw new SyntaxException("'this' and '@' fields cannot be used in a lambda", token.RowNumber, token.Column);
+                                // Nor has code outside every class (T3.8, PROP-29).
+                                if (_script.ParsingClassDepth == 0 && !_script.ParsingV1)
+                                    throw new SyntaxException("'this' and '@' fields can only be used inside a class", token.RowNumber, token.Column);
                                 operand = _script.ThisExpr;
                                 break;
                             case TokenType.Variable:
@@ -190,14 +237,15 @@ namespace WarScript.Expression
                                     { Operator.Operator.ClassInstance, Operator.Operator.NestedClassInstance };
                                 if (_operators.Count > 0 && classInstanceOps.Contains(_operators.Peek()))
                                     operand = ReadClassInstance(token);
-                                else if (Tokens.PeekSameLine(TokenType.GroupDivider, "["))
+                                else if (Tokens.PeekSameLine(TokenType.GroupDivider, "("))
                                     operand = ReadFunctionInvocation(token);
-                                else if (Tokens.PeekSameLine(TokenType.GroupDivider, "{"))
+                                else if (Tokens.PeekSameLine(TokenType.GroupDivider, "["))
                                     operand = ReadArrayValue(token);
                                 else
-                                    operand = new VariableExpression(_script, value);
+                                    operand = new VariableExpression(_script, value) { Line = token.RowNumber, Column = token.Column };
                                 break;
                         }
+                        Span(operand, first, Tokens.Position - 1);
                         _operands.Push(operand);
                         lastWasOperand = true;
                         break;
@@ -205,7 +253,15 @@ namespace WarScript.Expression
             }
 
             while (_operators.Count > 0)
+            {
+                // A '(' still open when the expression ends (`x = (1]`) is
+                // not an operator to apply (CRASH-6).
+                if (_operators.Peek() == Operator.Operator.LeftParen)
+                    throw new SyntaxException(
+                        System.FormattableString.Invariant($"Unbalanced '(' at line {lastRow}: missing ')'"),
+                        _operatorTokens.Peek().RowNumber, _operatorTokens.Peek().Column);
                 ApplyTopOperator();
+            }
 
             return _operands.Count == 0 ? _script.NullExpr : _operands.Pop();
         }
@@ -216,63 +272,103 @@ namespace WarScript.Expression
                 throw new SyntaxException("Malformed expression: unexpected operator (missing operand?)");
 
             var op = _operators.Pop();
+            var token = _operatorTokens.Pop();
+            var index = _operatorIndexes.Pop();
 
             if (_operands.Count == 0)
-                throw new SyntaxException($"Malformed expression: operator '{op}' has no operands");
+                throw new SyntaxException($"Malformed expression: operator '{op}' has no operands", token.RowNumber, token.Column);
 
             var left = _operands.Pop();
 
             if (op.IsBinary())
             {
                 if (_operands.Count == 0)
-                    throw new SyntaxException($"Malformed expression: binary operator '{op}' missing left-hand operand");
+                    throw new SyntaxException($"Malformed expression: binary operator '{op}' missing left-hand operand", token.RowNumber, token.Column);
 
+                // The names are swapped: `left` was popped first, so it is the
+                // right-hand operand, and `right` the left-hand one.
                 var right = _operands.Pop();
-                _operands.Push(op.ToBinaryExpression(_script, right, left));
+                var binary = At(op.ToBinaryExpression(_script, right, left), token);
+                var spans = _script.ExpressionSpans;
+                if (spans != null && spans.TryGetValue(right, out var leftSpan) && spans.TryGetValue(left, out var rightSpan))
+                    Span(binary, leftSpan.First, rightSpan.Last);
+                _operands.Push(binary);
             }
             else
             {
-                _operands.Push(op.ToUnaryExpression(_script, left));
+                // Every unary operator is a prefix: it spans from its token.
+                var unary = At(op.ToUnaryExpression(_script, left), token);
+                var spans = _script.ExpressionSpans;
+                if (spans != null && spans.TryGetValue(left, out var operandSpan))
+                    Span(unary, index, operandSpan.Last);
+                _operands.Push(unary);
             }
+        }
+
+        /// <summary>
+        /// Records the tokens <paramref name="first"/> to <paramref name="last"/>
+        /// (token-list indexes) as the source of <paramref name="expression"/>,
+        /// when the instance records spans (the migration tool, T3.2).
+        /// </summary>
+        private void Span(IExpression expression, int first, int last)
+        {
+            var spans = _script.ExpressionSpans;
+            if (spans != null) spans[expression] = new ExpressionSpan(first, last);
+        }
+
+        // Position an expression at a token (T3.1).
+        private static BinaryOperatorExpression At(BinaryOperatorExpression e, Token.Token token)
+        {
+            e.Line = token.RowNumber;
+            e.Column = token.Column;
+            return e;
+        }
+
+        private static UnaryOperatorExpression At(UnaryOperatorExpression e, Token.Token token)
+        {
+            e.Line = token.RowNumber;
+            e.Column = token.Column;
+            return e;
         }
 
         private ClassExpression ReadClassInstance(Token.Token token)
         {
             var properties = new List<IExpression>();
-            if (Tokens.PeekSameLine(TokenType.GroupDivider, "["))
+            if (Tokens.PeekSameLine(TokenType.GroupDivider, "("))
             {
-                Tokens.Next(TokenType.GroupDivider, "[");
-                while (!Tokens.Peek(TokenType.GroupDivider, "]"))
+                Tokens.Next(TokenType.GroupDivider, "(");
+                while (!Tokens.Peek(TokenType.GroupDivider, ")"))
                 {
                     var before = Tokens.Position;
                     properties.Add(ReadExpression(_script, this));
-                    RequireProgress(before, "]");
+                    RequireProgress(before, ")");
                     if (Tokens.Peek(TokenType.GroupDivider, ","))
                         Tokens.Next();
                 }
-                Tokens.Next(TokenType.GroupDivider, "]");
+                Tokens.Next(TokenType.GroupDivider, ")");
             }
-            return new ClassExpression(_script, token.Value, properties);
+            return new ClassExpression(_script, token.Value, properties) { Line = token.RowNumber, Column = token.Column };
         }
 
         private FunctionExpression ReadFunctionInvocation(Token.Token token)
         {
             var arguments = new List<IExpression>();
-            if (Tokens.PeekSameLine(TokenType.GroupDivider, "["))
+            if (Tokens.PeekSameLine(TokenType.GroupDivider, "("))
             {
-                Tokens.Next(TokenType.GroupDivider, "[");
+                Tokens.Next(TokenType.GroupDivider, "(");
 
                 // Detect whether arguments are named (first non-whitespace arg is `name:`)
                 // Allocated lazily — only if an argument turns out to be named.
                 // The common case (positional args) never touches this dictionary.
                 Dictionary<string, IExpression>? namedArgs = null;
+                List<Token.Token>? namedTokens = null;
                 var isNamed = false;
                 var checkedNaming = false;
 
-                while (!Tokens.Peek(TokenType.GroupDivider, "]"))
+                while (!Tokens.Peek(TokenType.GroupDivider, ")"))
                 {
                     // Trailing comma guard: if the next real token is ], stop
-                    if (Tokens.Peek(TokenType.GroupDivider, "]"))
+                    if (Tokens.Peek(TokenType.GroupDivider, ")"))
                         break;
 
                     if (!checkedNaming)
@@ -285,31 +381,45 @@ namespace WarScript.Expression
                     var before = Tokens.Position;
                     if (isNamed)
                     {
-                        var argName = Tokens.Next(TokenType.Variable).Value;
+                        var argToken = Tokens.Next(TokenType.Variable);
+                        var argName = argToken.Value;
                         Tokens.Next(TokenType.GroupDivider, ":");
                         var argExpr = ReadExpression(_script, this);
-                        (namedArgs ??= new Dictionary<string, IExpression>())[argName] = argExpr;
+                        namedArgs ??= new Dictionary<string, IExpression>();
+                        // Each name once (T3.8, PROP-29).
+                        if (namedArgs.ContainsKey(argName) && !_script.ParsingV1)
+                            throw new SyntaxException("Argument '" + argName + "' is given twice", argToken.RowNumber, argToken.Column);
+                        namedArgs[argName] = argExpr;
+                        (namedTokens ??= new List<Token.Token>()).Add(argToken);
                     }
                     else
                     {
                         arguments.Add(ReadExpression(_script, this));
                     }
-                    RequireProgress(before, "]");
+                    RequireProgress(before, ")");
 
                     // Consume comma, then re-check for trailing comma before ]
                     if (Tokens.Peek(TokenType.GroupDivider, ","))
                         Tokens.Next();
                 }
-                Tokens.Next(TokenType.GroupDivider, "]");
+                Tokens.Next(TokenType.GroupDivider, ")");
 
                 // Reorder named args to match declared parameter positions
                 if (isNamed && namedArgs is { Count: > 0 })
                 {
                     var definition = _script.DefinitionContext.GetScope()
-                        .GetFunction(token.Value, namedArgs.Count);
+                        .GetFunction(token.Value, namedArgs.Count)
+                        ?? _script.FindImportedFunction(token.Value, namedArgs.Count);
 
                     if (definition != null)
                     {
+                        // Every name must be a parameter (T3.8, PROP-29):
+                        // v1 dropped the argument.
+                        if (!_script.ParsingV1)
+                            foreach (var named in namedTokens!)
+                                if (!definition.Details.Arguments.Contains(named.Value))
+                                    throw new SyntaxException("Function '" + token.Value + "' has no parameter '" + named.Value + "'",
+                                        named.RowNumber, named.Column);
                         foreach (var paramName in definition.Details.Arguments)
                         {
                             if (namedArgs.TryGetValue(paramName, out var expr))
@@ -326,7 +436,7 @@ namespace WarScript.Expression
                     }
                 }
             }
-            return new FunctionExpression(_script, token.Value, arguments);
+            return new FunctionExpression(_script, token.Value, arguments) { Line = token.RowNumber, Column = token.Column };
         }
 
         /// <summary>
@@ -349,15 +459,15 @@ namespace WarScript.Expression
         private ArrayExpression ReadArrayInstance()
         {
             var values = new List<IExpression>();
-            while (!Tokens.Peek(TokenType.GroupDivider, "}"))
+            while (!Tokens.Peek(TokenType.GroupDivider, "]"))
             {
                 var before = Tokens.Position;
                 values.Add(ReadExpression(_script, this));
-                RequireProgress(before, "}");
+                RequireProgress(before, "]");
                 if (Tokens.Peek(TokenType.GroupDivider, ","))
                     Tokens.Next();
             }
-            Tokens.Next(TokenType.GroupDivider, "}");
+            Tokens.Next(TokenType.GroupDivider, "]");
             return new ArrayExpression(_script, values);
         }
 
@@ -374,22 +484,76 @@ namespace WarScript.Expression
 
             if (Tokens.TryPeek(out var next))
                 throw new SyntaxException(
-                    $"Unexpected `{next.Value}` at line {next.RowNumber}: expected an expression, ',' or '{closing}'");
+                    System.FormattableString.Invariant($"Unexpected `{next.Value}` at line {next.RowNumber}: expected an expression, ',' or '{closing}'"), next.RowNumber, next.Column);
 
             throw new SyntaxException($"Unexpected end of script: expected '{closing}'");
         }
 
         private ArrayValueOperator ReadArrayValue(Token.Token token)
         {
-            var array = new VariableExpression(_script, token.Value);
-            Tokens.Next(TokenType.GroupDivider, "{");
+            var array = new VariableExpression(_script, token.Value) { Line = token.RowNumber, Column = token.Column };
+            var brace = Tokens.Next(TokenType.GroupDivider, "[");
+            var indexStart = Tokens.Position;
             var arrayIndex = ReadExpression(_script, this);
-            Tokens.Next(TokenType.GroupDivider, "}");
-            return new ArrayValueOperator(_script, array, arrayIndex);
+            CloseIndex(token.Value, brace, indexStart);
+            return (ArrayValueOperator)At(new ArrayValueOperator(_script, array, arrayIndex), brace);
         }
 
         /// <summary>
-        /// Parse a lambda expression: <c>fun [params] body end</c>.
+        /// Reads an index's closing <c>]</c>. A <c>,</c> instead is most likely
+        /// the legacy call syntax, <c>f [a, b]</c> (T3.12): say how a call is
+        /// written now rather than that a <c>]</c> was expected. An empty index,
+        /// <c>a[]</c>, is a syntax error too (it used to compile to a null
+        /// index, a TypeError only once it ran); the v1 frontend of the
+        /// migration tool still reads it.
+        /// </summary>
+        private void CloseIndex(string name, Token.Token bracket, int indexStart)
+        {
+            if (Tokens.Position == indexStart && !_script.ParsingV1
+                && Tokens.TryPeek(out var close) && close.Type == TokenType.GroupDivider && close.Value == "]")
+                throw new SyntaxException(
+                    System.FormattableString.Invariant($"Empty index at line {bracket.RowNumber}: an index takes one value")
+                    + (name != null ? " (" + name + "[0])" : ""),
+                    bracket.RowNumber, bracket.Column);
+            if (Tokens.TryPeek(out var next) && next.Type == TokenType.GroupDivider && next.Value == ",")
+                throw new SyntaxException(
+                    System.FormattableString.Invariant($"Unexpected ',' in an index at line {next.RowNumber}: an index takes one value")
+                    + (name != null ? " (calls are written " + name + "(a, b))" : " (calls are written f(a, b))"),
+                    next.RowNumber, next.Column);
+            Tokens.Next(TokenType.GroupDivider, "]");
+        }
+
+        /// <summary>
+        /// Reads <c>[index]</c> after a complete operand and replaces the
+        /// operand on the stack with its element. The member operators still
+        /// pending on its left bind tighter (<c>obj.items[0][1]</c> indexes
+        /// <c>obj.items[0]</c>), so they are applied first; nothing else is.
+        /// </summary>
+        private void ReadPostfixIndex(Token.Token bracket)
+        {
+            var first = Tokens.Position - 1;
+            while (_operators.Count > 0
+                   && (_operators.Peek() == Operator.Operator.ClassProperty
+                       || _operators.Peek() == Operator.Operator.NestedClassInstance
+                       || _operators.Peek() == Operator.Operator.ClassInstance))
+                ApplyTopOperator();
+
+            // An empty group, `()[0]`, leaves no operand to index.
+            if (_operands.Count == 0)
+                throw new SyntaxException("Malformed expression: '[' has nothing to index", bracket.RowNumber, bracket.Column);
+            var target = _operands.Pop();
+            var indexStart = Tokens.Position;
+            var index = ReadExpression(_script, this);
+            CloseIndex(null, bracket, indexStart);
+            var element = At(new ArrayValueOperator(_script, target, index), bracket);
+            var spans = _script.ExpressionSpans;
+            Span(element, spans != null && spans.TryGetValue(target, out var targetSpan) ? targetSpan.First : first,
+                Tokens.Position - 1);
+            _operands.Push(element);
+        }
+
+        /// <summary>
+        /// Parse a lambda expression: <c>fun(params) body end</c>.
         /// The <c>fun</c> keyword has already been consumed.
         /// </summary>
         private LambdaExpression ReadLambda(Token.Token funToken)
@@ -397,22 +561,24 @@ namespace WarScript.Expression
             var parameters = new List<string>();
 
             // Parse parameter list
-            Tokens.Next(TokenType.GroupDivider, "[");
-            while (!Tokens.Peek(TokenType.GroupDivider, "]"))
+            StatementParser.RejectLegacyParameters(Tokens, funToken, "fun(...)");
+            Tokens.Next(TokenType.GroupDivider, "(");
+            while (!Tokens.Peek(TokenType.GroupDivider, ")"))
             {
                 var param = Tokens.Next(TokenType.Variable);
+                StatementParser.CheckParameter(_script, parameters, param);
                 parameters.Add(param.Value);
                 if (Tokens.Peek(TokenType.GroupDivider, ","))
                     Tokens.Next();
             }
-            Tokens.Next(TokenType.GroupDivider, "]");
+            Tokens.Next(TokenType.GroupDivider, ")");
 
             // Parse body statements until 'end'
             var body = new FunctionStatement(_script, funToken.RowNumber, "<lambda>");
             var bodyScope = _script.DefinitionContext.NewScope();
             StatementParser.ParseLambdaBody(_script, Tokens, body, bodyScope);
 
-            return new LambdaExpression(_script, parameters, body, funToken.RowNumber);
+            return new LambdaExpression(_script, parameters, body, funToken.RowNumber, funToken.Column);
         }
     }
 }

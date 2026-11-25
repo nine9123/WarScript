@@ -10,15 +10,5 @@ namespace WarScript.Statement
         {
             Expression = expression;
         }
-
-        public override void Execute()
-        {
-            var value = Expression.Evaluate();
-            if (_script.HaltFlags == 0)
-            {
-                _script.Logger?.Invoke(_script, value.ToString());
-            }
-            _script.ExceptionContext.AddTracedStatement(this);
-        }
     }
 }

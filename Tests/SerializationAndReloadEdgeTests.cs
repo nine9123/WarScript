@@ -8,7 +8,7 @@ namespace Tests
     /// <summary>
     /// Pins serialization and hot-reload behavior that the format/docs promise
     /// but no test previously exercised:
-    ///   - lambda constants (NativeObject(CompiledFunction)) survive a
+    ///   - lambda constants (NativeObject(CompiledFunction), T3.4) survive a
     ///     SaveBytecode/LoadBytecode round-trip (format v1 feature),
     ///   - const and enum definitions survive a round-trip,
     ///   - default-parameter functions keep all registered arities,
@@ -43,14 +43,14 @@ namespace Tests
         public void Lambdas_SurviveSerializationRoundTrip()
         {
             var (script, output) = RoundTrip(@"
-double = fun [x] return x * 2 end
-fun use_lambda [n]
-    f = fun [x] return x + 100 end
-    return f [n]
+double = fun(x) return x * 2 end
+fun use_lambda(n)
+    f = fun(x) return x + 100 end
+    return f(n)
 end
-fun show []
-    print use_lambda [5]
-    print double [21]
+fun show()
+    print use_lambda(5)
+    print double(21)
 end
 ");
             var show = script.GetFunction("show", 0);
@@ -75,11 +75,11 @@ enum Color
     RED
     GREEN = 7
 end
-fun show []
+fun show()
     print MAX
-    print Color :: GREEN
-    print Color :: name [7]
-    print Color :: count
+    print Color.GREEN
+    print Color.name(7)
+    print Color.count
 end
 ");
             script.Call(script.GetFunction("show", 0));
@@ -93,7 +93,7 @@ end
         [Test]
         public void LoadBytecode_ClearsConstantNames_SubsequentReloadCanReassign()
         {
-            var (original, _) = TestHelper.Run("const_src", "const MAX = 5\nfun get [] return MAX end\n");
+            var (original, _) = TestHelper.Run("const_src", "const MAX = 5\nfun get() return MAX end\n");
             var ms = new MemoryStream();
             original.SaveBytecode(ms);
             ms.Position = 0;
@@ -119,12 +119,12 @@ end
         public void DefaultParameterArities_SurviveSerializationRoundTrip()
         {
             var (script, output) = RoundTrip(@"
-fun greet [name, greeting = ""Hello""]
+fun greet(name, greeting = ""Hello"")
     return greeting + "", "" + name
 end
-fun show []
-    print greet [""Bob""]
-    print greet [""Ann"", ""Yo""]
+fun show()
+    print greet(""Bob"")
+    print greet(""Ann"", ""Yo"")
 end
 ");
             Assert.IsTrue(script.HasFunction("greet", 1), "1-arg arity should survive");
@@ -155,18 +155,21 @@ end
         public void Reload_ChangedClassLayout_OldInstancesKeepOldProperties()
         {
             var (script, output) = TestHelper.Run("reload_layout", @"
-class P [x, y]
+class P(x, y)
 end
-g = new P [1, 2]
+g = new P(1, 2)
 ");
             // Redefine P with a completely different property layout. The old
             // instance in `g` was built against the old layout and keeps it.
             script.Reload(@"
-class P [a, b, c]
-    fun sum [] return this :: a + this :: b + this :: c end
+class P(a, b, c)
+    fun sum() return this.a + this.b + this.c end
 end
-fun probe []
-    print g :: x
+fun probe()
+    print g.x
+end
+# Some class must declare 'x' for the read to compile (T3.8, PROP-29).
+class Q(x)
 end
 ");
             script.Call(script.GetFunction("probe", 0));

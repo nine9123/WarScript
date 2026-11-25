@@ -86,8 +86,8 @@ namespace WarScript.Token
         /// <para>11. Equal <code>=</code></para>
         /// <para>12. Equal to <code>==</code> and not equal to <code>!=</code></para>
         /// <para>13. Not operator <code>!</code></para>
-        /// <para>14. Creating an instance of a nested class: <code>:: new</code></para>
-        /// <para>15. Accessing class's property or class's function: <code>::</code></para>
+        /// <para>14. Creating an instance of a nested class: <code>.new</code></para>
+        /// <para>15. Accessing class's property or class's function: <code>.</code></para>
         /// <para>16. Creating an instance of a class: <code>new</code></para>
         /// <para>17. And operator <code>and</code></para>
         /// <para>18. Or operator <code>or</code></para>
