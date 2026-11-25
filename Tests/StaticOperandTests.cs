@@ -46,7 +46,7 @@ namespace Tests
         {
             var (script, _) = Script(
                 "import \"lib\"\nprint 1\n",
-                new Dictionary<string, string> { ["lib"] = "fun f []\n    return -true\nend\n" });
+                new Dictionary<string, string> { ["lib"] = "fun f()\n    return -true\nend\n" });
 
             var result = script.Compile();
 
@@ -60,7 +60,7 @@ namespace Tests
         public void AnOperatorResult_HasAKnownType()
         {
             // 'a - 1' is a number whatever 'a' is; text '+' anything is text.
-            var (script, _) = Script("a = 3\nx = (a - 1) + {1}\n");
+            var (script, _) = Script("a = 3\nx = (a - 1) + [1]\n");
             Assert.AreEqual("Cannot apply '+' to number and array", script.Compile().Diagnostics[0].Message);
 
             (script, _) = Script("a = 3\nx = (\"n\" + a) - 1\n");
@@ -95,7 +95,7 @@ namespace Tests
                 "n = 2\n" +
                 "print \"{n}\" + 1\n" +
                 "print \"ab\" * 2 + \"!\"\n" +
-                "print {1} + {2} << 3\n" +
+                "print [1] + [2] << 3\n" +
                 "print 1 == \"1\"\n" +
                 "print \"a\" < \"b\"\n");
 
@@ -110,7 +110,7 @@ namespace Tests
             // check waits for the whole module set.
             var (script, _) = Script(
                 "import \"lib\"\nconst LABEL = \"x\"\n",
-                new Dictionary<string, string> { ["lib"] = "fun f []\n    return LABEL * {1}\nend\n" });
+                new Dictionary<string, string> { ["lib"] = "fun f()\n    return LABEL * [1]\nend\n" });
 
             var result = script.Compile();
 
@@ -159,8 +159,8 @@ namespace Tests
                 "        A\n" +
                 "    end\n" +
                 "end\n" +
-                "fun f [Inner]\n" +
-                "    return Inner :: A - \"x\"\n" +
+                "fun f(Inner)\n" +
+                "    return Inner.A - \"x\"\n" +
                 "end\n");
             Assert.IsTrue(script.Compile().Success);
         }
@@ -182,7 +182,7 @@ namespace Tests
         [Test]
         public void ARangeLoopsRuntimeBoundError_IsAtTheDots()
         {
-            var (script, _) = Script("fun same [v]\n    return v\nend\nloop i in 0..same [true]\n    print i\nend\n");
+            var (script, _) = Script("fun same(v)\n    return v\nend\nloop i in 0..same(true)\n    print i\nend\n");
 
             var result = script.Run();
 
@@ -234,8 +234,8 @@ namespace Tests
         [TestCase("step = -1\n", "-step", true)]
         [TestCase("step = 1\n", "-step", false)]
         [TestCase("step = 0\n", "step", false)]
-        [TestCase("fun s [] return 0 end\n", "s []", false)]
-        [TestCase("fun s [] return 2 end\n", "s []", true)]
+        [TestCase("fun s() return 0 end\n", "s()", false)]
+        [TestCase("fun s() return 2 end\n", "s()", true)]
         public void ARangeLoopsDynamicStep_IsCheckedWhenTheLoopStarts(string before, string step, bool runs)
         {
             var (script, output) = Script(before + "loop i in 0..2 by " + step + "\n    print i\nend\nprint \"end\"\n");
@@ -256,8 +256,8 @@ namespace Tests
             // The last case declares the constant after the loop, in a
             // function that runs it later.
             var (script, _) = Script(before +
-                "fun f []\n    loop i in 0..3 by " + step + "\n        print i\n    end\nend\n" +
-                (before == "" ? "const STEP = 0\n" : "") + "f []\n");
+                "fun f()\n    loop i in 0..3 by " + step + "\n        print i\n    end\nend\n" +
+                (before == "" ? "const STEP = 0\n" : "") + "f()\n");
 
             var result = script.Compile();
 
@@ -275,7 +275,7 @@ namespace Tests
                 "import \"lib\"\nconst STEP = 0\n",
                 new Dictionary<string, string>
                 {
-                    ["lib"] = "fun f []\n    loop i in 0..3 by STEP\n    end\nend\n",
+                    ["lib"] = "fun f()\n    loop i in 0..3 by STEP\n    end\nend\n",
                 });
 
             var result = script.Compile();
@@ -326,12 +326,12 @@ namespace Tests
                 "    LOW\n" +
                 "end\n" +
                 "begin\n" +
-                "    print Rank :: name < \"a\"\n" +
+                "    print Rank.name < \"a\"\n" +
                 "rescue e\n" +
                 "    print e\n" +
                 "end\n" +
                 "begin\n" +
-                "    print Rank :: name [] - 1\n" +
+                "    print Rank.name() - 1\n" +
                 "rescue e\n" +
                 "    print e\n" +
                 "end\n");

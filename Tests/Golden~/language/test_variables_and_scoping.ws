@@ -89,20 +89,20 @@ assert mid_check
 
 # ── Function scope ──
 global_var = 100
-fun read_global []
+fun read_global()
     return global_var
 end
-assert read_global [] == 100
+assert read_global() == 100
 
 # ── Function can modify outer variables ──
 counter = 0
-fun increment_counter []
+fun increment_counter()
     global counter
     counter = counter + 1
 end
-increment_counter []
-increment_counter []
-increment_counter []
+increment_counter()
+increment_counter()
+increment_counter()
 assert counter == 3
 
 # ── Multiple variables ──

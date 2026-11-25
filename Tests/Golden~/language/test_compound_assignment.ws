@@ -75,41 +75,41 @@ msg += "!"
 assert msg == "hello world!"
 
 # ── Compound on array elements ──
-arr = {10, 20, 30}
-arr{0} += 5
-assert arr{0} == 15
+arr = [10, 20, 30]
+arr[0] += 5
+assert arr[0] == 15
 
-arr{1} -= 10
-assert arr{1} == 10
+arr[1] -= 10
+assert arr[1] == 10
 
-arr{2} *= 2
-assert arr{2} == 60
+arr[2] *= 2
+assert arr[2] == 60
 
 # ── Compound on class properties ──
-class Entity [hp, attack]
+class Entity(hp, attack)
 end
 
-e = new Entity [100, 10]
-e :: hp -= 25
-assert e :: hp == 75
+e = new Entity(100, 10)
+e.hp -= 25
+assert e.hp == 75
 
-e :: attack += 5
-assert e :: attack == 15
+e.attack += 5
+assert e.attack == 15
 
-e :: hp -= e :: attack
-assert e :: hp == 60
+e.hp -= e.attack
+assert e.hp == 60
 
 # ── Compound inside functions ──
-fun accumulate [n]
+fun accumulate(n)
     total = 0
     loop i in 0..n
         total += i
     end
     return total
 end
-assert accumulate [10] == 45
-assert accumulate [5] == 10
-assert accumulate [1] == 0
+assert accumulate(10) == 45
+assert accumulate(5) == 10
+assert accumulate(1) == 0
 
 # ── Multiple compound ops on same variable ──
 v = 1

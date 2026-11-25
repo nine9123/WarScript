@@ -19,32 +19,32 @@ namespace Tests
     {
         // Each instruction family on a line of its own; the comment is the line.
         private const string Source =
-            "fun twice [x]\n" +                         // 1
+            "fun twice(x)\n" +                         // 1
             "    return x * 2\n" +                      // 2
             "end\n" +                                   // 3
-            "fun apply [g, v]\n" +                      // 4
-            "    return g [v]\n" +                      // 5  CallValue
+            "fun apply(g, v)\n" +                      // 4
+            "    return g(v)\n" +                      // 5  CallValue
             "end\n" +                                   // 6
-            "class Box [value]\n" +                     // 7
-            "    fun get []\n" +                        // 8
-            "        return this :: value\n" +          // 9  ThisGetProperty
+            "class Box(value)\n" +                     // 7
+            "    fun get()\n" +                        // 8
+            "        return this.value\n" +          // 9  ThisGetProperty
             "    end\n" +                               // 10
-            "    class Inner [n]\n" +                   // 11
+            "    class Inner(n)\n" +                   // 11
             "    end\n" +                               // 12
             "end\n" +                                   // 13
             "a = 10\n" +                                // 14
-            "b = twice [a]\n" +                         // 15 Call
-            "box = new Box [a]\n" +                     // 16 NewInstance
-            "inner = box :: new Inner [1]\n" +          // 17 NewNestedInstance
-            "c = box :: get []\n" +                     // 18 CallMethod
-            "d = box :: value\n" +                      // 19 GetProperty
-            "arr = {1, 2, 3}\n" +                       // 20 NewArray
-            "e = arr{1}\n" +                            // 21 IndexGet
+            "b = twice(a)\n" +                         // 15 Call
+            "box = new Box(a)\n" +                     // 16 NewInstance
+            "inner = box.new Inner(1)\n" +          // 17 NewNestedInstance
+            "c = box.get()\n" +                     // 18 CallMethod
+            "d = box.value\n" +                      // 19 GetProperty
+            "arr = [1, 2, 3]\n" +                       // 20 NewArray
+            "e = arr[1]\n" +                            // 21 IndexGet
             "f = a / b\n" +                             // 22 Div
             "g = a > 1 and b > 1\n" +                   // 23 JumpIfFalse (and)
             "h = box is Box\n" +                        // 24 InstanceOf
             "i = box as Box\n" +                        // 25 CastAs
-            "j = apply [fun [y] return y end, 3]\n" +   // 26 Call, lambda constant
+            "j = apply(fun(y) return y end, 3)\n" +   // 26 Call, lambda constant
             "print a + b\n";                            // 27 Add
 
         private static (CompiledFunction body, DefinitionScope definitions) Compile(string source)
@@ -112,7 +112,7 @@ namespace Tests
         [Test]
         public void MultiLineCall_UsesTheStatementsFirstLine()
         {
-            var (body, _) = Compile("x = 1\ny = max [\n    x,\n    2\n]\nfun max [a, b] return a end\n");
+            var (body, _) = Compile("x = 1\ny = max(\n    x,\n    2\n)\nfun max(a, b) return a end\n");
             CollectionAssert.AreEqual(new[] { 2 }, LinesOf(body, OpCode.Call));
         }
 
@@ -123,12 +123,12 @@ namespace Tests
             // which was emitted at line 0.
             var stacks = new List<string>();
             TestHelper.Run("test",
-                "fun inner [x]\n" +      // 1
+                "fun inner(x)\n" +      // 1
                 "    y = x + 1\n" +      // 2
                 "    return y\n" +       // 3
                 "end\n" +                // 4
                 "a = 1\n" +              // 5
-                "b = inner [a] * 2\n" +  // 6
+                "b = inner(a) * 2\n" +  // 6
                 "print b\n",             // 7
                 setupScope: (s, _) =>
                 {
@@ -147,11 +147,11 @@ namespace Tests
         {
             var stacks = new List<string>();
             TestHelper.Run("test",
-                "class P [x]\n" +        // 1
+                "class P(x)\n" +        // 1
                 "    y = x * 2\n" +      // 2
                 "end\n" +                // 3
                 "a = 1\n" +              // 4
-                "p = new P [a]\n",       // 5
+                "p = new P(a)\n",       // 5
                 setupScope: (s, _) =>
                 {
                     s.AddBreakpoint(2);

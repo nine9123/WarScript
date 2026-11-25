@@ -27,17 +27,17 @@ assert sum == 1000
 # ── Empty function body ──
 fun noop
 end
-noop []
+noop()
 
 # ── Function with only return ──
 fun returns_null
     return
 end
-assert returns_null [] == null
+assert returns_null() == null
 
 # ── Single character strings ──
 s = "x"
-assert s{0} == "x"
+assert s[0] == "x"
 assert s == "x"
 assert s * 3 == "xxx"
 
@@ -53,8 +53,8 @@ assert "flag: " + true == "flag: true"
 assert "flag: " + false == "flag: false"
 
 # ── Array of one element ──
-single = {42}
-assert single{0} == 42
+single = [42]
+assert single[0] == 42
 total = 0
 loop x in single
     total += x
@@ -62,10 +62,10 @@ end
 assert total == 42
 
 # ── Nested array via intermediate (no chained access) ──
-a = {{{42}}}
-a0 = a{0}
-a00 = a0{0}
-assert a00{0} == 42
+a = [[[42]]]
+a0 = a[0]
+a00 = a0[0]
+assert a00[0] == 42
 
 # ── Deeply nested if (pre-declare) ──
 deep_val = "not reached"
@@ -97,12 +97,12 @@ end
 assert count == 1
 
 # ── Break on first iteration ──
-first_only = {}
+first_only = []
 loop i in 0..100
     first_only << i
     break
 end
-assert first_only == {0}
+assert first_only == [0]
 
 # ── Next on every iteration ──
 ran3 = false
@@ -113,44 +113,44 @@ end
 assert !ran3
 
 # ── Class with same-named property as function param ──
-class Holder [val]
-    fun set [val]
-        this :: val = val
+class Holder(val)
+    fun set(val)
+        this.val = val
     end
-    fun get []
-        return this :: val
+    fun get()
+        return this.val
     end
 end
-h = new Holder [10]
-assert h :: get [] == 10
-h :: set [99]
-assert h :: get [] == 99
+h = new Holder(10)
+assert h.get() == 10
+h.set(99)
+assert h.get() == 99
 
 # ── Function call as argument to another function ──
-fun outer_fn [x]
+fun outer_fn(x)
     return x + 1
 end
-fun inner_fn [x]
+fun inner_fn(x)
     return x * 2
 end
-assert outer_fn [inner_fn [5]] == 11
-assert inner_fn [outer_fn [5]] == 12
+assert outer_fn(inner_fn(5)) == 11
+assert inner_fn(outer_fn(5)) == 12
 
 # ── Chained property access and method calls ──
-class Wrapper [inner]
-    fun get []
-        return this :: inner
+class Wrapper(inner)
+    fun get()
+        return this.inner
     end
 end
-class ValueBox [n]
-    fun doubled []
+class ValueBox(n)
+    fun doubled()
         return @n * 2
     end
 end
-v = new ValueBox [21]
-w = new Wrapper [v]
-inner_val = w :: get []
-assert inner_val :: doubled [] == 42
+v = new ValueBox(21)
+w = new Wrapper(v)
+inner_val = w.get()
+assert inner_val.doubled() == 42
 
 # ── Reassigning to different types ──
 x = 42
@@ -161,8 +161,8 @@ x = true
 assert x == true
 x = null
 assert x == null
-x = {1, 2, 3}
-assert x == {1, 2, 3}
+x = [1, 2, 3]
+assert x == [1, 2, 3]
 
 # ── Multiple assignments ──
 a = 1
@@ -171,29 +171,29 @@ c = a + b
 assert c == 3
 
 # ── Fibonacci stress test ──
-fun fib [n]
+fun fib(n)
     if n < 2
         return n
     end
-    return fib [n - 1] + fib [n - 2]
+    return fib(n - 1) + fib(n - 2)
 end
-assert fib [15] == 610
+assert fib(15) == 610
 
 # ── Exception in deeply nested call ──
-fun level3 []
+fun level3()
     raise "deep error"
 end
-fun level2 []
-    return level3 []
+fun level2()
+    return level3()
 end
-fun level1 []
-    return level2 []
+fun level1()
+    return level2()
 end
 
 caught = false
 caught_val = null
 begin
-    level1 []
+    level1()
 rescue e
     caught = true
     caught_val = e
@@ -202,30 +202,30 @@ assert caught
 assert caught_val == "deep error"
 
 # ── Array modification during iteration via index ──
-arr = {1, 2, 3, 4, 5}
+arr = [1, 2, 3, 4, 5]
 loop i in 0..5
-    if arr{i} % 2 == 0
-        arr{i} = 0
+    if arr[i] % 2 == 0
+        arr[i] = 0
     end
 end
-assert arr == {1, 0, 3, 0, 5}
+assert arr == [1, 0, 3, 0, 5]
 
 # ── Class instance stored in array, modified, re-read ──
-class Mutable [val]
+class Mutable(val)
 end
-arr = {}
-arr << new Mutable [1]
-arr << new Mutable [2]
-arr << new Mutable [3]
-arr{1} :: val = 99
-assert arr{0} :: val == 1
-assert arr{1} :: val == 99
-assert arr{2} :: val == 3
+arr = []
+arr << new Mutable(1)
+arr << new Mutable(2)
+arr << new Mutable(3)
+arr[1].val = 99
+assert arr[0].val == 1
+assert arr[1].val == 99
+assert arr[2].val == 3
 
 # ── Interpolation with nested expressions ──
-arr = {10, 20, 30}
+arr = [10, 20, 30]
 idx = 1
-msg = "arr[{idx}] = {arr{idx}}"
+msg = "arr[{idx}] = {arr[idx]}"
 assert msg == "arr[1] = 20"
 
 # ── Ensure runs with no exception and no rescue ──

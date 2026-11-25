@@ -3,7 +3,7 @@
 # loop. A literal one is a compile error (language/range_step_not_positive.ws);
 # one known only at runtime is an ArgumentError when the loop starts, at the
 # step, before the first iteration and even when the range is empty.
-fun down []
+fun down()
     return -1
 end
 step = 2
@@ -11,7 +11,7 @@ loop i in 0..5 by step
     print i
 end
 begin
-    loop i in 3..0 by down []
+    loop i in 3..0 by down()
         print i
     end
 rescue e

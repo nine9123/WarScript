@@ -6,7 +6,7 @@
 import "order_right"
 import "order_left"
 print "main"
-print base_name []
+print base_name()
 # expect: base
 # expect: right
 # expect: left

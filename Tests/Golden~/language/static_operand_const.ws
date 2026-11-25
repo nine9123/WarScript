@@ -3,8 +3,8 @@
 # before the declaration runs is a NameError, and no other write compiles).
 # A parameter named like the constant is not the constant:
 # static_operand_const_shadowed.ws.
-fun greet []
+fun greet()
     return TITLE - "Sir "   # expect-compile-error: Cannot apply '-' to text and text
 end
 const TITLE = "Sir " + 1
-print greet []
+print greet()

@@ -69,7 +69,7 @@ assert depth_check == 8
 
 # ── Iterable loop should not clobber outer variable ──
 item = "untouched"
-arr = {10, 20, 30}
+arr = [10, 20, 30]
 total = 0
 loop item in arr
     total += item
@@ -78,7 +78,7 @@ assert item == "untouched"
 assert total == 60
 
 # ── Nested iterable loops same counter ──
-grid = {{1, 2}, {3, 4}, {5, 6}}
+grid = [[1, 2], [3, 4], [5, 6]]
 flat_sum = 0
 loop row in grid
     loop row in row
@@ -92,20 +92,20 @@ assert flat_sum == 21
 # ════════════════════════════════════════════════
 
 n = 42
-collected = {}
+collected = []
 loop n in 0..10 by 2
     collected << n
 end
 assert n == 42
-assert collected{0} == 0
-assert collected{1} == 2
-assert collected{2} == 4
+assert collected[0] == 0
+assert collected[1] == 2
+assert collected[2] == 4
 
 # ════════════════════════════════════════════════
 #  Loop counter inside function
 # ════════════════════════════════════════════════
 
-fun compute_sum[limit]
+fun compute_sum(limit)
     result = 0
     loop x in 0..limit
         result += x
@@ -114,12 +114,12 @@ fun compute_sum[limit]
     # PROP-9), so x is not one here.
     return result
 end
-assert compute_sum[5] == 10
-assert compute_sum[10] == 45
+assert compute_sum(5) == 10
+assert compute_sum(10) == 45
 
 # ── Function with a loop variable name reused in different loops ──
 # (A loop variable may not shadow the parameter n: T3.4, PROP-9.)
-fun multi_loop_test[n]
+fun multi_loop_test(n)
     sum1 = 0
     loop i in 0..5
         sum1 += i
@@ -132,8 +132,8 @@ fun multi_loop_test[n]
     return n * 100 + sum1 + sum2
 end
 # n=7: sum1=10, sum2=3, result=7*100+10+3=713
-assert multi_loop_test[7] == 713
-assert multi_loop_test[0] == 13
+assert multi_loop_test(7) == 713
+assert multi_loop_test(0) == 13
 
 # ════════════════════════════════════════════════
 #  While-loop variable isolation (control case)
@@ -152,17 +152,17 @@ assert w == 5
 #  Class method with loop counter same as property
 # ════════════════════════════════════════════════
 
-class Counter[n]
+class Counter(n)
     fun count_up
         result = 0
-        loop n in 0..this :: n
+        loop n in 0..this.n
             result += n
         end
         return result
     end
 end
 
-c = new Counter[5]
-assert c :: count_up[] == 10
+c = new Counter(5)
+assert c.count_up() == 10
 # Property should be unchanged
-assert c :: n == 5
+assert c.n == 5

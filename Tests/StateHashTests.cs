@@ -39,7 +39,7 @@ namespace Tests
             // to FNV-1a 64 over the single byte 0xFF. BASELINE.md quotes these
             // values: a recorded hash equal to one of them carries no script
             // state, only the printed lines.
-            Assert.AreEqual(0xaf64724c8602eb6eUL, HashOf("fun f []\n    return 1\nend"));
+            Assert.AreEqual(0xaf64724c8602eb6eUL, HashOf("fun f()\n    return 1\nend"));
             Assert.AreEqual(0xdc553fa85c69d526UL, HashOf("print \"bootstrap\""));
         }
 
@@ -47,11 +47,11 @@ namespace Tests
         public void IdenticalRunsHashIdentically()
         {
             const string source = @"
-class P [x, y]
+class P(x, y)
     sum = x + y
 end
-p = new P [1, 2]
-arr = {1, ""two"", {3.5, true}, null, p}
+p = new P(1, 2)
+arr = [1, ""two"", [3.5, true], null, p]
 print ""done""";
             Assert.AreEqual(HashOf(source), HashOf(source));
         }
@@ -78,7 +78,7 @@ print ""done""";
         {
             var hashes = new HashSet<ulong>
             {
-                HashOf("v = 1"), HashOf("v = \"1\""), HashOf("v = true"), HashOf("v = null"), HashOf("v = {1}")
+                HashOf("v = 1"), HashOf("v = \"1\""), HashOf("v = true"), HashOf("v = null"), HashOf("v = [1]")
             };
             Assert.AreEqual(5, hashes.Count);
         }
@@ -86,8 +86,8 @@ print ""done""";
         [Test]
         public void InstanceFieldsCount()
         {
-            const string cls = "class P [x]\n    y = x * 2\nend\n";
-            Assert.AreNotEqual(HashOf(cls + "p = new P [1]"), HashOf(cls + "p = new P [2]"));
+            const string cls = "class P(x)\n    y = x * 2\nend\n";
+            Assert.AreNotEqual(HashOf(cls + "p = new P(1)"), HashOf(cls + "p = new P(2)"));
         }
 
         [Test]
@@ -104,17 +104,17 @@ print ""done""";
         {
             // Formatting or comparing this array overflows the stack in v1
             // (CRASH-1); hashing it must not.
-            var cyclic = HashOf("a = {1}\na << a");
-            var flat = HashOf("a = {1}\na << {1}");
+            var cyclic = HashOf("a = [1]\na << a");
+            var flat = HashOf("a = [1]\na << [1]");
             Assert.AreNotEqual(cyclic, flat);
-            Assert.AreEqual(cyclic, HashOf("a = {1}\na << a"));
+            Assert.AreEqual(cyclic, HashOf("a = [1]\na << a"));
         }
 
         [Test]
         public void DeepNestingIsCutOff()
         {
             // Deeper than MaxValueDepth (256): the hash stays finite and stable.
-            const string source = "a = {}\nloop i in 0..1000\n    a = {a}\nend";
+            const string source = "a = []\nloop i in 0..1000\n    a = [a]\nend";
             Assert.AreEqual(HashOf(source), HashOf(source));
         }
     }

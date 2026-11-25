@@ -2,6 +2,6 @@
 # import_order.ws imports. Its top level runs once per instance.
 print "base"                                  # expect: base
 
-fun base_name []
+fun base_name()
     return "base"
 end

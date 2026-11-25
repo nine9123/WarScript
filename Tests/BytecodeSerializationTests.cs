@@ -16,7 +16,7 @@ namespace Tests
         public void RoundTripSimpleFunction()
         {
             var (script1, _) = TestHelper.Run("test", @"
-                fun greet []
+                fun greet()
                     print ""hello""
                 end
             ");
@@ -30,7 +30,7 @@ namespace Tests
         public void RoundTripFunctionWithArgs()
         {
             var (script1, _) = TestHelper.Run("test", @"
-                fun add [a, b]
+                fun add(a, b)
                     print a + b
                 end
             ");
@@ -45,7 +45,7 @@ namespace Tests
         public void RoundTripPreservesAllConstantTypes()
         {
             var (script1, _) = TestHelper.Run("test", @"
-                fun test_constants []
+                fun test_constants()
                     print 3.14
                     print ""pi""
                     print true
@@ -62,7 +62,7 @@ namespace Tests
         public void RoundTripWithLoopsAndControlFlow()
         {
             var (script1, _) = TestHelper.Run("test", @"
-                fun sum_to [n]
+                fun sum_to(n)
                     total = 0
                     loop i in 0..n
                         total += i
@@ -80,7 +80,7 @@ namespace Tests
         public void RoundTripWithExceptionHandling()
         {
             var (script1, _) = TestHelper.Run("test", @"
-                fun safe_div [a, b]
+                fun safe_div(a, b)
                     begin
                         if b == 0
                             raise ""div by zero""
@@ -104,14 +104,14 @@ namespace Tests
         public void RoundTripWithClassAndMethod()
         {
             var (script1, _) = TestHelper.Run("test", @"
-                class Entity [name, hp]
-                    fun status []
-                        print this :: name + "": "" + this :: hp
+                class Entity(name, hp)
+                    fun status()
+                        print this.name + "": "" + this.hp
                     end
                 end
-                fun make_entity []
-                    e = new Entity [""Hero"", 100]
-                    e :: status []
+                fun make_entity()
+                    e = new Entity(""Hero"", 100)
+                    e.status()
                 end
             ");
 
@@ -124,16 +124,16 @@ namespace Tests
         public void RoundTripWithInheritance()
         {
             var (script1, _) = TestHelper.Run("test", @"
-                class Animal [name]
-                    fun speak []
-                        return this :: name + "" speaks""
+                class Animal(name)
+                    fun speak()
+                        return this.name + "" speaks""
                     end
                 end
-                class Dog [name] : Animal [name]
+                class Dog(name) : Animal(name)
                 end
-                fun test_dog []
-                    d = new Dog [""Rex""]
-                    print d :: speak []
+                fun test_dog()
+                    d = new Dog(""Rex"")
+                    print d.speak()
                 end
             ");
 
@@ -150,11 +150,11 @@ namespace Tests
             var output = new List<string>();
             var script = new WarScriptLanguage("test", @"
                 hp = 100
-                fun damage [n]
+                fun damage(n)
                     global hp
                     hp -= n
                 end
-                fun get_hp []
+                fun get_hp()
                     print hp
                 end
             ", null, (s, msg) => output.Add(msg));
@@ -180,7 +180,7 @@ namespace Tests
         public void LoadBytecodeClearsOldDefinitions()
         {
             var (script, _) = TestHelper.Run("test", @"
-                fun old_func []
+                fun old_func()
                     print ""old""
                 end
             ");
@@ -189,7 +189,7 @@ namespace Tests
 
             // Save different bytecode from a separate script
             var (script2, _) = TestHelper.Run("test2", @"
-                fun new_func []
+                fun new_func()
                     print ""new""
                 end
             ");
@@ -207,7 +207,7 @@ namespace Tests
         public void LoadBytecodeStopsCoroutines()
         {
             var (script, _) = TestHelper.Run("test", @"
-                fun ticker []
+                fun ticker()
                     print ""tick""
                     yield
                     print ""tick""
@@ -230,7 +230,7 @@ namespace Tests
         public void SaveProducesNonEmptyBytes()
         {
             var (script, _) = TestHelper.Run("test", @"
-                fun f []
+                fun f()
                     print 1
                 end
             ");
@@ -255,7 +255,7 @@ namespace Tests
         public void MultipleRoundTrips()
         {
             var (script1, _) = TestHelper.Run("test", @"
-                fun f [x]
+                fun f(x)
                     print x * 2
                 end
             ");
@@ -274,7 +274,7 @@ namespace Tests
         public void CoroutineWorksAfterLoadBytecode()
         {
             var (script1, _) = TestHelper.Run("test", @"
-                fun patrol []
+                fun patrol()
                     loop i in 0..3
                         print ""step "" + i
                         yield

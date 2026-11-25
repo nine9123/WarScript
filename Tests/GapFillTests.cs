@@ -76,11 +76,11 @@ print total
         {
             // Functions defined in Run() 1 should work in Run() 2
             var source = @"
-fun square[n]
+fun square(n)
     return n * n
 end
-assert square[5] == 25
-assert square[0] == 0
+assert square(5) == 25
+assert square(0) == 0
 ";
             var output = new List<string>();
             var script = new WarScriptLanguage("func_persist", source, null,
@@ -100,11 +100,11 @@ assert square[0] == 0
         public void GapFill_ASTCaching_ClassesPersist()
         {
             var source = @"
-class Vec[x, y]
+class Vec(x, y)
 end
-v = new Vec[3, 4]
-assert v :: x == 3
-assert v :: y == 4
+v = new Vec(3, 4)
+assert v.x == 3
+assert v.y == 4
 ";
             var output = new List<string>();
             var script = new WarScriptLanguage("class_persist", source, null,
@@ -130,14 +130,14 @@ assert v :: y == 4
             var (script, output) = TestHelper.Run("inline",
                 "s = \"abcde\"\n" +
                 "begin\n" +
-                "s{2} = \"X\"\n" +
+                "s[2] = \"X\"\n" +
                 "rescue e\n" +
                 "print e\n" +
                 "end\n" +
                 "print s\n" +
-                "print s{0}\n" +
-                "print s{2}\n" +
-                "print s{4}");
+                "print s[0]\n" +
+                "print s[2]\n" +
+                "print s[4]");
 
             CollectionAssert.AreEqual(
                 new[] { "Cannot assign to an index of text: text is immutable", "abcde", "a", "c", "e" }, output);
@@ -161,7 +161,7 @@ assert v :: y == 4
         {
             var (script, output) = TestHelper.Run("inline",
                 "item = \"preserved\"\n" +
-                "loop item in {10, 20, 30}\n" +
+                "loop item in [10, 20, 30]\n" +
                 "end\n" +
                 "print item");
 
@@ -173,8 +173,8 @@ assert v :: y == 4
         public void GapFill_NotEquals_EqualArrays_ReturnsFalse()
         {
             var (script, output) = TestHelper.Run("inline",
-                "a = {1, 2, 3}\n" +
-                "b = {1, 2, 3}\n" +
+                "a = [1, 2, 3]\n" +
+                "b = [1, 2, 3]\n" +
                 "print a == b\n" +
                 "print a != b");
 
@@ -187,10 +187,10 @@ assert v :: y == 4
         public void GapFill_EqualClasses_CompareByIdentity()
         {
             var (script, output) = TestHelper.Run("inline",
-                "class P[x, y]\n" +
+                "class P(x, y)\n" +
                 "end\n" +
-                "a = new P[1, 2]\n" +
-                "b = new P[1, 2]\n" +
+                "a = new P(1, 2)\n" +
+                "b = new P(1, 2)\n" +
                 "print a == b\n" +
                 "print a != b");
 
@@ -205,18 +205,18 @@ assert v :: y == 4
         public void GapFill_IsNull_WithNullValue()
         {
             var (script, output) = TestHelper.Run("inline",
-                "print is_null[null]\n" +
-                "print is_null[0]\n" +
-                "print is_null[\"\"]\n" +
+                "print is_null(null)\n" +
+                "print is_null(0)\n" +
+                "print is_null(\"\")\n" +
                 "x = null\n" +
-                "print is_null[x]",
+                "print is_null(x)",
                 (s, scope) => WarScript.Native.UtilityLibrary.Register(s, scope));
 
             Assert.AreEqual(4, output.Count);
-            Assert.AreEqual("true", output[0], "is_null[null] should be True");
-            Assert.AreEqual("false", output[1], "is_null[0] should be False");
-            Assert.AreEqual("false", output[2], "is_null[\"\"] should be False");
-            Assert.AreEqual("true", output[3], "is_null[x] where x=null should be True");
+            Assert.AreEqual("true", output[0], "is_null(null) should be True");
+            Assert.AreEqual("false", output[1], "is_null(0) should be False");
+            Assert.AreEqual("false", output[2], "is_null(\"\") should be False");
+            Assert.AreEqual("true", output[3], "is_null(x) where x=null should be True");
         }
     }
 }

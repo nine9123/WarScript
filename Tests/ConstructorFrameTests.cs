@@ -15,14 +15,14 @@ namespace Tests
     public class ConstructorFrameTests
     {
         private const string Source = @"
-class P [v]
+class P(v)
     w = v + 1
 end
-fun make [n]
+fun make(n)
     loop i in 0..n
-        p = new P [i]
+        p = new P(i)
     end
-    return p :: w
+    return p.w
 end
 ";
 
@@ -54,7 +54,7 @@ end
             // constructor body; with one VM per constructor (v1) only the
             // loop in 'make' was charged.
             var (script, output) = TestHelper.Run("t", Source + @"
-make [2000]
+make(2000)
 print ""done""", (s, _) => s.InstructionBudget = 10_000);
             CollectionAssert.DoesNotContain(output, "done");
             Assert.AreEqual("Instruction budget exceeded", script.ExceptionContext.LastUnhandled?.Value.ToString());
@@ -66,15 +66,15 @@ print ""done""", (s, _) => s.InstructionBudget = 10_000);
             // Each constructor body builds a 64-element array (64 * 16 + 64
             // estimated bytes); 20 of them exceed a 16 KB budget.
             var (_, output) = TestHelper.Run("t", @"
-class Q [n]
-    data = {}
+class Q(n)
+    data = []
     loop i in 0..64
         data << i
     end
 end
 begin
     loop j in 0..20
-        q = new Q [j]
+        q = new Q(j)
     end
     print ""done""
 rescue e
@@ -88,7 +88,7 @@ end", (s, _) => s.MemoryBudget = 16_384);
         {
             // A chain of 130 classes needs 130 constructor frames at once,
             // more than FramesMax (128): nothing runs, the error is rescuable.
-            var src = new System.Text.StringBuilder("log = {}\nclass C0\n    log << 0\nend\n");
+            var src = new System.Text.StringBuilder("log = []\nclass C0\n    log << 0\nend\n");
             for (int i = 1; i < 130; i++)
                 src.Append("class C" + i + " : C" + (i - 1) + "\n    log << " + i + "\nend\n");
             src.Append(@"

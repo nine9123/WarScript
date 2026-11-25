@@ -30,10 +30,30 @@ namespace Tests
         }
 
         [Test]
+        public void AnUndefinedReadNamedLikeAFunction_SaysHowToCallIt()
+        {
+            // T3.12: `heal [1]`, the legacy call, now indexes a variable `heal`.
+            var (script, _) = Script("fun heal(n)\n    return n\nend\nx = heal [1]\n");
+            var result = script.Compile();
+            Assert.IsFalse(result.Success);
+            Assert.AreEqual("undefined variable 'heal' ('heal' is a function: call it as heal(...))", result.Diagnostics[0].Message);
+        }
+
+        [Test]
+        public void AnUndefinedReadNamedLikeAMethod_GetsNoCallHint()
+        {
+            // A method is not callable by bare name outside its class (T3.12 review).
+            var (script, _) = Script("class Bag()\n    fun count()\n        return 0\n    end\nend\nx = count [1]\n");
+            var result = script.Compile();
+            Assert.IsFalse(result.Success);
+            Assert.AreEqual("undefined variable 'count'", result.Diagnostics[0].Message);
+        }
+
+        [Test]
         public void AnUndefinedRead_IsACompileError_AtTheName_AndInstallsNothing()
         {
             var (script, output) = Script(
-                "fun helper []\n" +
+                "fun helper()\n" +
                 "end\n" +
                 "x = 1 + nope\n");
 
@@ -76,12 +96,12 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "shared = 2\nfun from_main []\n    return main_value\nend\n",
+                ["lib"] = "shared = 2\nfun from_main()\n    return main_value\nend\n",
             };
             var (script, output) = Script(
                 "import \"lib\"\n" +
                 "main_value = 3\n" +
-                "print shared + from_main []\n", files);
+                "print shared + from_main()\n", files);
 
             Assert.IsTrue(script.Run().IsOk);
             Assert.AreEqual(new[] { "5" }, output);
@@ -128,18 +148,18 @@ namespace Tests
         public void AFieldOfADerivedClass_IsKnownInABaseClassBody_ButNotInAMethod()
         {
             var (script, output) = Script(
-                "class Base []\n" +
+                "class Base()\n" +
                 "    copy = speed\n" +
                 "end\n" +
-                "class Fast [speed] : Base []\n" +
+                "class Fast(speed) : Base()\n" +
                 "end\n" +
-                "print (new Fast [9]) :: copy\n");
+                "print (new Fast(9)).copy\n");
             Assert.IsTrue(script.Run().IsOk);
             Assert.AreEqual(new[] { "9" }, output);
 
             var (method, _) = Script(
-                "class Fast [speed]\n" +
-                "    fun get []\n" +
+                "class Fast(speed)\n" +
+                "    fun get()\n" +
                 "        return speed\n" +
                 "    end\n" +
                 "end\n");

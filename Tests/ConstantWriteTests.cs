@@ -39,11 +39,11 @@ namespace Tests
             var (script, output) = Script(
                 "import \"lib\"\n" +
                 "const MAX = 100\n" +
-                "bump []\n" +
+                "bump()\n" +
                 "print MAX\n",
                 new Dictionary<string, string>
                 {
-                    ["lib"] = "fun bump []\n    global MAX\n    MAX = 1\nend\n",
+                    ["lib"] = "fun bump()\n    global MAX\n    MAX = 1\nend\n",
                 });
 
             var result = script.Compile();
@@ -81,8 +81,8 @@ namespace Tests
             var (script, output) = Script(
                 "import \"lib\"\n" +
                 "const MAX = 100\n" +
-                "print limit []\n",
-                new Dictionary<string, string> { ["lib"] = "fun limit []\n    return MAX\nend\n" });
+                "print limit()\n",
+                new Dictionary<string, string> { ["lib"] = "fun limit()\n    return MAX\nend\n" });
 
             Assert.IsTrue(script.Run().IsOk);
             Assert.AreEqual(new[] { "100" }, output);
@@ -103,7 +103,7 @@ namespace Tests
         [Test]
         public void AHostConstant_IsProtectedToo()
         {
-            var (script, _) = Script("fun f []\n    global HOST_MAX\n    HOST_MAX = 1\nend\n");
+            var (script, _) = Script("fun f()\n    global HOST_MAX\n    HOST_MAX = 1\nend\n");
             script.GlobalMemoryScope.Set("HOST_MAX", WarValue.FromNumeric(FixMath.F64.FromInt(3)));
             script.ConstantNames.Add("HOST_MAX");
 

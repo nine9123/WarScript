@@ -52,13 +52,13 @@ namespace Tests
         [Test]
         public void MinusAfterArrayIndex_IsSubtraction()
         {
-            Assert.AreEqual("9", Run("arr = {10, 20}\nx = arr{0} -1\nprint x")[0]);
+            Assert.AreEqual("9", Run("arr = [10, 20]\nx = arr[0] -1\nprint x")[0]);
         }
 
         [Test]
         public void MinusAfterFunctionCall_IsSubtraction()
         {
-            Assert.AreEqual("9", Run("fun f [] return 10 end\nx = f [] -1\nprint x")[0]);
+            Assert.AreEqual("9", Run("fun f() return 10 end\nx = f() -1\nprint x")[0]);
         }
 
         [Test]
@@ -82,13 +82,13 @@ namespace Tests
         [Test]
         public void MinusInsideCallArguments_IsNegativeLiteral()
         {
-            Assert.AreEqual("-3", Run("fun id [v] return v end\nprint id [-3]")[0]);
+            Assert.AreEqual("-3", Run("fun id(v) return v end\nprint id(-3)")[0]);
         }
 
         [Test]
         public void MinusInsideArrayLiteral_IsNegativeLiteral()
         {
-            Assert.AreEqual("-7", Run("arr = {-7}\nprint arr{0}")[0]);
+            Assert.AreEqual("-7", Run("arr = [-7]\nprint arr[0]")[0]);
         }
 
         [Test]
@@ -102,7 +102,7 @@ namespace Tests
         {
             // arr{-1} is out of bounds: IndexError since T3.6 (DEC-10)
             Assert.AreEqual("Index -1 is out of bounds (length 2)",
-                Run("arr = {1, 2}\nbegin\nprint arr{-1}\nrescue e\nprint e\nend")[0]);
+                Run("arr = [1, 2]\nbegin\nprint arr[-1]\nrescue e\nprint e\nend")[0]);
         }
 
         // ────────────────────────────────────────────────
@@ -114,8 +114,8 @@ namespace Tests
         {
             var output = Run(
                 "n = 0\n" +
-                "fun check [] return n < 3 end\n" +
-                "loop check []\n" +
+                "fun check() return n < 3 end\n" +
+                "loop check()\n" +
                 "n += 1\n" +
                 "end\n" +
                 "print n");
@@ -215,8 +215,8 @@ namespace Tests
         public void ForeachOverClassInstance_IteratesPropertyValues()
         {
             var output = Run(
-                "class P [x, y] end\n" +
-                "p = new P [7, 8]\n" +
+                "class P(x, y) end\n" +
+                "p = new P(7, 8)\n" +
                 "loop v in p\nprint v\nend");
             Assert.AreEqual(new[] { "7", "8" }, output);
         }
@@ -237,7 +237,7 @@ namespace Tests
         [Test] public void Truthiness_Null() => Assert.AreEqual("F", Truthy("null"));
         [Test] public void Truthiness_NonEmptyString() => Assert.AreEqual("T", Truthy("\"x\""));
         [Test] public void Truthiness_EmptyString() => Assert.AreEqual("T", Truthy("\"\""));
-        [Test] public void Truthiness_EmptyArray() => Assert.AreEqual("T", Truthy("{}"));
+        [Test] public void Truthiness_EmptyArray() => Assert.AreEqual("T", Truthy("[]"));
 
         [Test]
         public void Truthiness_ClassInstance()
@@ -259,20 +259,20 @@ namespace Tests
         public void ArrayRead_OutOfBounds_IsIndexError()
         {
             Assert.AreEqual("Index 99 is out of bounds (length 2)",
-                Run("arr = {1, 2}\nbegin\nprint arr{99}\nrescue e\nprint e\nend")[0]);
+                Run("arr = [1, 2]\nbegin\nprint arr[99]\nrescue e\nprint e\nend")[0]);
         }
 
         [Test]
         public void ArrayWrite_OutOfBounds_IsIndexError_AndChangesNothing()
         {
-            var output = Run("arr = {1, 2}\nbegin\narr{99} = 5\nrescue e\nprint e\nend\nprint arr");
+            var output = Run("arr = [1, 2]\nbegin\narr[99] = 5\nrescue e\nprint e\nend\nprint arr");
             CollectionAssert.AreEqual(new[] { "Index 99 is out of bounds (length 2)", "[1, 2]" }, output);
         }
 
         [Test]
         public void Arrays_AreReferences_MutationIsShared()
         {
-            var output = Run("a = {1, 2}\nb = a\nb{0} = 99\nprint a{0}");
+            var output = Run("a = [1, 2]\nb = a\nb[0] = 99\nprint a[0]");
             Assert.AreEqual("99", output[0]);
         }
 
@@ -280,31 +280,31 @@ namespace Tests
         public void ArrayPlusScalar_IsTypeError()
         {
             // PROP-6 (T3.6): use '<<' to append.
-            Assert.AreEqual("Cannot apply '+' to array and number", Rescued("a = {1, 2}", "a + 3"));
+            Assert.AreEqual("Cannot apply '+' to array and number", Rescued("a = [1, 2]", "a + 3"));
         }
 
         [Test]
         public void ScalarPlusArray_IsTypeError()
         {
-            Assert.AreEqual("Cannot apply '+' to number and array", Rescued("a = {1, 2}", "3 + a"));
+            Assert.AreEqual("Cannot apply '+' to number and array", Rescued("a = [1, 2]", "3 + a"));
         }
 
         [Test]
         public void TextPlusArray_FormatsTheArray()
         {
-            Assert.AreEqual("a[1, 2]", Run("print \"a\" + {1, 2}")[0]);
+            Assert.AreEqual("a[1, 2]", Run("print \"a\" + [1, 2]")[0]);
         }
 
         [Test]
         public void ArrayPlusArray_Concatenates()
         {
-            Assert.AreEqual("[1, 2]", Run("print {1} + {2}")[0]);
+            Assert.AreEqual("[1, 2]", Run("print [1] + [2]")[0]);
         }
 
         [Test]
         public void AppendOperator_EvaluatesToTheArray()
         {
-            Assert.AreEqual("[1, 2]", Run("x = ({1} << 2)\nprint x")[0]);
+            Assert.AreEqual("[1, 2]", Run("x = ([1] << 2)\nprint x")[0]);
         }
 
         [Test]
@@ -317,7 +317,7 @@ namespace Tests
         [Test]
         public void NestedArrays_ViaLiteral()
         {
-            var output = Run("m = {{1, 2}, {3, 4}}\nrow = m{1}\nprint row{0}");
+            var output = Run("m = [[1, 2], [3, 4]]\nrow = m[1]\nprint row[0]");
             Assert.AreEqual("3", output[0]);
         }
 
@@ -329,13 +329,13 @@ namespace Tests
         public void StringIndexRead_OutOfBounds_IsIndexError()
         {
             Assert.AreEqual("Index 5 is out of bounds (length 2)",
-                Run("s = \"ab\"\nbegin\nprint s{5}\nrescue e\nprint e\nend")[0]);
+                Run("s = \"ab\"\nbegin\nprint s[5]\nrescue e\nprint e\nend")[0]);
         }
 
         [Test]
         public void StringIndexWrite_IsTypeError_TextIsImmutable()
         {
-            var output = Run("s = \"abc\"\nbegin\ns{0} = \"XY\"\nrescue e\nprint e\nend\nprint s");
+            var output = Run("s = \"abc\"\nbegin\ns[0] = \"XY\"\nrescue e\nprint e\nend\nprint s");
             CollectionAssert.AreEqual(new[] { "Cannot assign to an index of text: text is immutable", "abc" }, output);
         }
 
@@ -349,7 +349,7 @@ namespace Tests
         [Test]
         public void TextRemove_RemovesAllOccurrences()
         {
-            var (_, output) = TestHelper.Run("semantics", "print Text_remove [\"ababa\", \"a\"]\nprint Text_remove [\"ab\", \"\"]",
+            var (_, output) = TestHelper.Run("semantics", "print Text_remove(\"ababa\", \"a\")\nprint Text_remove(\"ab\", \"\")",
                 (script, scope) => WarScript.Native.TextLibrary.Register(script, scope));
             CollectionAssert.AreEqual(new[] { "bb", "ab" }, output);
         }
@@ -489,19 +489,19 @@ namespace Tests
 
         [Test]
         public void ThisProperty_AtTopLevel_IsCompileError() =>
-            AssertThisOutsideAClass("begin\nprint this :: x\nrescue e\nprint \"err: \" + e\nend");
+            AssertThisOutsideAClass("begin\nprint this.x\nrescue e\nprint \"err: \" + e\nend");
 
         [Test]
         public void ThisPropertyWrite_AtTopLevel_IsCompileError() =>
-            AssertThisOutsideAClass("begin\nthis :: x = 1\nrescue e\nprint \"err: \" + e\nend");
+            AssertThisOutsideAClass("begin\nthis.x = 1\nrescue e\nprint \"err: \" + e\nend");
 
         [Test]
         public void This_InFreeFunction_IsCompileError() =>
-            AssertThisOutsideAClass("fun f [] return this end\nbegin\nprint f []\nrescue e\nprint \"caught\"\nend");
+            AssertThisOutsideAClass("fun f() return this end\nbegin\nprint f()\nrescue e\nprint \"caught\"\nend");
 
         [Test]
         public void Field_InFreeFunction_IsCompileError() =>
-            AssertThisOutsideAClass("fun f []\n    return @x\nend\nprint f []");
+            AssertThisOutsideAClass("fun f()\n    return @x\nend\nprint f()");
 
         // ────────────────────────────────────────────────
         //  Runtime error messages (pinned so hosts can rely on them)
@@ -512,14 +512,14 @@ namespace Tests
         {
             // The compiler reports a call nothing can answer (T3.8), so the
             // name is a global written on a path that never runs.
-            var output = Run("if false\nnope = 0\nend\nbegin\nnope [1]\nrescue e\nprint e\nend");
+            var output = Run("if false\nnope = 0\nend\nbegin\nnope(1)\nrescue e\nprint e\nend");
             Assert.AreEqual("Function 'nope' with 1 args is not defined", output[0]);
         }
 
         [Test]
         public void CallUndefinedFunction_IsACompileError()
         {
-            var e = Assert.Catch<WarScript.Exception.SyntaxException>(() => Run("begin\nnope [1]\nrescue e\nprint e\nend"));
+            var e = Assert.Catch<WarScript.Exception.SyntaxException>(() => Run("begin\nnope(1)\nrescue e\nprint e\nend"));
             StringAssert.Contains("Function 'nope' is not defined", e.Message);
             Assert.AreEqual(2, e.Line);
         }
@@ -528,8 +528,8 @@ namespace Tests
         public void CallWithWrongArity_IsACompileError()
         {
             var e = Assert.Catch<WarScript.Exception.SyntaxException>(() => Run(
-                "fun f [a] return a end\n" +
-                "begin\nf [1, 2]\nrescue e\nprint e\nend"));
+                "fun f(a) return a end\n" +
+                "begin\nf(1, 2)\nrescue e\nprint e\nend"));
             StringAssert.Contains("Function 'f' takes 1 argument, not 2", e.Message);
             Assert.AreEqual(3, e.Line);
         }
@@ -537,21 +537,21 @@ namespace Tests
         [Test]
         public void CallNonCallableValue_IsCatchable()
         {
-            var output = Run("x = 5\nbegin\nx [1]\nrescue e\nprint e\nend");
+            var output = Run("x = 5\nbegin\nx(1)\nrescue e\nprint e\nend");
             Assert.AreEqual("Function 'x' with 1 args is not defined", output[0]);
         }
 
         [Test]
         public void PropertyAccessOnNumber_IsCatchable()
         {
-            var output = Run("class P [x]\nend\nn = 5\nbegin\nprint n :: x\nrescue e\nprint e\nend");
+            var output = Run("class P(x)\nend\nn = 5\nbegin\nprint n.x\nrescue e\nprint e\nend");
             Assert.AreEqual("Cannot access property 'x' on non-class value", output[0]);
         }
 
         [Test]
         public void MethodCallOnNull_IsCatchable()
         {
-            var output = Run("class C\nfun m []\nend\nend\nn = null\nbegin\nn :: m []\nrescue e\nprint \"caught\"\nend");
+            var output = Run("class C\nfun m()\nend\nend\nn = null\nbegin\nn.m()\nrescue e\nprint \"caught\"\nend");
             Assert.AreEqual("caught", output[0]);
         }
 
@@ -599,13 +599,13 @@ namespace Tests
         [Test]
         public void ValueStackOverflow_IsScriptError_NotProcessCrash()
         {
-            var sb = new System.Text.StringBuilder("arr = {");
+            var sb = new System.Text.StringBuilder("arr = [");
             for (int i = 0; i < 1100; i++)
             {
                 if (i > 0) sb.Append(", ");
                 sb.Append(i);
             }
-            sb.Append("}\nprint \"built\"");
+            sb.Append("]\nprint \"built\"");
 
             var (script, output) = TestHelper.Run("stack_overflow", sb.ToString());
             StringAssert.Contains("Value stack overflow", output[0]);
@@ -616,13 +616,13 @@ namespace Tests
         {
             // The check is made when a function is called, against the stack
             // its verified bytecode needs (T1.7), so the caller rescues it.
-            var sb = new System.Text.StringBuilder("fun build []\nreturn {");
+            var sb = new System.Text.StringBuilder("fun build()\nreturn [");
             for (int i = 0; i < 1100; i++)
             {
                 if (i > 0) sb.Append(", ");
                 sb.Append(i);
             }
-            sb.Append("}\nend\nbegin\narr = build []\nrescue e\nprint \"caught: \" + e\nend");
+            sb.Append("]\nend\nbegin\narr = build()\nrescue e\nprint \"caught: \" + e\nend");
 
             var output = Run(sb.ToString());
             Assert.AreEqual("caught: Value stack overflow", output[0]);
@@ -649,8 +649,8 @@ namespace Tests
         public void CallFrameOverflow_IsCatchable()
         {
             var output = Run(
-                "fun infinite [n] return 1 + infinite [n + 1] end\n" +
-                "begin\ninfinite [0]\nrescue e\nprint e\nend");
+                "fun infinite(n) return 1 + infinite(n + 1) end\n" +
+                "begin\ninfinite(0)\nrescue e\nprint e\nend");
             Assert.AreEqual("Stack overflow", output[0]);
         }
 
@@ -663,11 +663,11 @@ namespace Tests
         {
             // v1 silently dropped an unknown name; T3.8 (PROP-29) rejects it.
             var e = Assert.Throws<WarScript.Exception.SyntaxException>(() => TestHelper.Run("named_unknown",
-                "fun mk [a, b] return \"\" + a + b end\n" +
-                "print mk [a: 1, zzz: 2]"));
+                "fun mk(a, b) return \"\" + a + b end\n" +
+                "print mk(a: 1, zzz: 2)"));
             StringAssert.Contains("Function 'mk' has no parameter 'zzz'", e.Message);
             Assert.AreEqual(2, e.Line);
-            Assert.AreEqual(17, e.Column);
+            Assert.AreEqual(16, e.Column);
         }
 
         [Test]
@@ -675,10 +675,10 @@ namespace Tests
         {
             // Parameters without a matching named argument arrive as null.
             var output = Run(
-                "fun mk [a, b] return \"\" + a + b end\n" +
-                "fun pair [a, b = 5] return \"\" + a + b end\n" +
-                "print mk [b: 1, a: 2]\n" +
-                "print pair [b: 1]");
+                "fun mk(a, b) return \"\" + a + b end\n" +
+                "fun pair(a, b = 5) return \"\" + a + b end\n" +
+                "print mk(b: 1, a: 2)\n" +
+                "print pair(b: 1)");
             Assert.AreEqual("21", output[0]);
             Assert.AreEqual("null1", output[1]);
         }
@@ -690,7 +690,7 @@ namespace Tests
             // This used to hang the parser; now it must be a clean error.
             Assert.Throws<WarScript.Exception.SyntaxException>(() => TestHelper.Run(
                 "named_ctor",
-                "class P [x, y] end\np = new P [y: 2, x: 1]"));
+                "class P(x, y) end\np = new P(y: 2, x: 1)"));
         }
 
         // ────────────────────────────────────────────────
@@ -700,15 +700,15 @@ namespace Tests
         [Test]
         public void Lambda_EqualityIsReferenceIdentity()
         {
-            Assert.AreEqual("true", Run("f = fun [x] return x end\ng = f\nprint f == g")[0]);
+            Assert.AreEqual("true", Run("f = fun(x) return x end\ng = f\nprint f == g")[0]);
         }
 
         [Test]
         public void TwoLambdas_AreNotEqual()
         {
             var output = Run(
-                "f = fun [x] return x end\n" +
-                "g = fun [x] return x end\n" +
+                "f = fun(x) return x end\n" +
+                "g = fun(x) return x end\n" +
                 "print f == g");
             Assert.AreEqual("false", output[0]);
         }
@@ -717,8 +717,8 @@ namespace Tests
         public void Lambda_RecursionThroughGlobalName()
         {
             var output = Run(
-                "f = fun [n] if n <= 0 return 0 end return f [n - 1] end\n" +
-                "print f [3]");
+                "f = fun(n) if n <= 0 return 0 end return f(n - 1) end\n" +
+                "print f(3)");
             Assert.AreEqual("0", output[0]);
         }
 
@@ -729,20 +729,20 @@ namespace Tests
         [Test]
         public void Enum_NegativeExplicitLiteral()
         {
-            var output = Run("enum E\nA = -1\nB\nend\nprint E :: A\nprint E :: B");
+            var output = Run("enum E\nA = -1\nB\nend\nprint E.A\nprint E.B");
             Assert.AreEqual(new[] { "-1", "0" }, output);
         }
 
         [Test]
         public void Enum_Empty_HasZeroCount()
         {
-            Assert.AreEqual("0", Run("enum E\nend\nprint E :: count")[0]);
+            Assert.AreEqual("0", Run("enum E\nend\nprint E.count")[0]);
         }
 
         [Test]
         public void Enum_MemberInArithmetic()
         {
-            var output = Run("enum E\nA = 3\nend\nprint E :: A * 2 + 1");
+            var output = Run("enum E\nA = 3\nend\nprint E.A * 2 + 1");
             Assert.AreEqual("7", output[0]);
         }
 
@@ -753,7 +753,7 @@ namespace Tests
         [Test]
         public void Interpolation_OfClassInstance_UsesClassName()
         {
-            var output = Run("class P [x] end\np = new P [1]\nprint \"p: {p}\"");
+            var output = Run("class P(x) end\np = new P(1)\nprint \"p: {p}\"");
             Assert.AreEqual("p: P", output[0]);
         }
 
@@ -761,7 +761,7 @@ namespace Tests
         public void Interpolation_OfArray_FormatsTheArray()
         {
             // Text + anything is text (plan 5.3, T3.6); v1 made an array here.
-            var output = Run("a = {1, 2}\nprint \"arr: {a}\"");
+            var output = Run("a = [1, 2]\nprint \"arr: {a}\"");
             Assert.AreEqual("arr: [1, 2]", output[0]);
         }
 

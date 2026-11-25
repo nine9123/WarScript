@@ -57,17 +57,17 @@ x = true
 assert x == true
 x = null
 assert x == null
-x = {1, 2}
-assert x == {1, 2}
+x = [1, 2]
+assert x == [1, 2]
 
 # ── 7. Mixed array types ──
-arr = {1, "two", true, null, 3.14, {5, 6}}
-assert arr{0} == 1
-assert arr{1} == "two"
-assert arr{2} == true
-assert arr{3} == null
-assert arr{4} == 3.14
-assert arr{5} == {5, 6}
+arr = [1, "two", true, null, 3.14, [5, 6]]
+assert arr[0] == 1
+assert arr[1] == "two"
+assert arr[2] == true
+assert arr[3] == null
+assert arr[4] == 3.14
+assert arr[5] == [5, 6]
 
 # ── 8. String to string via concatenation ──
 assert "" + 42 == "42"
@@ -82,13 +82,13 @@ assert !(5 == "5")
 assert true != "true"
 assert true != 1
 assert 3.14 != "3.14"
-assert {1} != "[1]"
+assert [1] != "[1]"
 assert null != "null"
 
 # ── 10. Array equality deep ──
-assert {1, {2, 3}} == {1, {2, 3}}
-assert {1, {2, 3}} != {1, {3, 2}}
-assert {"a", "b"} == {"a", "b"}
-assert {"a", "b"} != {"b", "a"}
-assert {null} == {null}
-assert {true, false} == {true, false}
+assert [1, [2, 3]] == [1, [2, 3]]
+assert [1, [2, 3]] != [1, [3, 2]]
+assert ["a", "b"] == ["a", "b"]
+assert ["a", "b"] != ["b", "a"]
+assert [null] == [null]
+assert [true, false] == [true, false]

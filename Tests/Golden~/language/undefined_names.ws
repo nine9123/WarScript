@@ -10,27 +10,27 @@ if false
     not_there = 0
 end
 g = "global"
-class Unit [hp]
+class Unit(hp)
     seen = hp
     shared = g
-    fun bare_field [] return hp end
-    fun field [] return @hp end
+    fun bare_field() return hp end
+    fun field() return @hp end
 end
-u = new Unit [10]
-print u :: seen
-print u :: shared
-print u :: field []
+u = new Unit(10)
+print u.seen
+print u.shared
+print u.field()
 begin
-    u :: bare_field []
+    u.bare_field()
 rescue e
     print e
 end
 begin
-    nothing{0} = 1
+    nothing[0] = 1
 rescue e
     print e
 end
-class Broken []
+class Broken()
     y = absent
 end
 begin
@@ -39,11 +39,11 @@ rescue e
     print e
 end
 # A lambda reads globals only.
-f = fun [] return g end
-print f []
-h = fun [] return not_there end
+f = fun() return g end
+print f()
+h = fun() return not_there end
 begin
-    h []
+    h()
 rescue e
     print e
 end

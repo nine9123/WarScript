@@ -45,10 +45,10 @@ namespace Tests
         {
             var output = new List<string>();
             var script = new WarScriptLanguage("test", @"
-                fun spin []
-                    spin []
+                fun spin()
+                    spin()
                 end
-                spin []
+                spin()
             ", null, (s, msg) => output.Add(msg));
             script.InstructionBudget = 5000;
             script.Run();
@@ -141,7 +141,7 @@ namespace Tests
         public void BudgetExceeded_EndsTheEntryEvenWhenRescued()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun after []
+                fun after()
                     print ""next entry""
                 end
                 begin
@@ -213,7 +213,7 @@ namespace Tests
         {
             var output = new List<string>();
             var script = new WarScriptLanguage("test", @"
-                fun spin []
+                fun spin()
                     loop 1 == 1
                         x = 1
                     end
@@ -236,7 +236,7 @@ namespace Tests
             var output = new List<string>();
             var script = new WarScriptLanguage("test", @"
                 count = 0
-                fun bump []
+                fun bump()
                     global count
                     count = count + 1
                 end
@@ -258,7 +258,7 @@ namespace Tests
         public void NormalCallCompletesWithinBudget()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun sum_to [n]
+                fun sum_to(n)
                     total = 0
                     loop i in 0..n
                         total += i
@@ -280,7 +280,7 @@ namespace Tests
         {
             var output = new List<string>();
             var script = new WarScriptLanguage("test", @"
-                fun work []
+                fun work()
                     sum = 0
                     loop i in 0..100
                         sum += i
@@ -315,15 +315,15 @@ namespace Tests
         {
             var output = new List<string>();
             var script = new WarScriptLanguage("test", @"
-                class Spinner []
-                    fun spin []
+                class Spinner()
+                    fun spin()
                         loop 1 == 1
                             x = 1
                         end
                     end
                 end
                 s = new Spinner
-                s :: spin []
+                s.spin()
             ", null, (s, msg) => output.Add(msg));
             script.InstructionBudget = 2000;
             script.Run();
@@ -335,19 +335,19 @@ namespace Tests
         public void BudgetWithClassCreationAndMethods()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class Counter [val]
-                    fun inc []
-                        this :: val = this :: val + 1
+                class Counter(val)
+                    fun inc()
+                        this.val = this.val + 1
                     end
-                    fun get []
-                        return this :: val
+                    fun get()
+                        return this.val
                     end
                 end
-                c = new Counter [0]
+                c = new Counter(0)
                 loop i in 0..10
-                    c :: inc []
+                    c.inc()
                 end
-                print c :: get []
+                print c.get()
             ", setupScope: (script, _) => { script.InstructionBudget = 50000; });
 
             Assert.AreEqual(new[] { "10" }, output);
@@ -360,15 +360,15 @@ namespace Tests
         {
             var output = new List<string>();
             var script = new WarScriptLanguage("test", @"
-                fun inner []
+                fun inner()
                     loop 1 == 1
                         x = 1
                     end
                 end
-                fun outer []
-                    inner []
+                fun outer()
+                    inner()
                 end
-                outer []
+                outer()
             ", null, (s, msg) => output.Add(msg));
             script.InstructionBudget = 2000;
             script.Run();

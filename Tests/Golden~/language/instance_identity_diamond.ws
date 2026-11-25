@@ -2,18 +2,18 @@
 # for ==, including the first part of a diamond base, which the instance's
 # relation map no longer holds once the base is allocated again. `this` in
 # each constructor body run is collected and compared with the instance.
-class A [x]
+class A(x)
     global seen
     seen << this
 end
-class B [x] : A [x]
+class B(x) : A(x)
 end
-class C [x] : A [x]
+class C(x) : A(x)
 end
-class D [x] : B [x], C [x]
+class D(x) : B(x), C(x)
 end
-seen = {}
-d = new D [1]
+seen = []
+d = new D(1)
 loop s in seen
     print s == d
 end

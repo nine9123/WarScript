@@ -51,45 +51,45 @@ end
 assert total == 1
 
 # ── For loop with step ──
-collected = {}
+collected = []
 loop i in 0..10 by 2
     collected << i
 end
-assert collected == {0, 2, 4, 6, 8}
+assert collected == [0, 2, 4, 6, 8]
 
 # ── For loop with step of 3 ──
-collected2 = {}
+collected2 = []
 loop i in 0..15 by 3
     collected2 << i
 end
-assert collected2 == {0, 3, 6, 9, 12}
+assert collected2 == [0, 3, 6, 9, 12]
 
 # ── For loop with step of 1 (explicit) ──
-collected3 = {}
+collected3 = []
 loop i in 0..3 by 1
     collected3 << i
 end
-assert collected3 == {0, 1, 2}
+assert collected3 == [0, 1, 2]
 
 # ── For loop with variable bounds ──
 lo = 2
 hi = 7
-result = {}
+result = []
 loop i in lo..hi
     result << i
 end
-assert result == {2, 3, 4, 5, 6}
+assert result == [2, 3, 4, 5, 6]
 
 # ── For loop with expression bounds ──
 base_val = 5
-result2 = {}
+result2 = []
 loop i in 0..base_val * 2
     result2 << i
 end
-assert result2 == {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
+assert result2 == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
 # ── Iterable loop over array ──
-arr = {10, 20, 30, 40}
+arr = [10, 20, 30, 40]
 total = 0
 loop item in arr
     total += item
@@ -97,15 +97,15 @@ end
 assert total == 100
 
 # ── Iterable loop collects items ──
-source = {"a", "b", "c"}
-upper_arr = {}
+source = ["a", "b", "c"]
+upper_arr = []
 loop s in source
     upper_arr << s + "!"
 end
-assert upper_arr == {"a!", "b!", "c!"}
+assert upper_arr == ["a!", "b!", "c!"]
 
 # ── Iterable loop over empty array ──
-empty = {}
+empty = []
 ran_empty = false
 loop x in empty
     ran_empty = true
@@ -113,14 +113,14 @@ end
 assert !ran_empty
 
 # ── Break statement ──
-result = {}
+result = []
 loop i in 0..10
     if i == 5
         break
     end
     result << i
 end
-assert result == {0, 1, 2, 3, 4}
+assert result == [0, 1, 2, 3, 4]
 
 # ── Break in while loop ──
 j = 0
@@ -145,27 +145,27 @@ end
 assert outer_runs == 3
 
 # ── Next statement (skip iteration) ──
-result = {}
+result = []
 loop i in 0..8
     if i % 2 == 0
         next
     end
     result << i
 end
-assert result == {1, 3, 5, 7}
+assert result == [1, 3, 5, 7]
 
 # ── Next skips to next iteration, not break ──
-result2 = {}
+result2 = []
 loop i in 0..5
     if i == 2
         next
     end
     result2 << i
 end
-assert result2 == {0, 1, 3, 4}
+assert result2 == [0, 1, 3, 4]
 
 # ── Nested for loops ──
-pairs = {}
+pairs = []
 loop i in 0..3
     loop j in 0..3
         if i != j
@@ -173,37 +173,37 @@ loop i in 0..3
         end
     end
 end
-assert pairs == {1, 2, 10, 12, 20, 21}
+assert pairs == [1, 2, 10, 12, 20, 21]
 
 # ── Loop building 2D pattern ──
-grid = {}
+grid = []
 loop row in 0..3
-    row_arr = {}
+    row_arr = []
     loop col in 0..3
         row_arr << row * 3 + col
     end
     grid << row_arr
 end
-assert grid{0} == {0, 1, 2}
-assert grid{1} == {3, 4, 5}
-assert grid{2} == {6, 7, 8}
+assert grid[0] == [0, 1, 2]
+assert grid[1] == [3, 4, 5]
+assert grid[2] == [6, 7, 8]
 
 # ── Loop with function call ──
-fun square [n]
+fun square(n)
     return n * n
 end
-squares = {}
+squares = []
 loop i in 0..6
-    squares << square [i]
+    squares << square(i)
 end
-assert squares == {0, 1, 4, 9, 16, 25}
+assert squares == [0, 1, 4, 9, 16, 25]
 
 # ── Loop modifying array in place ──
-arr = {1, 2, 3, 4, 5}
+arr = [1, 2, 3, 4, 5]
 loop i in 0..5
-    arr{i} = arr{i} * 10
+    arr[i] = arr[i] * 10
 end
-assert arr == {10, 20, 30, 40, 50}
+assert arr == [10, 20, 30, 40, 50]
 
 # ── While loop counting down ──
 n = 10
@@ -215,7 +215,7 @@ end
 assert steps == 4
 
 # ── Nested break + next ──
-result = {}
+result = []
 loop i in 0..5
     if i == 1
         next
@@ -225,10 +225,10 @@ loop i in 0..5
     end
     result << i
 end
-assert result == {0, 2, 3}
+assert result == [0, 2, 3]
 
 # ── Loop with multiple conditions ──
-result = {}
+result = []
 loop i in 0..20 by 1
     if i % 3 == 0 and i % 5 == 0
         result << "fizzbuzz"
@@ -240,8 +240,8 @@ loop i in 0..20 by 1
         result << i
     end
 end
-assert result{0} == "fizzbuzz"
-assert result{3} == "fizz"
-assert result{5} == "buzz"
-assert result{1} == 1
-assert result{15} == "fizzbuzz"
+assert result[0] == "fizzbuzz"
+assert result[3] == "fizz"
+assert result[5] == "buzz"
+assert result[1] == 1
+assert result[15] == "fizzbuzz"

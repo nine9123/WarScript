@@ -2,6 +2,6 @@
 # would only answer null).
 class Unit
 end
-fun cast [u]
+fun cast(u)
     return u as Unti   # expect-compile-error: Class 'Unti' is not defined
 end

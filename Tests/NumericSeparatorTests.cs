@@ -219,10 +219,10 @@ end";
         public void Exec_InArray_Literal()
         {
             var src = @"
-dmgTable = {1_000, 2_500, 10_000}
-print dmgTable{0}
-print dmgTable{1}
-print dmgTable{2}";
+dmgTable = [1_000, 2_500, 10_000]
+print dmgTable[0]
+print dmgTable[1]
+print dmgTable[2]";
             Assert.AreEqual(new[] { "1000", "2500", "10000" }, Run(src));
         }
 
@@ -230,10 +230,10 @@ print dmgTable{2}";
         public void Exec_InFunctionArg()
         {
             var src = @"
-fun double[x]
+fun double(x)
   return x * 2
 end
-print double[50_000]";
+print double(50_000)";
             Assert.AreEqual(new[] { "100000" }, Run(src));
         }
 
@@ -276,7 +276,7 @@ print gold";
         public void Game_HealthClamp()
         {
             var src = @"
-fun clamp[val, lo, hi]
+fun clamp(val, lo, hi)
   if val < lo
     return lo
   end
@@ -285,7 +285,7 @@ fun clamp[val, lo, hi]
   end
   return val
 end
-hp = clamp[99_999, 0, 10_000]
+hp = clamp(99_999, 0, 10_000)
 print hp";
             Assert.AreEqual(new[] { "10000" }, Run(src));
         }

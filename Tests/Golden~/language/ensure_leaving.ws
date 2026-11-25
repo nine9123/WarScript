@@ -20,7 +20,7 @@ rescue e
 end
 
 # Nor does one raised and rescued in a function the ensure block calls.
-fun quiet []
+fun quiet()
     begin
         raise "in quiet"
     rescue e
@@ -31,7 +31,7 @@ begin
     begin
         raise "pending"
     ensure
-        print quiet []                      # expect: quiet saw in quiet
+        print quiet()                      # expect: quiet saw in quiet
     end
 rescue e
     print "rescued " + e                    # expect: rescued pending
@@ -55,7 +55,7 @@ rescue e
 end
 
 # A pending return runs every ensure block of its function, innermost first.
-fun two_ensures []
+fun two_ensures()
     begin
         begin
             return "r"
@@ -67,20 +67,20 @@ fun two_ensures []
     end
     return "not reached"
 end
-print two_ensures []                        # expect: r
+print two_ensures()                        # expect: r
 
 # A return inside the ensure block replaces a pending return.
-fun replaced []
+fun replaced()
     begin
         return "first"
     ensure
         return "second"
     end
 end
-print replaced []                           # expect: second
+print replaced()                           # expect: second
 
 # An error raised inside the ensure block replaces a pending return.
-fun raises_instead []
+fun raises_instead()
     begin
         return "value"
     ensure
@@ -88,13 +88,13 @@ fun raises_instead []
     end
 end
 begin
-    print raises_instead []
+    print raises_instead()
 rescue e
     print "rescued " + e                    # expect: rescued from ensure
 end
 
 # An error leaving a function through its ensure block reaches the caller.
-fun leaks []
+fun leaks()
     begin
         raise "leaked"
     ensure
@@ -102,7 +102,7 @@ fun leaks []
     end
 end
 begin
-    leaks []
+    leaks()
 rescue e
     print "rescued " + e                    # expect: rescued leaked
 end

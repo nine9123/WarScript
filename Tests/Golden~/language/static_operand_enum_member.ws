@@ -4,4 +4,4 @@ enum Rank
     LOW
     HIGH
 end
-print Rank :: name [0] - 1   # expect-compile-error: Cannot apply '-' to text and number
+print Rank.name(0) - 1   # expect-compile-error: Cannot apply '-' to text and number

@@ -4,8 +4,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
-using System.Text.RegularExpressions;
 using NUnit.Framework;
 using WarScript.Migrate;
 
@@ -360,31 +358,5 @@ namespace Tests
             StringAssert.Contains("- `a.ws:2:1` **global-write** (rewrite): Inserted `global n`", report);
             StringAssert.Contains("  fun f []\n", report);
         }
-
-        [Test]
-        public void GoldenCorpus_MigratesWithoutParseErrorsBeyondTheExpectedOnes()
-        {
-            var root = CorpusRoot();
-            var files = Directory.EnumerateFiles(root, "*.ws", SearchOption.AllDirectories)
-                .OrderBy(f => f, System.StringComparer.Ordinal)
-                .Select(f => new MigrationFile(f.Substring(root.Length).Replace('\\', '/'), f, File.ReadAllText(f)))
-                .ToList();
-            var result = new Migrator(new string[0]).Run(files);
-            // The only files the v1 frontend rejects are the ones that test
-            // exactly that ('# expect-compile-error:') and the files already
-            // in v2 syntax: the goldens added since T3.3 and the corpus the
-            // tool itself migrated for T3.4 (`global` declarations, `@x`).
-            foreach (var e in result.Entries.Where(e => e.Rule == Rules.ParseError && !UsesV2Syntax(files, e.File)))
-                StringAssert.Contains("expect-compile-error", File.ReadAllText(Path.Combine(root, e.File.TrimStart('/'))), e.Location);
-        }
-
-        private static bool UsesV2Syntax(List<MigrationFile> files, string file)
-        {
-            var source = files.Single(f => f.Path == file).Source;
-            return Regex.IsMatch(source, @"(^|\s)global\s+[A-Za-z_]|@[A-Za-z_]");
-        }
-
-        private static string CorpusRoot([CallerFilePath] string sourceFilePath = "") =>
-            Path.GetFullPath(Path.Combine(Path.GetDirectoryName(sourceFilePath), "..", "..", "..", "Tests", "Golden~"));
     }
 }

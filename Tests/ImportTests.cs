@@ -25,9 +25,9 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "fun helper [x] return x * 10 end"
+                ["lib"] = "fun helper(x) return x * 10 end"
             };
-            var (_, output) = Run("import \"lib\"\nprint helper [2]", files);
+            var (_, output) = Run("import \"lib\"\nprint helper(2)", files);
             Assert.AreEqual("20", output[0]);
         }
 
@@ -37,14 +37,14 @@ namespace Tests
             var files = new Dictionary<string, string>
             {
                 ["shapes"] =
-                    "class Rect [w, h]\n" +
-                    "fun area []\n" +
-                    "return this :: w * this :: h\n" +
+                    "class Rect(w, h)\n" +
+                    "fun area()\n" +
+                    "return this.w * this.h\n" +
                     "end\n" +
                     "end"
             };
             var (_, output) = Run(
-                "import \"shapes\"\nr = new Rect [3, 4]\nprint r :: area []",
+                "import \"shapes\"\nr = new Rect(3, 4)\nprint r.area()",
                 files);
             Assert.AreEqual("12", output[0]);
         }
@@ -54,9 +54,9 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["noisy"] = "print \"loaded\"\nfun f [] return 1 end"
+                ["noisy"] = "print \"loaded\"\nfun f() return 1 end"
             };
-            var (_, output) = Run("import \"noisy\"\nprint f []", files);
+            var (_, output) = Run("import \"noisy\"\nprint f()", files);
             Assert.AreEqual(new[] { "loaded", "1" }, output);
         }
 
@@ -65,10 +65,10 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["once"] = "print \"loaded\"\nfun f [] return 1 end"
+                ["once"] = "print \"loaded\"\nfun f() return 1 end"
             };
             var (_, output) = Run(
-                "import \"once\"\nimport \"once\"\nprint f []",
+                "import \"once\"\nimport \"once\"\nprint f()",
                 files);
             Assert.AreEqual(new[] { "loaded", "1" }, output);
         }
@@ -78,10 +78,10 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["outer"] = "import \"inner\"\nfun outer_fn [] return inner_fn [] + 1 end",
-                ["inner"] = "fun inner_fn [] return 41 end"
+                ["outer"] = "import \"inner\"\nfun outer_fn() return inner_fn() + 1 end",
+                ["inner"] = "fun inner_fn() return 41 end"
             };
-            var (_, output) = Run("import \"outer\"\nprint outer_fn []", files);
+            var (_, output) = Run("import \"outer\"\nprint outer_fn()", files);
             Assert.AreEqual("42", output[0]);
         }
 
@@ -129,8 +129,8 @@ namespace Tests
         [Test]
         public void Import_FunctionDefinedAgainInTheImporter_IsACompileErrorNamingTheImport()
         {
-            var files = new Dictionary<string, string> { ["lib"] = "\nfun helper [x] return x end" };
-            var (_, result, _) = Compile("import \"lib\"\nfun helper [y] return y end", Files(files));
+            var files = new Dictionary<string, string> { ["lib"] = "\nfun helper(x) return x end" };
+            var (_, result, _) = Compile("import \"lib\"\nfun helper(y) return y end", Files(files));
             AssertCompileError(result, "Function 'helper' with 1 argument is already defined in 'lib' at line 2", "import_test", 2);
         }
 
@@ -140,7 +140,7 @@ namespace Tests
             var files = new Dictionary<string, string>
             {
                 ["a"] = "class Unit end",
-                ["b"] = "fun other [] return 1 end\nclass Unit [hp] end"
+                ["b"] = "fun other() return 1 end\nclass Unit(hp) end"
             };
             var (_, result, _) = Compile("import \"a\"\nimport \"b\"", Files(files));
             AssertCompileError(result, "Class 'Unit' is already defined in 'a' at line 1", "b", 2);
@@ -153,27 +153,27 @@ namespace Tests
             {
                 ["a"] = "import \"common\"",
                 ["b"] = "import \"common\"",
-                ["common"] = "class Unit end\nfun shared [] return 7 end"
+                ["common"] = "class Unit end\nfun shared() return 7 end"
             };
-            var (_, output) = Run("import \"a\"\nimport \"b\"\nu = new Unit\nprint shared []", files);
+            var (_, output) = Run("import \"a\"\nimport \"b\"\nu = new Unit\nprint shared()", files);
             Assert.AreEqual(new[] { "7" }, output);
         }
 
         [Test]
         public void Import_FunctionsOfTheSameNameWithOtherArities_AreNotDuplicates()
         {
-            var files = new Dictionary<string, string> { ["lib"] = "fun f [a] return a end" };
-            var (_, output) = Run("import \"lib\"\nfun f [] return 0 end\nprint f [] + f [4]", files);
+            var files = new Dictionary<string, string> { ["lib"] = "fun f(a) return a end" };
+            var (_, output) = Run("import \"lib\"\nfun f() return 0 end\nprint f() + f(4)", files);
             Assert.AreEqual(new[] { "4" }, output);
         }
 
         [Test]
         public void Import_RecompileAfterReload_DoesNotSeeTheOldDefinitions()
         {
-            var files = new Dictionary<string, string> { ["lib"] = "fun f [] return 1 end" };
-            var (script, result, _) = Compile("import \"lib\"\nfun g [] return f [] end", Files(files));
+            var files = new Dictionary<string, string> { ["lib"] = "fun f() return 1 end" };
+            var (script, result, _) = Compile("import \"lib\"\nfun g() return f() end", Files(files));
             Assert.IsTrue(result.Success);
-            script.Reload("import \"lib\"\nfun g [] return f [] + 1 end");
+            script.Reload("import \"lib\"\nfun g() return f() + 1 end");
             Assert.IsTrue(script.Compile().Success);
         }
 
@@ -184,8 +184,8 @@ namespace Tests
             // code runs; the import's top level still runs at Run.
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "import \"inner\"\nprint \"lib loaded\"\nfun helper [x] return inner [x] * 10 end",
-                ["inner"] = "class Box [v] end\nfun inner [x] return x + 1 end"
+                ["lib"] = "import \"inner\"\nprint \"lib loaded\"\nfun helper(x) return inner(x) * 10 end",
+                ["inner"] = "class Box(v) end\nfun inner(x) return x + 1 end"
             };
             var (script, result, output) = Compile("import \"lib\"\nprint \"main\"", Files(files));
             Assert.IsTrue(result.Success);
@@ -205,8 +205,8 @@ namespace Tests
         [Test]
         public void Import_SaveBytecode_HoldsOnlyTheScriptsOwnDefinitions()
         {
-            var files = new Dictionary<string, string> { ["lib"] = "class Unit end\nfun helper [] return 7 end" };
-            const string source = "import \"lib\"\nfun own [] return helper [] end\nprint own []";
+            var files = new Dictionary<string, string> { ["lib"] = "class Unit end\nfun helper() return 7 end" };
+            const string source = "import \"lib\"\nfun own() return helper() end\nprint own()";
             var (script, result, _) = Compile(source, Files(files));
             Assert.IsTrue(result.Success);
 
@@ -231,8 +231,8 @@ namespace Tests
         [Test]
         public void Import_ShadowingANative_IsACompileErrorInTheImport()
         {
-            var files = new Dictionary<string, string> { ["lib"] = "fun twice [a] return a end" };
-            var ex = Assert.Throws<WarScript.Exception.SyntaxException>(() => TestHelper.Run("import_test", "import \"lib\"\nprint twice [3]",
+            var files = new Dictionary<string, string> { ["lib"] = "fun twice(a) return a end" };
+            var ex = Assert.Throws<WarScript.Exception.SyntaxException>(() => TestHelper.Run("import_test", "import \"lib\"\nprint twice(3)",
                 setupScope: (s, scope) => scope.AddFunction(new WarScript.Context.Definition.NativeFunctionDefinition(
                     new WarScript.Context.Definition.FunctionDetails("twice", new List<string> { "a" }), args => args[0], "", "")),
                 fileResolver: path => files.TryGetValue(path, out var src) ? src : null));
@@ -247,8 +247,8 @@ namespace Tests
         {
             // Joining the namespace (5.8) copies the import's definitions into
             // the script's scope; that copy is not a second shadowing.
-            var files = new Dictionary<string, string> { ["lib"] = "class C []\n    fun twice [a] return a end\nend" };
-            var (_, output) = TestHelper.Run("import_test", "import \"lib\"\nc = new C []\nprint c :: twice [3]",
+            var files = new Dictionary<string, string> { ["lib"] = "class C()\n    fun twice(a) return a end\nend" };
+            var (_, output) = TestHelper.Run("import_test", "import \"lib\"\nc = new C()\nprint c.twice(3)",
                 setupScope: (s, scope) => scope.AddFunction(new WarScript.Context.Definition.NativeFunctionDefinition(
                     new WarScript.Context.Definition.FunctionDetails("twice", new List<string> { "a" }), args => args[0], "", "")),
                 fileResolver: path => files.TryGetValue(path, out var src) ? src : null);
@@ -294,7 +294,7 @@ namespace Tests
         [Test]
         public void Import_SyntaxErrorInImportedFile_IsFoundByCompile()
         {
-            var files = new Dictionary<string, string> { ["broken"] = "x = 1\nfun f [\nreturn 1\nend" };
+            var files = new Dictionary<string, string> { ["broken"] = "x = 1\nfun f(\nreturn 1\nend" };
             var (_, result, output) = Compile("print \"main\"\n", Files(files));
             Assert.IsTrue(result.Success, "no import, nothing resolved");
 
@@ -310,11 +310,11 @@ namespace Tests
             var asked = new List<string>();
             var files = new Dictionary<string, string>
             {
-                ["a"] = "import \"c\"\nfun fa [] return 1 end",
-                ["b"] = "import \"c\"\nfun fb [] return 2 end",
-                ["c"] = "fun fc [] return 3 end"
+                ["a"] = "import \"c\"\nfun fa() return 1 end",
+                ["b"] = "import \"c\"\nfun fb() return 2 end",
+                ["c"] = "fun fc() return 3 end"
             };
-            var (script, result, _) = Compile("import \"a\"\nimport \"b\"\nprint fa [] + fb [] + fc []",
+            var (script, result, _) = Compile("import \"a\"\nimport \"b\"\nprint fa() + fb() + fc()",
                 path => { asked.Add(path); return Files(files)(path); });
 
             Assert.IsTrue(result.Success);
@@ -346,10 +346,10 @@ namespace Tests
             // order, also between two imports of the same file.
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "fun span [from, to] return to - from end",
-                ["user"] = "fun use [] return span [to: 10, from: 4] end"
+                ["lib"] = "fun span(from, to) return to - from end",
+                ["user"] = "fun use() return span(to: 10, from: 4) end"
             };
-            var (_, output) = Run("import \"lib\"\nimport \"user\"\nprint span [to: 5, from: 2]\nprint use []", files);
+            var (_, output) = Run("import \"lib\"\nimport \"user\"\nprint span(to: 5, from: 2)\nprint use()", files);
             Assert.AreEqual(new[] { "3", "6" }, output);
         }
 
@@ -358,7 +358,7 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["broken"] = "fun f [\nreturn 1\nend"
+                ["broken"] = "fun f(\nreturn 1\nend"
             };
             Assert.Throws<WarScript.Exception.SyntaxException>(
                 () => Run("import \"broken\"", files));
@@ -367,9 +367,9 @@ namespace Tests
         // v1 allowed an import anywhere, so a missing file could be rescued;
         // v2 allows imports only at the top of a file (T3.3, 5.8).
         [TestCase("begin\nimport \"lib\"\nrescue e\nend", "'import' is allowed only at the top of a file")]
-        [TestCase("fun f []\n    import \"lib\"\nend", "'import' is allowed only at the top of a file")]
+        [TestCase("fun f()\n    import \"lib\"\nend", "'import' is allowed only at the top of a file")]
         [TestCase("print 1\nimport \"lib\"", "'import' must come before every other statement")]
-        [TestCase("fun f [] return 1 end\nimport \"lib\"", "'import' must come before every other statement")]
+        [TestCase("fun f() return 1 end\nimport \"lib\"", "'import' must come before every other statement")]
         public void Import_AnywhereButTheTopOfTheFile_IsASyntaxError(string source, string message)
         {
             var files = new Dictionary<string, string> { ["lib"] = "x = 1" };
@@ -380,8 +380,8 @@ namespace Tests
         [Test]
         public void Import_AfterComments_IsAccepted()
         {
-            var files = new Dictionary<string, string> { ["lib"] = "fun helper [x] return x * 10 end" };
-            var (_, output) = Run("# header\n\n# more\nimport \"lib\"\nimport \"lib\"\nprint helper [3]", files);
+            var files = new Dictionary<string, string> { ["lib"] = "fun helper(x) return x * 10 end" };
+            var (_, output) = Run("# header\n\n# more\nimport \"lib\"\nimport \"lib\"\nprint helper(3)", files);
             Assert.AreEqual("30", output[0]);
         }
 
@@ -393,12 +393,12 @@ namespace Tests
             // at compile time like those of the file's own classes.
             var files = new Dictionary<string, string>
             {
-                ["ops"] = "class Sub [a, b]\nend\nclass Mul [a, b]\nend"
+                ["ops"] = "class Sub(a, b)\nend\nclass Mul(a, b)\nend"
             };
             var (_, result, _) = Compile(
                 "import \"ops\"\n" +
-                "class Calculator [p, q] : Sub [q, p], Mul [p, q]\nend\n" +
-                "c = new Calculator [2, 10]",
+                "class Calculator(p, q) : Sub(q, p), Mul(p, q)\nend\n" +
+                "c = new Calculator(2, 10)",
                 Files(files));
             AssertCompileError(result, "'a' is bound twice in class 'Calculator': base class 'Mul' binds its parameter 'a' to a different argument", "import_test", 2);
         }
@@ -406,10 +406,10 @@ namespace Tests
         [Test]
         public void Import_FieldOfAnImportedBase_IsCheckedAtCompileTime()
         {
-            var files = new Dictionary<string, string> { ["animal"] = "class Animal [name]\n    legs = 4\nend" };
+            var files = new Dictionary<string, string> { ["animal"] = "class Animal(name)\n    legs = 4\nend" };
             var (_, result, _) = Compile(
                 "import \"animal\"\n" +
-                "class Bird [name] : Animal [name]\n    fun wings []\n        return @wingz\n    end\nend",
+                "class Bird(name) : Animal(name)\n    fun wings()\n        return @wingz\n    end\nend",
                 Files(files));
             AssertCompileError(result, "'wingz' is not a field of class 'Bird'", "import_test", 4);
         }
@@ -420,8 +420,8 @@ namespace Tests
             // 'shapes' derives from a class of its own import 'base'.
             var files = new Dictionary<string, string>
             {
-                ["base"] = "class Shape [id]\nend",
-                ["shapes"] = "import \"base\"\nclass Square [id, side] : Shape [id]\n    fun area []\n        return @sid * @sid\n    end\nend"
+                ["base"] = "class Shape(id)\nend",
+                ["shapes"] = "import \"base\"\nclass Square(id, side) : Shape(id)\n    fun area()\n        return @sid * @sid\n    end\nend"
             };
             var (_, result, _) = Compile("import \"shapes\"\nprint 1", Files(files));
             AssertCompileError(result, "'sid' is not a field of class 'Square'", "shapes", 4);
@@ -432,12 +432,12 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["animal"] = "class Animal [name]\n    legs = 4\n    fun describe []\n        return \"{@name} has {@legs} legs\"\n    end\nend"
+                ["animal"] = "class Animal(name)\n    legs = 4\n    fun describe()\n        return \"{@name} has {@legs} legs\"\n    end\nend"
             };
             var (_, output) = Run(
                 "import \"animal\"\n" +
-                "class Bird [name] : Animal [name]\n    @legs = 2\nend\n" +
-                "print (new Bird [\"Tweety\"]) :: describe []",
+                "class Bird(name) : Animal(name)\n    @legs = 2\nend\n" +
+                "print (new Bird(\"Tweety\")).describe()",
                 files);
             Assert.AreEqual(new[] { "Tweety has 2 legs" }, output);
         }
@@ -501,9 +501,9 @@ namespace Tests
         {
             // The import frame is dropped with the VM's other frames; the
             // next run imports the file again instead of reporting a cycle.
-            var files = new Dictionary<string, string> { ["lib"] = "print \"loading\"\nfun f [] return 1 end\nprint \"loaded\"" };
+            var files = new Dictionary<string, string> { ["lib"] = "print \"loading\"\nfun f() return 1 end\nprint \"loaded\"" };
             var output = new List<string>();
-            var script = Instance("import \"lib\"\nprint f []", files, output);
+            var script = Instance("import \"lib\"\nprint f()", files, output);
             script.AddBreakpoint(3);
             script.DebugHook = ctx => throw new System.InvalidOperationException("host failed");
 
@@ -549,7 +549,7 @@ namespace Tests
             // ensure block and a rescue in the import catches it.
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "fun f []\n begin\n  print \"f\"\n  yield wait 2\n  print \"never\"\n ensure\n  print \"ensure\"\n end\nend\nbegin\n f []\nrescue e\n print \"rescued \" + e\nend\nprint \"lib end\""
+                ["lib"] = "fun f()\n begin\n  print \"f\"\n  yield wait 2\n  print \"never\"\n ensure\n  print \"ensure\"\n end\nend\nbegin\n f()\nrescue e\n print \"rescued \" + e\nend\nprint \"lib end\""
             };
             var output = new List<string>();
             var script = Instance("import \"lib\"\nprint \"main\"", files, output);
@@ -589,10 +589,10 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "import \"deep\"\nprint \"lib\"\nfun helper [] return deep_fn [] * 10 end",
-                ["deep"] = "print \"deep\"\nconst LIMIT = 3\nfun deep_fn [] return LIMIT end"
+                ["lib"] = "import \"deep\"\nprint \"lib\"\nfun helper() return deep_fn() * 10 end",
+                ["deep"] = "print \"deep\"\nconst LIMIT = 3\nfun deep_fn() return LIMIT end"
             };
-            var bytes = Saved("import \"lib\"\nprint helper []", files);
+            var bytes = Saved("import \"lib\"\nprint helper()", files);
 
             var output = new List<string>();
             var loaded = Instance("", files, output);
@@ -614,24 +614,24 @@ namespace Tests
         [Test]
         public void LoadBytecode_ImportFailure_ThrowsInvalidData_AndLeavesTheInstanceUnchanged()
         {
-            var files = new Dictionary<string, string> { ["lib"] = "fun helper [] return 1 end" };
-            var bytes = Saved("import \"lib\"\nprint helper []", files);
+            var files = new Dictionary<string, string> { ["lib"] = "fun helper() return 1 end" };
+            var bytes = Saved("import \"lib\"\nprint helper()", files);
 
             var cases = new Dictionary<string, (Dictionary<string, string> files, string message)>
             {
                 ["missing"] = (new Dictionary<string, string>(), "Import 'lib' not found"),
-                ["broken"] = (new Dictionary<string, string> { ["lib"] = "fun helper [" }, ""),
+                ["broken"] = (new Dictionary<string, string> { ["lib"] = "fun helper(" }, ""),
                 ["cycle"] = (new Dictionary<string, string> { ["lib"] = "import \"lib2\"", ["lib2"] = "import \"lib\"" }, "Circular import: lib -> lib2 -> lib"),
-                ["duplicate"] = (new Dictionary<string, string> { ["lib"] = "fun helper [] return 1 end\nfun old [] return 2 end" }, "Function 'old' with 0 arguments is already defined in 'main'")
+                ["duplicate"] = (new Dictionary<string, string> { ["lib"] = "fun helper() return 1 end\nfun old() return 2 end" }, "Function 'old' with 0 arguments is already defined in 'main'")
             };
             foreach (var c in cases)
             {
                 var output = new List<string>();
-                var script = new WarScript.WarScriptLanguage("main", "const KEEP = 1\nfun old [] return \"old\" end",
+                var script = new WarScript.WarScriptLanguage("main", "const KEEP = 1\nfun old() return \"old\" end",
                     Files(c.Value.files), (_, m) => output.Add(m));
                 Assert.IsTrue(script.Compile().Success);
                 var bytesWithOld = c.Key == "duplicate"
-                    ? Saved("import \"lib\"\nfun old [] return 3 end", files)
+                    ? Saved("import \"lib\"\nfun old() return 3 end", files)
                     : bytes;
 
                 var e = Assert.Throws<System.IO.InvalidDataException>(() => script.LoadBytecode(new System.IO.MemoryStream(bytesWithOld)), c.Key);

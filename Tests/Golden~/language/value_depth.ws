@@ -5,45 +5,45 @@
 # "Value nested too deeply" (CRASH-1).
 
 # Cycles format as [...], at any position.
-a = {1, 2}
+a = [1, 2]
 a << a
 print a                                  # expect: [1, 2, [...]]
-b = {a, 3}
+b = [a, 3]
 print b                                  # expect: [[1, 2, [...]], 3]
 
 # The same array twice side by side is not a cycle.
-s = {7}
-print {s, s}                             # expect: [[7], [7]]
+s = [7]
+print [s, s]                             # expect: [[7], [7]]
 
 # 10,000 levels: formatting stops at depth 256 (text + array makes an
 # array, so the formatted text is checked through print).
-deep = {}
+deep = []
 loop i in 0..10000
-    deep = {deep}
+    deep = [deep]
 end
 # (256 opening brackets, [...], 256 closing ones)
 print deep
 # expect: [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[...]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
 
 # Equality within the limit compares structurally...
-x = {}
-y = {}
+x = []
+y = []
 loop i in 0..255
-    x = {x}
-    y = {y}
+    x = [x]
+    y = [y]
 end
 print x == y                             # expect: true
-y = {}
+y = []
 loop i in 0..255
-    y = {y, 1}
+    y = [y, 1]
 end
 print x == y                             # expect: false
 
 # ...and one level more is an error, for '==', '!=' and the array natives.
-x = {x}
-y = {}
+x = [x]
+y = []
 loop i in 0..256
-    y = {y}
+    y = [y]
 end
 begin
     print x == y
@@ -55,35 +55,35 @@ begin
 rescue e
     print "!=: " + e                     # expect: !=: Value nested too deeply
 end
-c = {1}
+c = [1]
 c << c
 begin
-    print Array_contains [c, c]
+    print Array_contains(c, c)
 rescue e
     print "contains: " + e               # expect: contains: Value nested too deeply
 end
 begin
-    print Array_index_of [c, c]
+    print Array_index_of(c, c)
 rescue e
     print "index_of: " + e               # expect: index_of: Value nested too deeply
 end
 begin
-    print Array_remove [c, c]
+    print Array_remove(c, c)
 rescue e
     print "remove: " + e                 # expect: remove: Value nested too deeply
 end
-print Array_contains [c, 1]              # expect: true
+print Array_contains(c, 1)              # expect: true
 
 # Instances compare by identity (plan 5.4, T3.6), so equality does not
 # walk into them however deep they nest.
-class Box [v]
+class Box(v)
 end
-p = new Box [1]
-q = new Box [1]
+p = new Box(1)
+q = new Box(1)
 loop i in 0..300
-    p = new Box [p]
-    q = new Box [q]
+    p = new Box(p)
+    q = new Box(q)
 end
 print p == q                             # expect: false
 print p == p                             # expect: true
-print {p} == {p}                         # expect: true
+print [p] == [p]                         # expect: true

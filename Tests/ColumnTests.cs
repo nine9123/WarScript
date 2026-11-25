@@ -32,18 +32,18 @@ namespace Tests
         [Test]
         public void Tokens_CarryTheColumnOfTheirFirstCharacter()
         {
-            var tokens = LexicalParser.Parse("x = foo [12, \"a\"]\n  y :: z");
+            var tokens = LexicalParser.Parse("x = foo(12, \"a\")\n  y.z");
 
             Assert.AreEqual(1, Find(tokens, "x").Column);
             Assert.AreEqual(3, Find(tokens, "=").Column);
             Assert.AreEqual(5, Find(tokens, "foo").Column);
-            Assert.AreEqual(9, Find(tokens, "[").Column);
-            Assert.AreEqual(10, Find(tokens, "12").Column);
-            Assert.AreEqual(14, Find(tokens, "a").Column, "a text literal starts at its quote");
+            Assert.AreEqual(8, Find(tokens, "(").Column);
+            Assert.AreEqual(9, Find(tokens, "12").Column);
+            Assert.AreEqual(13, Find(tokens, "a").Column, "a text literal starts at its quote");
             Assert.AreEqual(3, Find(tokens, "y").Column);
             Assert.AreEqual(2, Find(tokens, "y").RowNumber);
-            Assert.AreEqual(5, Find(tokens, "::").Column);
-            Assert.AreEqual(8, Find(tokens, "z").Column);
+            Assert.AreEqual(4, Find(tokens, ".").Column);
+            Assert.AreEqual(5, Find(tokens, "z").Column);
         }
 
         [Test]
@@ -149,7 +149,7 @@ namespace Tests
         {
             AssertAt("x = 1\nx = 1 2", 2, 7);                    // two operands in a row
             AssertAt("x = 1)", 1, 6);                            // unbalanced ')'
-            AssertAt("f [1, ]]\n", 1, 8);                        // a leftover ']'
+            AssertAt("f(1, ))\n", 1, 7);                        // a leftover ')'
             AssertAt("x = 1\n   end", 2, 4);                     // leftover at the top level
             AssertAt("# a\nimport 5", 2, 8);                     // the token the parser expected another in place of
             AssertAt("x = 1\n  import \"a\"", 2, 3);             // an import after another statement (T3.3)
@@ -258,15 +258,15 @@ namespace Tests
             AssertRuntimeAt("x = 1 / 0", 1, 7);
             AssertRuntimeAt("x = 0\ny = 2 + (5 % x)", 2, 12);
             AssertRuntimeAt("y = 1 + true * 2", 1, 14);                   // logical * number
-            AssertRuntimeAt("class U [hp]\nend\nx = 5\ny = x :: hp", 4, 7);     // property of a non-instance
+            AssertRuntimeAt("class U(hp)\nend\nx = 5\ny = x.hp", 4, 6);     // property of a non-instance
         }
 
         [Test]
         public void RuntimeErrors_AtTheirCallOrNew()
         {
-            AssertRuntimeAt("x = 1\ny = 2 + missing [x]", 2, 9);         // undefined function
-            AssertRuntimeAt("x = new Nope [1]", 1, 9);                    // undefined class: its name (a compile error since T3.8)
-            AssertRuntimeAt("x = 1\n\tsqrt [\"a\"]", 2, 2);               // a native's argument error: the call
+            AssertRuntimeAt("x = 1\ny = 2 + missing(x)", 2, 9);         // undefined function
+            AssertRuntimeAt("x = new Nope(1)", 1, 9);                    // undefined class: its name (a compile error since T3.8)
+            AssertRuntimeAt("x = 1\n\tsqrt(\"a\")", 2, 2);               // a native's argument error: the call
         }
 
         [Test]
@@ -282,13 +282,13 @@ namespace Tests
         {
             // The '/' is on line 2 but the statement's line is 1: a column
             // on another line than the one reported would point nowhere.
-            AssertRuntimeAt("x = {1,\n  2 / 0}", 1, 1);
+            AssertRuntimeAt("x = [1,\n  2 / 0]", 1, 1);
         }
 
         [Test]
         public void RuntimeErrorText_ShowsTheLineAndACaret_AndEveryFrameItsColumn()
         {
-            var error = RuntimeError("fun f [a]\n\treturn a / 0\nend\ny = 1 + f [2]");
+            var error = RuntimeError("fun f(a)\n\treturn a / 0\nend\ny = 1 + f(2)");
 
             Assert.AreEqual("\treturn a / 0", error.SourceLine);
             Assert.AreEqual("col:2:11: DivisionByZero: Division by zero\n\treturn a / 0\n\t         ^\n"

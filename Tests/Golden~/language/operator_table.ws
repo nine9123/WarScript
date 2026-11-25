@@ -3,9 +3,9 @@
 # static_operand_*.ws; limits: text_length_limit.ws and AllocationGuardTests;
 # division and modulo by zero: errors/division_by_zero.ws, errors/modulo_by_zero.ws.
 
-class Unit [name]
+class Unit(name)
 end
-class Archer [name] : Unit [name]
+class Archer(name) : Unit(name)
 end
 
 # ── n * n, n / n, n % n ──
@@ -25,30 +25,30 @@ print "[" + (-0.5 * "ab") + "]"               # expect: []
 print !0                                      # expect: true
 print !null                                   # expect: true
 print !""                                     # expect: false
-print !{}                                     # expect: false
+print ![]                                     # expect: false
 print !1                                      # expect: false
 
 # ── and / or: short-circuit, the deciding operand is the result ──
-fun loud [v]
+fun loud(v)
     print "evaluated {v}"
     return v
 end
 print 1 and 2                                 # expect: 2
-print 0 and loud [1]                          # expect: 0
+print 0 and loud(1)                          # expect: 0
 print null or "x"                             # expect: x
-print "a" or loud [2]                         # expect: a
-print false or loud [3]                       # expect: evaluated 3
+print "a" or loud(2)                         # expect: a
+print false or loud(3)                       # expect: evaluated 3
                                               # expect: 3
 
 # ── array << x appends and evaluates to the array ──
-arr = {}
+arr = []
 same_arr = arr << 1
-same_arr << {2}
+same_arr << [2]
 print arr                                     # expect: [1, [2]]
 print same_arr == arr                         # expect: true
 
 # ── is / as ──
-a = new Archer ["robin"]
+a = new Archer("robin")
 print a is Unit                               # expect: true
 print a is Archer                             # expect: true
 print 5 is Unit                               # expect: false

@@ -6,8 +6,8 @@ enum Color
     RED
     GREEN
 end
-print Color :: RED
-print Color :: count
+print Color.RED
+print Color.count
 print RED
 print count
 # expect: 0

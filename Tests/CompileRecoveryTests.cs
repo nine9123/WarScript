@@ -56,16 +56,16 @@ namespace Tests
         public void ErrorsInSeveralFunctions_AndInAClass_AreAllReported()
         {
             var script = Script(
-                "fun f []\n" +
+                "fun f()\n" +
                 "    print y\n" +
                 "    y = 1\n" +
                 "end\n" +
-                "fun g [a]\n" +
+                "fun g(a)\n" +
                 "    loop a in 0..2\n" +
                 "    end\n" +
                 "end\n" +
-                "class C [x]\n" +
-                "    fun m []\n" +
+                "class C(x)\n" +
+                "    fun m()\n" +
                 "        return @nope\n" +
                 "    end\n" +
                 "    print 1 - \"a\"\n" +
@@ -87,7 +87,7 @@ namespace Tests
             // not 'read before it is assigned', and no local is reported
             // unread in a body that had an error.
             var script = Script(
-                "fun f []\n" +
+                "fun f()\n" +
                 "    y = 1 - \"a\"\n" +
                 "    print y\n" +
                 "    unused = 2\n" +
@@ -121,7 +121,7 @@ namespace Tests
             // enclose the statements after them: 'break' compiles, and the
             // loop variable is still a local of the loop only.
             var script = Script(
-                "fun f []\n" +
+                "fun f()\n" +
                 "    loop i in 0..2\n" +
                 "        begin\n" +
                 "            print 1 - \"a\"\n" +
@@ -144,7 +144,7 @@ namespace Tests
         public void CompilerErrors_ComeBeforeTheModuleSetErrors_ThenTheWarnings()
         {
             var script = Script(
-                "fun f []\n" +
+                "fun f()\n" +
                 "    unused = 1\n" +
                 "end\n" +
                 "print nobody\n" +

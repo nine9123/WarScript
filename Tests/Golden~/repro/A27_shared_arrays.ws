@@ -5,46 +5,46 @@
 # and 'print' never returned, whatever the instruction budget. Equality now
 # remembers the pairs it has found equal; formatting stops adding elements
 # after WarValue.MaxFormattedLength characters and writes '...'.
-a = {1}
-b = {1}
+a = [1]
+b = [1]
 loop i in 0..40
-    a = {a, a}
-    b = {b, b}
+    a = [a, a]
+    b = [b, b]
 end
 print a == b                             # expect: true
 print a != b                             # expect: false
-print Array_contains [{0, a}, b]         # expect: true
-c = {2}
+print Array_contains([0, a], b)         # expect: true
+c = [2]
 loop i in 0..40
-    c = {c, c}
+    c = [c, c]
 end
-c{1} = 3
+c[1] = 3
 print a == c                             # expect: false
 # (Formatting is checked in Tests/ValueDepthTests.cs: its text is longer
 # than MaxTextLength, so a script cannot hold it.)
 
 # The memo does not hide the depth limit: a pair found equal near the top
 # still raises when it is met again deeper than WarValue.MaxValueDepth.
-d = {}
-e = {}
+d = []
+e = []
 loop i in 0..199
-    d = {d}
-    e = {e}
+    d = [d]
+    e = [e]
 end
 # d is 200 arrays deep; its second copy below starts at depth 56, so its
 # innermost array is at depth 255, the deepest allowed.
-x = {d}
-y = {e}
+x = [d]
+y = [e]
 loop i in 0..54
-    x = {x}
-    y = {y}
+    x = [x]
+    y = [y]
 end
-print {d, x} == {e, y}                   # expect: true
+print [d, x] == [e, y]                   # expect: true
 # One level more and it is too deep, as without the memo.
-x = {x}
-y = {y}
-x = {d, x}
-y = {e, y}
+x = [x]
+y = [y]
+x = [d, x]
+y = [e, y]
 begin
     print x == y
 rescue err

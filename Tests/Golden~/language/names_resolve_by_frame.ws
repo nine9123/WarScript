@@ -3,43 +3,43 @@
 # global; a function, lambda or method finds a global, even when called from
 # a class body or a method of an instance with a field of that name.
 hp = "global hp"
-pick = fun [] return "global pick" end
+pick = fun() return "global pick" end
 
-fun read_hp []
+fun read_hp()
     return hp
 end
 
-fun read_hp_twice []
-    return read_hp []
+fun read_hp_twice()
+    return read_hp()
 end
 
-class Unit [hp]
-    pick = fun [] return "field pick" end
+class Unit(hp)
+    pick = fun() return "field pick" end
     from_body = hp
-    from_function = read_hp []
-    from_tail_call = read_hp_twice []
-    called = pick []
-    fun from_method []
-        return "{hp} / {@hp} / {read_hp []}"
+    from_function = read_hp()
+    from_tail_call = read_hp_twice()
+    called = pick()
+    fun from_method()
+        return "{hp} / {@hp} / {read_hp()}"
     end
 end
 
-u = new Unit [7]
-print u :: from_body
-print u :: from_function
-print u :: from_tail_call
-print u :: called
-print u :: from_method []
-print pick []
+u = new Unit(7)
+print u.from_body
+print u.from_function
+print u.from_tail_call
+print u.called
+print u.from_method()
+print pick()
 
-fun bump []
+fun bump()
     global hp
     hp = hp + "!"
 end
-class Bumper [n]
-    bump []
+class Bumper(n)
+    bump()
 end
-b = new Bumper [1]
+b = new Bumper(1)
 print hp
 # expect: 7
 # expect: global hp

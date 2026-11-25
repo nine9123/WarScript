@@ -102,12 +102,12 @@ d = 5 > 3 and 10 > 7
 assert d == true
 
 # ── Array append has low precedence ──
-arr = {}
+arr = []
 arr << 2 + 3
-assert arr{0} == 5
+assert arr[0] == 5
 
 arr << 2 * 3
-assert arr{1} == 6
+assert arr[1] == 6
 
 # ── Chained arithmetic left-to-right ──
 assert 10 - 3 - 2 == 5

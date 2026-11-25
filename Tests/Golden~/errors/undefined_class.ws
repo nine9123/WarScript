@@ -4,5 +4,5 @@
 # instance's class when 'new' runs.
 class Unit
 end
-unit = new Unit []
-u = unit :: new Nope []   # expect-error: NameError: Class 'Nope' is not defined
+unit = new Unit()
+u = unit.new Nope()   # expect-error: NameError: Class 'Nope' is not defined

@@ -1,8 +1,8 @@
 # test_deep_algo_sieve.ws — Sieve of Eratosthenes
 
-fun sieve [limit]
+fun sieve(limit)
     global primes
-    is_prime = {}
+    is_prime = []
     loop i in 0..limit + 1
         if i < 2
             is_prime << false
@@ -12,23 +12,23 @@ fun sieve [limit]
     end
 
     loop i in 2..limit + 1
-        if is_prime{i}
+        if is_prime[i]
             j = i * 2
             loop j <= limit
-                is_prime{j} = false
+                is_prime[j] = false
                 j += i
             end
         end
     end
 
-    primes = {}
+    primes = []
     loop i in 2..limit + 1
-        if is_prime{i}
+        if is_prime[i]
             primes << i
         end
     end
     return primes
 end
 
-primes = sieve [30]
-assert primes == {2, 3, 5, 7, 11, 13, 17, 19, 23, 29}
+primes = sieve(30)
+assert primes == [2, 3, 5, 7, 11, 13, 17, 19, 23, 29]

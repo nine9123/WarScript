@@ -5,13 +5,13 @@
 count = 0
 total = 0
 
-fun bump [n]
+fun bump(n)
     global count, total
     count = count + 1
     total = total + n
 end
 
-fun bump_twice [n]
+fun bump_twice(n)
     if n > 0
         global count,
             total
@@ -19,29 +19,29 @@ fun bump_twice [n]
     end
 end
 
-fun one_line [n] global count count = count + n end
+fun one_line(n) global count count = count + n end
 
-class Counter [start]
+class Counter(start)
     global count
-    fun read []
+    fun read()
         global total
         return @start
     end
 end
 
-add = fun [n]
+add = fun(n)
     global count
     count = count + n
 end
 
-bump [5]
-bump [7]
-bump_twice [1]
-one_line [10]
-add [100]
+bump(5)
+bump(7)
+bump_twice(1)
+one_line(10)
+add(100)
 print count
 print total
-print (new Counter [3]) :: read []
+print (new Counter(3)).read()
 # expect: 114
 # expect: 12
 # expect: 3

@@ -46,64 +46,64 @@ assert null != false
 # ════════════════════════════════════════════════
 
 # ── Equal arrays ──
-a = {1, 2, 3}
-b = {1, 2, 3}
+a = [1, 2, 3]
+b = [1, 2, 3]
 assert a == b
 assert !(a != b)
 
 # ── Different arrays ──
-c = {1, 2, 4}
+c = [1, 2, 4]
 assert !(a == c)
 assert a != c
 
 # ── Different length arrays ──
-d = {1, 2}
+d = [1, 2]
 assert !(a == d)
 assert a != d
 
 # ── Empty arrays ──
-e1 = {}
-e2 = {}
+e1 = []
+e2 = []
 assert e1 == e2
 assert !(e1 != e2)
 
 # ── Single element ──
-s1 = {42}
-s2 = {42}
+s1 = [42]
+s2 = [42]
 assert s1 == s2
 assert !(s1 != s2)
 
 # ── Nested arrays ──
-n1 = {{1, 2}, {3, 4}}
-n2 = {{1, 2}, {3, 4}}
+n1 = [[1, 2], [3, 4]]
+n2 = [[1, 2], [3, 4]]
 assert n1 == n2
 assert !(n1 != n2)
 
-n3 = {{1, 2}, {3, 5}}
+n3 = [[1, 2], [3, 5]]
 assert !(n1 == n3)
 assert n1 != n3
 
 # ── Arrays with strings ──
-as1 = {"hello", "world"}
-as2 = {"hello", "world"}
+as1 = ["hello", "world"]
+as2 = ["hello", "world"]
 assert as1 == as2
 assert !(as1 != as2)
 
 # ── Arrays with booleans ──
-ab1 = {true, false, true}
-ab2 = {true, false, true}
+ab1 = [true, false, true]
+ab2 = [true, false, true]
 assert ab1 == ab2
 assert !(ab1 != ab2)
 
 # ── Arrays with null ──
-an1 = {null, 1, null}
-an2 = {null, 1, null}
+an1 = [null, 1, null]
+an2 = [null, 1, null]
 assert an1 == an2
 assert !(an1 != an2)
 
 # ── Mixed type arrays ──
-m1 = {1, "two", true, null}
-m2 = {1, "two", true, null}
+m1 = [1, "two", true, null]
+m2 = [1, "two", true, null]
 assert m1 == m2
 assert !(m1 != m2)
 
@@ -111,12 +111,12 @@ assert !(m1 != m2)
 #  Classes — also a major gap
 # ════════════════════════════════════════════════
 
-class Point[x, y]
+class Point(x, y)
 end
 
 # ── Instances compare by identity (plan 5.4, T3.6) ──
-p1 = new Point[10, 20]
-p2 = new Point[10, 20]
+p1 = new Point(10, 20)
+p2 = new Point(10, 20)
 assert !(p1 == p2)
 assert p1 != p2
 assert !(p2 == p1)
@@ -126,31 +126,31 @@ assert same == p1
 assert !(p1 != same)
 
 # ── Different instances ──
-p3 = new Point[10, 30]
+p3 = new Point(10, 30)
 assert !(p1 == p3)
 assert p1 != p3
 
 # ── Zero-value instances ──
-z1 = new Point[0, 0]
-z2 = new Point[0, 0]
+z1 = new Point(0, 0)
+z2 = new Point(0, 0)
 assert z1 != z2
 assert z1 == z1
 
 # ── Null property instances ──
-np1 = new Point[null, null]
-np2 = new Point[null, null]
+np1 = new Point(null, null)
+np2 = new Point(null, null)
 assert np1 != np2
 assert np1 == np1
 
 # ── String property class ──
-class Name[first, last]
+class Name(first, last)
 end
-nm1 = new Name["John", "Doe"]
-nm2 = new Name["John", "Doe"]
+nm1 = new Name("John", "Doe")
+nm2 = new Name("John", "Doe")
 assert nm1 != nm2
 assert !(nm1 == nm2)
 
-nm3 = new Name["Jane", "Doe"]
+nm3 = new Name("Jane", "Doe")
 assert !(nm1 == nm3)
 assert nm1 != nm3
 
@@ -158,14 +158,14 @@ assert nm1 != nm3
 #  Class with inheritance
 # ════════════════════════════════════════════════
 
-class Animal[name]
+class Animal(name)
 end
 
-class Dog[name] : Animal[name]
+class Dog(name) : Animal(name)
 end
 
-d1 = new Dog["Rex"]
-d2 = new Dog["Rex"]
+d1 = new Dog("Rex")
+d2 = new Dog("Rex")
 assert d1 != d2
 assert !(d1 == d2)
 
@@ -175,7 +175,7 @@ assert (d1 as Animal) == d1
 assert !((d1 as Animal) != d1)
 assert (d1 as Animal) != (d2 as Animal)
 
-d3 = new Dog["Buddy"]
+d3 = new Dog("Buddy")
 assert !(d1 == d3)
 assert d1 != d3
 
@@ -198,8 +198,8 @@ assert !("43" == 42)
 # ════════════════════════════════════════════════
 
 # ── If condition with != on equal arrays ──
-arr1 = {1, 2, 3}
-arr2 = {1, 2, 3}
+arr1 = [1, 2, 3]
+arr2 = [1, 2, 3]
 entered = false
 if arr1 != arr2
     entered = true
@@ -207,7 +207,7 @@ end
 assert entered == false
 
 # ── Loop condition with != ──
-p = new Point[0, 0]
+p = new Point(0, 0)
 target = p
 count = 0
 loop p != target
@@ -217,7 +217,7 @@ end
 # p is target, so the loop should never execute
 assert count == 0
 # a different instance with the same fields is not equal (plan 5.4)
-target = new Point[0, 0]
+target = new Point(0, 0)
 loop p != target
     count += 1
     break

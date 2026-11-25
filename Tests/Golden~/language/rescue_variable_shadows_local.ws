@@ -1,5 +1,5 @@
 # T3.4 (PROP-9): a rescue variable may not shadow a local of its body.
-fun f []
+fun f()
     err = "none"
     begin
         raise "boom"

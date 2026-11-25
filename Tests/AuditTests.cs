@@ -55,10 +55,10 @@ namespace Tests
         [Test]
         public void V2NameResolutionReportsNothing()
         {
-            var events = Audit("g = 1\nfun f []\n  global g\n  g = 2\nend\nf []\n"
-                + "h = fun [] global g g = 3 end\nh []\n"
-                + "class P [x]\n  fun m []\n    print g\n    x = 2\n    print @x\n  end\nend\np = new P [1]\np :: m []\n"
-                + "class Q [x]\n  y = g\nend\nq = new Q [1]\n"
+            var events = Audit("g = 1\nfun f()\n  global g\n  g = 2\nend\nf()\n"
+                + "h = fun() global g g = 3 end\nh()\n"
+                + "class P(x)\n  fun m()\n    print g\n    x = 2\n    print @x\n  end\nend\np = new P(1)\np.m()\n"
+                + "class Q(x)\n  y = g\nend\nq = new Q(1)\n"
                 + "if true\n  inner = 7\nend\nprint inner\n"
                 + "begin\n  inner2 = 7\n  raise \"x\"\nrescue e\nend\nprint inner2");
             Assert.AreEqual(0, events.Count, "events:\n" + Format(events));
@@ -69,39 +69,39 @@ namespace Tests
         {
             var events = Audit(@"
                 g = 1
-                fun f [a]
+                fun f(a)
                     b = a + 1
                     return b
                 end
-                class P [x]
+                class P(x)
                     y = 2
-                    this :: z = 3
-                    fun m []
-                        this :: y = this :: x + 1
-                        return this :: y
+                    this.z = 3
+                    fun m()
+                        this.y = this.x + 1
+                        return this.y
                     end
                 end
-                p = new P [1]
+                p = new P(1)
                 q = p
                 same = p == q
-                n = p :: m []
-                p :: x = 5
-                arr = {1, 2}
-                arr{1} = 3
+                n = p.m()
+                p.x = 5
+                arr = [1, 2]
+                arr[1] = 3
                 arr << 4
                 total = 0
                 loop v in arr
                     total += v
                 end
                 text = ""abc""
-                first = text{0}
+                first = text[0]
                 less = ""a"" < ""b""
                 eq = 1 == 1
                 missing = null
-                print ""{g} {f [2]} {n} {first}"" + total
+                print ""{g} {f(2)} {n} {first}"" + total
                 print -total
                 if total > 0
-                    total = f [total]
+                    total = f(total)
                 end
                 print total");
             Assert.AreEqual(0, events.Count, Format(events));
@@ -110,7 +110,7 @@ namespace Tests
         [Test]
         public void ReadingAVariableThatHoldsNullIsNotAnUndefinedRead()
         {
-            var events = Audit("x = null\ny = x\narr = {null}\nz = arr{0}");
+            var events = Audit("x = null\ny = x\narr = [null]\nz = arr[0]");
             Assert.AreEqual(0, events.Count, Format(events));
         }
 
@@ -119,9 +119,9 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "fun tag [p]\n  begin\n    q = undefined_a\n  rescue e\n  end\n  return p\nend\nbegin\n  a1 = undefined_b\nrescue e\nend\nif false\n  undefined_a = 0\nend\nif false\n  undefined_b = 0\nend"
+                ["lib"] = "fun tag(p)\n  begin\n    q = undefined_a\n  rescue e\n  end\n  return p\nend\nbegin\n  a1 = undefined_b\nrescue e\nend\nif false\n  undefined_a = 0\nend\nif false\n  undefined_b = 0\nend"
             };
-            var events = Audit("import \"lib\"\ny = tag [2]", path => files.TryGetValue(path, out var s) ? s : null);
+            var events = Audit("import \"lib\"\ny = tag(2)", path => files.TryGetValue(path, out var s) ? s : null);
 
             var topLevel = events.Single(e => e.Kind == AuditKind.UndefinedRead && e.Line == 9);
             Assert.AreEqual("lib", topLevel.Script);
@@ -163,7 +163,7 @@ namespace Tests
         [Test]
         public void AuditingDoesNotChangeTheRun()
         {
-            const string source = "class P [x]\nend\nx = {1, true}\nprint x\nprint new P [1] == new P [1]\ny = undefined_thing\nif false\n  undefined_thing = 0\nend";
+            const string source = "class P(x)\nend\nx = [1, true]\nprint x\nprint new P(1) == new P(1)\ny = undefined_thing\nif false\n  undefined_thing = 0\nend";
             var (plain, plainOutput) = TestHelper.Run("a", source, (script, scope) => script.AuditSink = null);
             var (audited, auditedOutput) = TestHelper.Run("a", source, (script, scope) => script.AuditSink = e => { });
             CollectionAssert.AreEqual(plainOutput, auditedOutput);

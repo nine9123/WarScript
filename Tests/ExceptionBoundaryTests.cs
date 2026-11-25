@@ -32,7 +32,7 @@ namespace Tests
         {
             var (_, output) = TestHelper.Run("t", @"
 begin
-    boom []
+    boom()
     print ""not reached""
 rescue e
     print e
@@ -47,7 +47,7 @@ print ""done""", (s, scope) => AddNative(scope, "boom", _ => throw new InvalidOp
         {
             var (_, output) = TestHelper.Run("t", @"
 begin
-    check []
+    check()
 rescue e
     print e
 end", (s, scope) => AddNative(scope, "check",
@@ -61,11 +61,11 @@ end", (s, scope) => AddNative(scope, "check",
         {
             // 'return boom []' is compiled as a tail call into the native.
             var (_, output) = TestHelper.Run("t", @"
-fun f []
-    return boom []
+fun f()
+    return boom()
 end
 begin
-    f []
+    f()
 rescue e
     print e
 end", (s, scope) => AddNative(scope, "boom", _ => throw new InvalidOperationException("tail")));
@@ -81,20 +81,20 @@ end", (s, scope) => AddNative(scope, "boom", _ => throw new InvalidOperationExce
             // TestHelper.Run checks the invariants: every scope and class
             // context pushed by the method, the function and the block is gone.
             var (script, output) = TestHelper.Run("t", @"
-class Box [v]
-    fun div [d]
+class Box(v)
+    fun div(d)
         if true
-            return this :: v / d
+            return this.v / d
         end
     end
 end
-fun outer []
-    b = new Box [1]
+fun outer()
+    b = new Box(1)
     loop i in 0..3
-        b :: div [0]
+        b.div(0)
     end
 end
-outer []
+outer()
 print ""not reached""");
 
             Assert.IsFalse(output.Contains("not reached"));
@@ -104,22 +104,22 @@ print ""not reached""");
 
         // ── Host faults ─────────────────────────────────────────────────
 
-        private const string HostFaultSource = @"class Box [v]
+        private const string HostFaultSource = @"class Box(v)
     w = v + 1
-    fun get []
-        return this :: w
+    fun get()
+        return this.w
     end
 end
-fun inner []
+fun inner()
     begin
-        b = new Box [1]
-        return b :: get []
+        b = new Box(1)
+        return b.get()
     rescue e
         print ""rescued a host fault""
     end
 end
 print ""before""
-print inner []
+print inner()
 print ""not reached""";
 
         // Line 2 runs in the constructor (a nested VM in v1), line 4 in a method.
@@ -159,7 +159,7 @@ print ""not reached""";
         public void HostFault_InCoroutine_EndsTheCoroutine()
         {
             var output = new List<string>();
-            var script = new WarScriptLanguage("t", @"fun co []
+            var script = new WarScriptLanguage("t", @"fun co()
     loop true
         yield
         print ""tick""
@@ -186,10 +186,10 @@ end", null, (s, m) => output.Add(m));
         [Test]
         public void SyntaxErrorInImport_StillReachesTheHost_WithContextsRestored()
         {
-            var script = new WarScriptLanguage("t", @"fun f []
+            var script = new WarScriptLanguage("t", @"fun f()
     import ""broken""
 end
-f []", path => "fun g [\nreturn 1\nend", null);
+f()", path => "fun g(\nreturn 1\nend", null);
             var before = Invariants.Capture(script);
 
             var result = script.Run();

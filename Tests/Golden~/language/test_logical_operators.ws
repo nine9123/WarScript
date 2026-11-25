@@ -70,42 +70,42 @@ assert !(x < 0 or x > 10)
 
 # ── Short-circuit: and skips right when left is false ──
 side_effect_ran = false
-fun set_side_effect []
+fun set_side_effect()
     global side_effect_ran
     side_effect_ran = true
     return true
 end
-result = false and set_side_effect []
+result = false and set_side_effect()
 assert !side_effect_ran
 
 # ── Short-circuit: or skips right when left is true ──
 side_effect_ran2 = false
-fun set_side_effect2 []
+fun set_side_effect2()
     global side_effect_ran2
     side_effect_ran2 = true
     return false
 end
-result2 = true or set_side_effect2 []
+result2 = true or set_side_effect2()
 assert !side_effect_ran2
 
 # ── Short-circuit: and evaluates right when left is true ──
 side_effect_ran3 = false
-fun set_side_effect3 []
+fun set_side_effect3()
     global side_effect_ran3
     side_effect_ran3 = true
     return true
 end
-result3 = true and set_side_effect3 []
+result3 = true and set_side_effect3()
 assert side_effect_ran3
 
 # ── Short-circuit: or evaluates right when left is false ──
 side_effect_ran4 = false
-fun set_side_effect4 []
+fun set_side_effect4()
     global side_effect_ran4
     side_effect_ran4 = true
     return true
 end
-result4 = false or set_side_effect4 []
+result4 = false or set_side_effect4()
 assert side_effect_ran4
 
 # ── De Morgan's laws (using parens — Bug 1+3 fix) ──

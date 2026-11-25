@@ -162,18 +162,18 @@ end
 assert rank == "gold"
 
 # ── Conditions with function calls ──
-fun is_even [n]
+fun is_even(n)
     return n % 2 == 0
 end
 
 even_test = "no"
-if is_even [4]
+if is_even(4)
     even_test = "yes"
 end
 assert even_test == "yes"
 
 even_test2 = "no"
-if is_even [7]
+if is_even(7)
     even_test2 = "yes"
 end
 assert even_test2 == "no"
@@ -210,13 +210,13 @@ end
 assert null_check2 == "has value"
 
 # ── If inside loop ──
-evens = {}
+evens = []
 loop i in 0..10
     if i % 2 == 0
         evens << i
     end
 end
-assert evens == {0, 2, 4, 6, 8}
+assert evens == [0, 2, 4, 6, 8]
 
 # ── Condition modifies shared variable ──
 state = "init"

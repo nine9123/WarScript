@@ -45,39 +45,39 @@ namespace Tests
         // ────────────────────────────────────────────────
 
         [Test, Timeout(10000)]
-        public void UnterminatedArrayLiteral_Throws() => AssertSyntaxError("x = {1, 2");
+        public void UnterminatedArrayLiteral_Throws() => AssertSyntaxError("x = [1, 2");
 
         [Test, Timeout(10000)]
-        public void UnterminatedArrayLiteral_WithComma_Throws() => AssertSyntaxError("x = {1, 2,");
+        public void UnterminatedArrayLiteral_WithComma_Throws() => AssertSyntaxError("x = [1, 2,");
 
         [Test, Timeout(10000)]
         public void UnterminatedCallArguments_Throws() =>
-            AssertSyntaxError("fun f [a] return a end\nx = f [1");
+            AssertSyntaxError("fun f(a) return a end\nx = f(1");
 
         [Test, Timeout(10000)]
         public void UnterminatedCallArguments_AfterComma_Throws() =>
-            AssertSyntaxError("fun f [a, b] return a end\nx = f [1,");
+            AssertSyntaxError("fun f(a, b) return a end\nx = f(1,");
 
         [Test, Timeout(10000)]
         public void UnterminatedConstructorArguments_Throws() =>
-            AssertSyntaxError("class P [x] end\np = new P [1");
+            AssertSyntaxError("class P(x) end\np = new P(1");
 
         [Test]
         public void UnterminatedFunctionParameterList_Throws() =>
-            AssertSyntaxError("fun f [a, b");
+            AssertSyntaxError("fun f(a, b");
 
         [Test]
         public void UnterminatedClassParameterList_Throws() =>
-            AssertSyntaxError("class P [x");
+            AssertSyntaxError("class P(x");
 
         // ────────────────────────────────────────────────
         //  Missing `end`
         // ────────────────────────────────────────────────
 
         [Test] public void MissingEnd_If() => AssertSyntaxError("if 1 == 1\nprint 1");
-        [Test] public void MissingEnd_Function() => AssertSyntaxError("fun f []\nreturn 1");
+        [Test] public void MissingEnd_Function() => AssertSyntaxError("fun f()\nreturn 1");
         [Test] public void MissingEnd_Loop() => AssertSyntaxError("loop i in 0..3\nprint i");
-        [Test] public void MissingEnd_Class() => AssertSyntaxError("class P [x]\nfun m [] return 1 end");
+        [Test] public void MissingEnd_Class() => AssertSyntaxError("class P(x)\nfun m() return 1 end");
         [Test] public void MissingEnd_Begin() => AssertSyntaxError("begin\nraise \"x\"\nrescue e\nprint e");
         [Test] public void MissingEnd_Enum() => AssertSyntaxError("enum E\nA\nB");
 
@@ -123,7 +123,7 @@ namespace Tests
         [Test] public void BreakOutsideLoop_TopLevel() => AssertSyntaxError("break");
         [Test] public void NextOutsideLoop_TopLevel() => AssertSyntaxError("next");
         [Test] public void BreakOutsideLoop_InFunction() =>
-            AssertSyntaxError("fun f []\nbreak\nend\nf []");
+            AssertSyntaxError("fun f()\nbreak\nend\nf()");
         [Test] public void BreakOutsideLoop_InIf() =>
             AssertSyntaxError("if 1 == 1\nbreak\nend");
 
@@ -156,11 +156,11 @@ namespace Tests
 
         [Test]
         public void AssignToFunctionCall_Throws() =>
-            AssertSyntaxError("fun f [] return 1 end\nf [] = 5");
+            AssertSyntaxError("fun f() return 1 end\nf() = 5");
 
         [Test]
         public void AssignToFunctionCallWithArg_Throws() =>
-            AssertSyntaxError("fun f [a] return a end\nf [1] = 5");
+            AssertSyntaxError("fun f(a) return a end\nf(1) = 5");
 
         [Test]
         public void ChainedAssignment_Throws() =>
@@ -217,7 +217,7 @@ namespace Tests
 
         [Test]
         public void RequiredParamAfterDefault_Throws() =>
-            AssertSyntaxError("fun f [a = 1, b]\nreturn a\nend");
+            AssertSyntaxError("fun f(a = 1, b)\nreturn a\nend");
 
         // ────────────────────────────────────────────────
         //  Enum syntax

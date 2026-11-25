@@ -20,14 +20,14 @@ namespace Tests
     public class FaultTests
     {
         private const string Source = @"
-fun ok []
+fun ok()
     print ""ok""
     return 1
 end
-fun fail []
+fun fail()
     x = 1 / 0
 end
-fun co []
+fun co()
     print ""co""
     yield
     print ""co again""
@@ -95,7 +95,7 @@ end
         [Test]
         public void ClearFault_ResumesNormalOperation_KeepingTheGlobals()
         {
-            var (script, output) = Script("count = 0\nfun bump []\n    global count\n    count += 1\n    return count\nend\nfun fail []\n    global count\n    count += 10\n    raise \"no\"\nend\n");
+            var (script, output) = Script("count = 0\nfun bump()\n    global count\n    count += 1\n    return count\nend\nfun fail()\n    global count\n    count += 10\n    raise \"no\"\nend\n");
             script.Run();
             script.Call(script.GetFunction("fail", 0));
             Assert.IsTrue(script.IsHalted);
@@ -164,7 +164,7 @@ end
         [Test]
         public void HostFault_HaltsTheInstance()
         {
-            var (script, output) = Script("fun f []\n    x = 1\nend\n");
+            var (script, output) = Script("fun f()\n    x = 1\nend\n");
             script.Run();
             script.AddBreakpoint(2);
             script.DebugHook = ctx => throw new InvalidOperationException("host failed");
@@ -198,11 +198,11 @@ end
         public void ErrorRescuedByTheCallingScript_DoesNotHalt()
         {
             var (script, output) = Script(@"
-fun on_event []
+fun on_event()
     x = 1 / 0
 end
 begin
-    fire []
+    fire()
 rescue e
     print ""rescued""
 end");
@@ -227,10 +227,10 @@ end");
             // A native formatter is host code that may call back (6.5); a host
             // fault in that nested entry stops the formatting VM as well, like
             // one in a native's callback (6.3), and is not rescuable.
-            var (script, output) = Script(@"fun on_format []
+            var (script, output) = Script(@"fun on_format()
     x = 1
 end
-w = widget []
+w = widget()
 begin
     print ""w="" + w
 rescue e
@@ -309,11 +309,11 @@ print ""after""");
         public void CoroutineError_StopsTheTick_AndHalts()
         {
             var (script, output) = Script(@"
-fun worker [name]
+fun worker(name)
     yield
     print name
 end
-fun bad []
+fun bad()
     yield
     raise ""bad""
 end");
@@ -336,15 +336,15 @@ end");
         public void CoroutinesStoppedDuringATick_AreNotResumed()
         {
             var (script, output) = Script(@"
-fun worker [name]
+fun worker(name)
     loop true
         yield
         print name
     end
 end
-fun stopper []
+fun stopper()
     yield
-    stop_all_coroutines []
+    stop_all_coroutines()
     print ""stopped""
 end");
             script.Run();
@@ -365,15 +365,15 @@ end");
         public void CoroutineStoppedByAnotherDuringATick_IsNotResumed_AndTheRestRun()
         {
             var (script, output) = Script(@"
-fun worker [name]
+fun worker(name)
     loop true
         yield
         print name
     end
 end
-fun stopper [victim]
+fun stopper(victim)
     yield
-    stop_coroutine [victim]
+    stop_coroutine(victim)
     print ""stopped""
 end");
             script.Run();
@@ -392,11 +392,11 @@ end");
         public void CoroutineStartedByAScript_ErrorStaysRaisedForTheScript()
         {
             var (script, output) = Script(@"
-fun bad []
+fun bad()
     raise ""first run failed""
 end
 begin
-    start_coroutine [""bad"", {}]
+    start_coroutine(""bad"", [])
     print ""not reached""
 rescue e
     print ""rescued: "" + e

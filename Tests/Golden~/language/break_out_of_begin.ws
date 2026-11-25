@@ -4,8 +4,8 @@
 # going to re-raise or return is discarded when the jump leaves it.
 
 # From begin bodies, nested, inside a function (stack locals).
-fun collect []
-    out = {}
+fun collect()
+    out = []
     loop i in 0..5
         begin
             begin
@@ -27,7 +27,7 @@ fun collect []
     end
     return out
 end
-print collect []
+print collect()
 # expect: [0, e0, E0, e1, E1, 2, e2, E2, e3, E3]
 
 # From a rescue body: the ensure block still runs.
@@ -58,7 +58,7 @@ end
 print "n=" + n                           # expect: n=3
 
 # From an ensure block entered by 'return': the return is dropped.
-fun leave_return []
+fun leave_return()
     loop true
         begin
             return 1
@@ -68,7 +68,7 @@ fun leave_return []
     end
     return 2
 end
-print leave_return []                    # expect: 2
+print leave_return()                    # expect: 2
 
 # Leaving an inner ensure block drops only that block's pending work: the
 # loop is inside an outer ensure block entered with an error, which is still
@@ -106,7 +106,7 @@ end
 
 # Two breaks in one loop pop the right number of block scopes, so a later
 # assignment is a global (it used to land in a leaked 'if' scope).
-fun read_y []
+fun read_y()
     return y
 end
 loop i in 0..10
@@ -118,4 +118,4 @@ loop i in 0..10
     end
 end
 y = 5
-print read_y []                          # expect: 5
+print read_y()                          # expect: 5

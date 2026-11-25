@@ -31,27 +31,27 @@ assert "-" * 5 == "-----"
 assert 3 * "xy" == "xyxyxy"
 
 # ── String subtraction (Replace removes ALL occurrences) ──
-assert Text_remove ["hello world", "world"] == "hello "
-assert Text_remove ["hello world", "hello "] == "world"
-assert Text_remove ["abcabc", "abc"] == ""
-assert Text_remove ["test", "xyz"] == "test"
-assert Text_remove ["aaa", "a"] == ""
-assert Text_remove ["banana", "na"] == "ba"
+assert Text_remove("hello world", "world") == "hello "
+assert Text_remove("hello world", "hello ") == "world"
+assert Text_remove("abcabc", "abc") == ""
+assert Text_remove("test", "xyz") == "test"
+assert Text_remove("aaa", "a") == ""
+assert Text_remove("banana", "na") == "ba"
 
 # ── Character indexing (must use variable, not literal) ──
 s = "hello"
-assert s{0} == "h"
-assert s{1} == "e"
-assert s{2} == "l"
-assert s{3} == "l"
-assert s{4} == "o"
+assert s[0] == "h"
+assert s[1] == "e"
+assert s[2] == "l"
+assert s[3] == "l"
+assert s[4] == "o"
 
 # ── Indexing single char strings (Bug 5 fix: literal indexing) ──
 single_char = "x"
-assert single_char{0} == "x"
-assert "hello"{0} == "h"
-assert "hello"{4} == "o"
-assert "abc"{1} == "b"
+assert single_char[0] == "x"
+assert "hello"[0] == "h"
+assert "hello"[4] == "o"
+assert "abc"[1] == "b"
 
 # ── String equality ──
 assert "abc" == "abc"
@@ -94,14 +94,14 @@ assert "x" + empty == "x"
 assert empty * 100 == ""
 
 # ── String in array ──
-arr = {"hello", "world"}
-assert arr{0} == "hello"
-assert arr{1} == "world"
-assert arr{0} + " " + arr{1} == "hello world"
+arr = ["hello", "world"]
+assert arr[0] == "hello"
+assert arr[1] == "world"
+assert arr[0] + " " + arr[1] == "hello world"
 
 # ── String from function ──
-fun greet [name]
+fun greet(name)
     return "Hello, " + name + "!"
 end
-assert greet ["Alice"] == "Hello, Alice!"
-assert greet [""] == "Hello, !"
+assert greet("Alice") == "Hello, Alice!"
+assert greet("") == "Hello, !"

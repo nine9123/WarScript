@@ -50,7 +50,7 @@ namespace Tests
         [Test]
         public void Handle_HasItsNameArityAndInstance()
         {
-            var (script, _) = Script("fun f [a, b]\nend\n");
+            var (script, _) = Script("fun f(a, b)\nend\n");
             Assert.IsTrue(script.Compile().Success);
 
             var f = script.GetFunction("f", 2);
@@ -65,7 +65,7 @@ namespace Tests
         [Test]
         public void GetFunction_ReturnsNull_WhenNothingIsDefined()
         {
-            var (script, _) = Script("fun f [a]\nend\n");
+            var (script, _) = Script("fun f(a)\nend\n");
             Assert.IsNull(script.GetFunction("f", 1), "not compiled yet");
             Assert.IsTrue(script.Compile().Success);
 
@@ -76,12 +76,12 @@ namespace Tests
         [Test]
         public void Handle_SurvivesReload_AndCallsTheNewDefinition()
         {
-            var (script, _) = Script("fun format [x]\n    return \"v1: \" + x\nend\n");
+            var (script, _) = Script("fun format(x)\n    return \"v1: \" + x\nend\n");
             script.Run();
             var format = script.GetFunction("format", 1);
             Assert.AreEqual("v1: 42", Text(script.Call(format, WarValue.FromNumeric(42))));
 
-            script.Reload("fun format [x]\n    return \"v2: \" + x\nend\n");
+            script.Reload("fun format(x)\n    return \"v2: \" + x\nend\n");
 
             Assert.AreEqual("v2: 42", Text(script.Call(format, WarValue.FromNumeric(42))));
         }
@@ -89,11 +89,11 @@ namespace Tests
         [Test]
         public void Handle_ToAFunctionTheReloadRemoved_IsANameError_AndWorksAgainOnceItIsBack()
         {
-            var (script, _) = Script("fun tick []\n    return \"a\"\nend\n");
+            var (script, _) = Script("fun tick()\n    return \"a\"\nend\n");
             script.Run();
             var tick = script.GetFunction("tick", 0);
 
-            script.Reload("fun other []\nend\n");
+            script.Reload("fun other()\nend\n");
             Assert.IsFalse(tick.IsDefined);
             var result = script.Call(tick);
 
@@ -102,7 +102,7 @@ namespace Tests
             Assert.AreEqual("Function 'tick' with 0 args is not defined", result.Error.Message);
             Assert.IsTrue(script.IsHalted, "an outermost entry that cannot start halts the instance (plan 6.4)");
 
-            script.Reload("fun tick []\n    return \"b\"\nend\n");
+            script.Reload("fun tick()\n    return \"b\"\nend\n");
 
             Assert.IsTrue(tick.IsDefined);
             Assert.AreEqual("b", Text(script.Call(tick)));
@@ -111,12 +111,12 @@ namespace Tests
         [Test]
         public void Handle_ToADefaultParameterArity_FollowsTheReload()
         {
-            var (script, _) = Script("fun f [a, b = 1]\n    return a + b\nend\n");
+            var (script, _) = Script("fun f(a, b = 1)\n    return a + b\nend\n");
             script.Run();
             var f1 = script.GetFunction("f", 1);
             Assert.AreEqual(3, Text3(script.Call(f1, WarValue.FromNumeric(2))));
 
-            script.Reload("fun f [a]\n    return a * 10\nend\n");
+            script.Reload("fun f(a)\n    return a * 10\nend\n");
 
             Assert.AreEqual(20, Text3(script.Call(f1, WarValue.FromNumeric(2))));
         }
@@ -130,11 +130,11 @@ namespace Tests
         [Test]
         public void Handle_SurvivesLoadBytecode()
         {
-            var (source, _) = Script("fun f []\n    return \"from bytecode\"\nend\n");
+            var (source, _) = Script("fun f()\n    return \"from bytecode\"\nend\n");
             var bytes = new MemoryStream();
             source.SaveBytecode(bytes);
 
-            var (script, _) = Script("fun f []\n    return \"from source\"\nend\n");
+            var (script, _) = Script("fun f()\n    return \"from source\"\nend\n");
             script.Run();
             var f = script.GetFunction("f", 0);
             Assert.AreEqual("from source", Text(script.Call(f)));
@@ -155,7 +155,7 @@ namespace Tests
             var greet = script.GetFunction("greet", 0);
             Assert.IsInstanceOf<NativeFunctionDefinition>(greet.Definition, "before loading only the native exists");
 
-            script.LoadBytecode(new System.IO.MemoryStream(Bytecode("fun greet []\n    return \"script\"\nend\n")));
+            script.LoadBytecode(new System.IO.MemoryStream(Bytecode("fun greet()\n    return \"script\"\nend\n")));
             script.Run();
 
             Assert.AreEqual("script", Text(script.Call(greet)));
@@ -164,7 +164,7 @@ namespace Tests
         [Test]
         public void Handle_DoesNotLookUpAgain_WhileTheDefinitionsAreUnchanged()
         {
-            var (script, _) = Script("fun f []\nend\n");
+            var (script, _) = Script("fun f()\nend\n");
             script.Run();
             var f = script.GetFunction("f", 0);
             var definition = f.Definition;
@@ -180,11 +180,11 @@ namespace Tests
         [Test]
         public void DefinitionsVersion_ChangesOnReloadLoadBytecodeAndAddFunction()
         {
-            var (script, _) = Script("fun f []\nend\n");
+            var (script, _) = Script("fun f()\nend\n");
             script.Run();
 
             var before = script.DefinitionsVersion;
-            script.Reload("fun f []\nend\n");
+            script.Reload("fun f()\nend\n");
             Assert.AreNotEqual(before, script.DefinitionsVersion, "Reload");
 
             before = script.DefinitionsVersion;
@@ -202,7 +202,7 @@ namespace Tests
         [Test]
         public void Handle_FollowsAFunctionAnImportDefines()
         {
-            var files = new Dictionary<string, string> { ["lib"] = "fun helper []\n    return \"imported\"\nend\n" };
+            var files = new Dictionary<string, string> { ["lib"] = "fun helper()\n    return \"imported\"\nend\n" };
             var output = new List<string>();
             // A bytecode import: a compiled one may not shadow the native (PROP-12).
             var script = new WarScriptLanguage("main", "import \"lib\"\n",
@@ -220,10 +220,10 @@ namespace Tests
         [Test]
         public void StaleHandle_CalledFromANative_RaisesARescuableNameError()
         {
-            var (script, output) = Script(@"fun on_event []
+            var (script, output) = Script(@"fun on_event()
 end
 begin
-    fire []
+    fire()
 rescue e
     print e
 end
@@ -233,7 +233,7 @@ end
             Assert.IsTrue(script.Compile().Success);
             handler = script.GetFunction("on_event", 0);
             script.Reload(@"begin
-    fire []
+    fire()
 rescue e
     print e
 end
@@ -247,8 +247,8 @@ end
         [Test]
         public void HandleOfAnotherInstance_IsRejected()
         {
-            var (first, _) = Script("fun f []\nend\n");
-            var (second, _) = Script("fun f []\nend\n");
+            var (first, _) = Script("fun f()\nend\n");
+            var (second, _) = Script("fun f()\nend\n");
             first.Run();
             second.Run();
 
@@ -264,11 +264,11 @@ end
             // Script frame) leaves the definition stack as the entry found
             // it (there is no memory scope stack any more).
             var (script, _) = Script(@"
-fun down [n]
+fun down(n)
     if n == 0
         return ""done""
     end
-    return down [n - 1]
+    return down(n - 1)
 end
 ");
             Assert.AreEqual(ScriptStatus.Ok, script.Run().Status);

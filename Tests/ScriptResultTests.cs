@@ -51,7 +51,7 @@ namespace Tests
         [Test]
         public void Call_ReturnsTheFunctionsValue()
         {
-            var (script, _) = Script("fun add [a, b]\n    return a + b\nend\nfun nothing []\nend\n");
+            var (script, _) = Script("fun add(a, b)\n    return a + b\nend\nfun nothing()\nend\n");
             script.Run();
 
             var sum = script.Call(script.GetFunction("add", 2), WarValue.FromNumeric(F64.FromInt(3)), WarValue.FromNumeric(F64.FromInt(4)));
@@ -66,7 +66,7 @@ namespace Tests
         [Test]
         public void Call_ErrorRescuedInsideTheFunction_IsOk()
         {
-            var (script, _) = Script("fun f []\n    begin\n        x = 1 / 0\n    rescue e\n        return e\n    end\nend\n");
+            var (script, _) = Script("fun f()\n    begin\n        x = 1 / 0\n    rescue e\n        return e\n    end\nend\n");
             script.Run();
 
             var result = script.Call(script.GetFunction("f", 0));
@@ -80,7 +80,7 @@ namespace Tests
         [Test]
         public void Call_UnhandledError_IsAnErrorResult_AndIsCleared()
         {
-            var (script, output) = Script("fun f []\n    return 1 / 0\nend\n");
+            var (script, output) = Script("fun f()\n    return 1 / 0\nend\n");
             script.Run();
 
             var result = script.Call(script.GetFunction("f", 0));
@@ -103,7 +103,7 @@ namespace Tests
         [Test]
         public void Run_RaisedValue_IsTheErrorsValue()
         {
-            var (script, _) = Script("raise {1, 2}");
+            var (script, _) = Script("raise [1, 2]");
 
             var result = script.Run();
 
@@ -116,7 +116,7 @@ namespace Tests
         [Test]
         public void NativeErrors_CarryTheirKind()
         {
-            var (script, _) = Script("fun bad_arg []\n    return check []\nend\nfun broken []\n    return crash []\nend\n");
+            var (script, _) = Script("fun bad_arg()\n    return check()\nend\nfun broken()\n    return crash()\nend\n");
             AddNative(script, "check", _ => throw new ScriptErrorException(ScriptErrorKind.ArgumentError, "bad argument"));
             AddNative(script, "crash", _ => throw new InvalidOperationException("boom"));
             script.Run();
@@ -136,11 +136,11 @@ namespace Tests
         {
             ScriptResult nested = default;
             var (script, output) = Script(@"
-fun on_event []
+fun on_event()
     x = 1 / 0
 end
 begin
-    fire []
+    fire()
     print ""not reached""
 rescue e
     print ""rescued: "" + e
@@ -164,7 +164,7 @@ end");
         [Test]
         public void HostFault_IsAHostFaultResult()
         {
-            var (script, _) = Script("fun f []\n    x = 1\n    return x\nend\n");
+            var (script, _) = Script("fun f()\n    x = 1\n    return x\nend\n");
             script.Run();
             script.AddBreakpoint(2);
             script.DebugHook = ctx => throw new InvalidOperationException("host failed");
@@ -182,7 +182,7 @@ end");
         [Test]
         public void StartCoroutine_GivesTheIdAndTheFirstRunsResult()
         {
-            var (script, output) = Script("fun co []\n    print \"a\"\n    yield\n    print \"b\"\nend\nfun bad []\n    yield\n    x = 1 / 0\nend\n");
+            var (script, output) = Script("fun co()\n    print \"a\"\n    yield\n    print \"b\"\nend\nfun bad()\n    yield\n    x = 1 / 0\nend\n");
             script.Run();
 
             var started = script.StartCoroutine("co", null, false, out var id);
@@ -207,7 +207,7 @@ end");
         [Test]
         public void TickCoroutines_Ok_CountsTheActiveCoroutines()
         {
-            var (script, _) = Script("fun co []\n    yield\n    yield\nend\n");
+            var (script, _) = Script("fun co()\n    yield\n    yield\nend\n");
             script.Run();
             script.StartCoroutine("co", null, false, out _);
             script.StartCoroutine("co", null, false, out _);
@@ -226,7 +226,7 @@ end");
         {
             var (script, output) = Script(@"
 begin
-    start_coroutine [""missing"", {}]
+    start_coroutine(""missing"", [])
 rescue e
     print e
 end");

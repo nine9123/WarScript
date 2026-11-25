@@ -6,7 +6,7 @@ g = 5
 hp = 1000
 made = 0
 
-class Unit [hp]
+class Unit(hp)
     global made
     seen = g            # the global
     doubled = hp * 2    # the field (constructor parameter), not the global
@@ -14,17 +14,17 @@ class Unit [hp]
         big = "yes"     # a field
     end
     made = made + 1     # the global
-    fun show []
+    fun show()
         return "{@seen} {@doubled} {@big}"
     end
 end
 
-u = new Unit [20]
-print u :: show []
-print u :: big
+u = new Unit(20)
+print u.show()
+print u.big
 print hp
 print made
-v = new Unit [3]
+v = new Unit(3)
 print made
 # expect: 5 40 yes
 # expect: yes

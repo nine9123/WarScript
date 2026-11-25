@@ -34,14 +34,14 @@ namespace Tests
             // path and gets TCO — 10000 frames deep must not overflow the
             // 128-slot frame stack.
             var output = Run(@"
-count = fun [n]
+count = fun(n)
     if n == 0
         return 0
     end
-    return count [n - 1]
+    return count(n - 1)
 end
 begin
-    print ""ok "" + count [10000]
+    print ""ok "" + count(10000)
 rescue err
     print ""caught: "" + err
 end
@@ -57,17 +57,17 @@ end
             // self-call names an undefined function: a compile error since
             // T3.8 (it was a catchable runtime error).
             var e = Assert.Catch<WarScript.Exception.SyntaxException>(() => Run(@"
-fun run_deep []
-    step = fun [n]
+fun run_deep()
+    step = fun(n)
         if n == 0
             return ""done""
         end
-        return step [n - 1]
+        return step(n - 1)
     end
-    return step [5000]
+    return step(5000)
 end
 begin
-    print run_deep []
+    print run_deep()
 rescue err
     print ""caught: "" + err
 end
@@ -81,12 +81,12 @@ end
         {
             // v1 read null here; v2 has no closures and says so (T3.4, PROP-16).
             var e = Assert.Throws<WarScript.Exception.CompileError>(() => Run(@"
-fun make []
+fun make()
     local = 42
-    return fun [] return local end
+    return fun() return local end
 end
-f = make []
-print f []
+f = make()
+print f()
 "));
             StringAssert.Contains("closures are not supported", e.Message);
             Assert.AreEqual(4, e.Line);
@@ -96,11 +96,11 @@ print f []
         public void GlobalLambda_CallableFromInsideNamedFunction()
         {
             var output = Run(@"
-g = fun [x] return x * 3 end
-fun use []
-    return g [7]
+g = fun(x) return x * 3 end
+fun use()
+    return g(7)
 end
-print use []
+print use()
 ");
             Assert.AreEqual("21", output[0]);
         }
@@ -113,10 +113,10 @@ print use []
         public void NamedArgs_OmittedDefaultParameter_GetsDefault()
         {
             var output = Run(@"
-fun greet [name, greeting = ""Hello""]
+fun greet(name, greeting = ""Hello"")
     return greeting + "", "" + name
 end
-print greet [name: ""Bob""]
+print greet(name: ""Bob"")
 ");
             Assert.AreEqual("Hello, Bob", output[0]);
         }
@@ -125,10 +125,10 @@ print greet [name: ""Bob""]
         public void NamedArgs_Reordered_WithDefaultParameter()
         {
             var output = Run(@"
-fun greet [name, greeting = ""Hello""]
+fun greet(name, greeting = ""Hello"")
     return greeting + "", "" + name
 end
-print greet [greeting: ""Yo"", name: ""Ann""]
+print greet(greeting: ""Yo"", name: ""Ann"")
 ");
             Assert.AreEqual("Yo, Ann", output[0]);
         }
@@ -140,7 +140,7 @@ print greet [greeting: ""Yo"", name: ""Ann""]
             // proves mapping is by name: clamp[n:99, lo:0, hi:10] == 10,
             // whereas positional (10, 99, 0) would give 0.
             var (_, output) = TestHelper.Run("named_native",
-                "print clamp [hi: 10, n: 99, lo: 0]",
+                "print clamp(hi: 10, n: 99, lo: 0)",
                 (s, scope) => MathLibrary.Register(s, scope));
 
             Assert.AreEqual("10", output[0]);
@@ -154,11 +154,11 @@ print greet [greeting: ""Yo"", name: ""Ann""]
         public void ConstInsideFunctionBody_IsAllowed()
         {
             var output = Run(@"
-fun f []
+fun f()
     const LOCAL = 9
     return LOCAL
 end
-print f []
+print f()
 ");
             Assert.AreEqual("9", output[0]);
         }
@@ -177,13 +177,13 @@ print f []
             // singleton's 'new' names no class 'new' can find: a compile
             // error since T3.8 (PROP-29), a NameError at call time before.
             var e = Assert.Catch<WarScript.Exception.SyntaxException>(() => Run(@"
-fun f []
+fun f()
     enum E
         A
     end
-    return E :: A
+    return E.A
 end
-print f []
+print f()
 "));
             StringAssert.Contains("Class 'E' is not defined", e.Message);
             Assert.AreEqual(3, e.Line);
@@ -224,9 +224,9 @@ print LIMIT
         public void NewInParenthesizedExpression_AllowsImmediatePropertyAccess()
         {
             var output = Run(@"
-class P [x, y]
+class P(x, y)
 end
-print (new P [3, 4]) :: x
+print (new P(3, 4)).x
 ");
             Assert.AreEqual("3", output[0]);
         }
@@ -235,14 +235,14 @@ print (new P [3, 4]) :: x
         public void SiblingMethod_CallableWithoutThisPrefix()
         {
             var output = Run(@"
-class C []
-    fun helper [] return 5 end
-    fun caller [] return helper [] end
-    fun caller2 [] return this :: helper [] end
+class C()
+    fun helper() return 5 end
+    fun caller() return helper() end
+    fun caller2() return this.helper() end
 end
-c = new C []
-print c :: caller []
-print c :: caller2 []
+c = new C()
+print c.caller()
+print c.caller2()
 ");
             Assert.AreEqual("5", output[0]);
             Assert.AreEqual("5", output[1]);
@@ -346,9 +346,9 @@ loop i in 0..100
     total += i * 3 - i / 7
 end
 print total
-print sqrt [2]
-print pow [3, 0.5]
-print sin [1]
+print sqrt(2)
+print pow(3, 0.5)
+print sin(1)
 ";
             var (_, o1) = TestHelper.Run("det_a", src, (s, scope) => MathLibrary.Register(s, scope));
             var (_, o2) = TestHelper.Run("det_b", src, (s, scope) => MathLibrary.Register(s, scope));
@@ -365,11 +365,11 @@ print sin [1]
         {
             var hitLines = new List<int>();
             var (_, output) = TestHelper.Run("lambda_debug", @"
-f = fun [x]
+f = fun(x)
     y = x + 1
     return y
 end
-print f [1]
+print f(1)
 ", setupScope: (s, _) =>
             {
                 s.AddBreakpoint(3); // y = x + 1

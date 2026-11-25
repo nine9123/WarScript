@@ -19,72 +19,72 @@ namespace Tests
     public class CrossInstanceTests
     {
         private const string OwnerSource = @"
-class Unit [hp]
-    fun heal [n]
+class Unit(hp)
+    fun heal(n)
         @hp = @hp + n
         return @hp
     end
-    class Part [w]
+    class Part(w)
     end
 end
-fun make_unit []
-    return new Unit [10]
+fun make_unit()
+    return new Unit(10)
 end
-fun make_lambda []
-    return fun [x] return x * 2 end
+fun make_lambda()
+    return fun(x) return x * 2 end
 end
-fun make_data []
-    return {1, ""two"", {3}}
+fun make_data()
+    return [1, ""two"", [3]]
 end
 ";
 
         private const string UserSource = @"
-fun read_hp [u]
-    return u :: hp
+fun read_hp(u)
+    return u.hp
 end
-fun write_hp [u, v]
-    u :: hp = v
-    return u :: hp
+fun write_hp(u, v)
+    u.hp = v
+    return u.hp
 end
-fun call_heal [u]
-    return u :: heal [5]
+fun call_heal(u)
+    return u.heal(5)
 end
-fun rescue_heal [u]
+fun rescue_heal(u)
     begin
-        u :: heal [5]
+        u.heal(5)
     rescue e
         return ""rescued: "" + e
     end
 end
-fun call_local [f]
-    r = f [21]
+fun call_local(f)
+    r = f(21)
     return r
 end
-fun call_global [f]
+fun call_global(f)
     global g
     g = f
-    r = g [21]
+    r = g(21)
     return r
 end
-fun tail_call_global [f]
+fun tail_call_global(f)
     global g
     g = f
-    return g [21]
+    return g(21)
 end
-fun nested [u]
-    return u :: new Part [1]
+fun nested(u)
+    return u.new Part(1)
 end
-fun own_lambda []
-    f = fun [x] return x + 1 end
-    return f [1]
+fun own_lambda()
+    f = fun(x) return x + 1 end
+    return f(1)
 end
-fun count [a]
-    return Array_length [a]
+fun count(a)
+    return Array_length(a)
 end
 # A name no class of the module set has is a compile error (T3.8,
 # PROP-29): this script's own view of the owner's class.
-class UnitView [hp]
-    fun heal [n]
+class UnitView(hp)
+    fun heal(n)
         return n
     end
 end
@@ -258,7 +258,7 @@ end
         [Test]
         public void LambdaConstants_AreProgramData_NotFunctionValues()
         {
-            const string source = "fun outer []\n    return fun [x] return fun [y] return y end end\nend\nf = fun [z] return z end\n";
+            const string source = "fun outer()\n    return fun(x) return fun(y) return y end end\nend\nf = fun(z) return z end\n";
             var (body, definitions) = new WarScriptLanguage("t", source, null, null).CompileWithoutRunning();
             AssertLambdaConstants(body, definitions.GetFunction("outer", 0).Compiled, 3);
 

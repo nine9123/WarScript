@@ -6,7 +6,7 @@ rescue e
     print e
 end
 begin
-    missing []
+    missing()
 rescue e
     print e
 end

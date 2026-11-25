@@ -16,7 +16,7 @@ namespace Tests
         public void ReloadUpdatesFunctionBody()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun greet []
+                fun greet()
                     print ""hello""
                 end
             ");
@@ -25,7 +25,7 @@ namespace Tests
             Assert.AreEqual(new[] { "hello" }, output);
 
             script.Reload(@"
-                fun greet []
+                fun greet()
                     print ""goodbye""
                 end
             ");
@@ -38,7 +38,7 @@ namespace Tests
         public void ReloadUpdatesFunctionWithArguments()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun format [x]
+                fun format(x)
                     return ""v1: "" + x
                 end
             ");
@@ -47,7 +47,7 @@ namespace Tests
             script.Call(f, WarValue.FromNumeric(42));
 
             script.Reload(@"
-                fun format [x]
+                fun format(x)
                     return ""v2: "" + x
                 end
             ");
@@ -64,7 +64,7 @@ namespace Tests
         public void ReloadAddsNewFunction()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun a []
+                fun a()
                     print ""a""
                 end
             ");
@@ -72,10 +72,10 @@ namespace Tests
             Assert.IsNull(script.GetFunction("b", 0));
 
             script.Reload(@"
-                fun a []
+                fun a()
                     print ""a""
                 end
-                fun b []
+                fun b()
                     print ""b""
                 end
             ");
@@ -91,10 +91,10 @@ namespace Tests
         public void ReloadRemovesFunction()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun a []
+                fun a()
                     print ""a""
                 end
-                fun b []
+                fun b()
                     print ""b""
                 end
             ");
@@ -103,7 +103,7 @@ namespace Tests
             Assert.IsTrue(script.HasFunction("b", 0));
 
             script.Reload(@"
-                fun b []
+                fun b()
                     print ""b""
                 end
             ");
@@ -119,7 +119,7 @@ namespace Tests
         {
             var (script, output) = TestHelper.Run("test", @"
                 hp = 100
-                fun damage [n]
+                fun damage(n)
                     global hp
                     hp -= n
                 end
@@ -129,11 +129,11 @@ namespace Tests
             // hp is now 70
 
             script.Reload(@"
-                fun damage [n]
+                fun damage(n)
                     global hp
                     hp -= n
                 end
-                fun get_hp []
+                fun get_hp()
                     print hp
                 end
             ");
@@ -146,8 +146,8 @@ namespace Tests
         public void ReloadPreservesArrayState()
         {
             var (script, output) = TestHelper.Run("test", @"
-                log = {}
-                fun add_entry [msg]
+                log = []
+                fun add_entry(msg)
                     log << msg
                 end
             ");
@@ -155,10 +155,10 @@ namespace Tests
             script.Call(script.GetFunction("add_entry", 1), WarValue.FromText("before"));
 
             script.Reload(@"
-                fun add_entry [msg]
+                fun add_entry(msg)
                     log << msg
                 end
-                fun dump []
+                fun dump()
                     print log
                 end
             ");
@@ -173,21 +173,21 @@ namespace Tests
         public void ReloadPreservesClassInstances()
         {
             var (script, output) = TestHelper.Run("test", @"
-                class Entity [name, hp]
+                class Entity(name, hp)
                 end
-                hero = new Entity [""Warrior"", 100]
+                hero = new Entity(""Warrior"", 100)
             ");
 
             var hp = script.UserMemoryScope.Get("hero").ClassValue.GetProperty("hp");
             Assert.AreEqual(F64.FromInt(100), hp.Numeric);
 
             script.Reload(@"
-                class Entity [name, hp]
-                    fun status []
-                        print ""{this :: name}: {this :: hp}""
+                class Entity(name, hp)
+                    fun status()
+                        print ""{this.name}: {this.hp}""
                     end
                 end
-                fun show_hero []
+                fun show_hero()
                     print hero
                 end
             ");
@@ -228,7 +228,7 @@ namespace Tests
         public void ReloadStopsActiveCoroutines()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun ticker []
+                fun ticker()
                     print ""tick""
                     yield
                     print ""tick""
@@ -239,7 +239,7 @@ namespace Tests
             Assert.AreEqual(1, script.ActiveCoroutineCount);
 
             script.Reload(@"
-                fun ticker []
+                fun ticker()
                     print ""new tick""
                     yield
                     print ""new tick""
@@ -253,7 +253,7 @@ namespace Tests
         public void ReloadThenStartNewCoroutine()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun patrol []
+                fun patrol()
                     print ""old patrol""
                     yield
                     print ""old patrol done""
@@ -261,7 +261,7 @@ namespace Tests
             ");
 
             script.Reload(@"
-                fun patrol []
+                fun patrol()
                     print ""new patrol""
                     yield
                     print ""new patrol done""
@@ -282,7 +282,7 @@ namespace Tests
         {
             var (script, output) = TestHelper.Run("test", @"
                 count = 0
-                fun bump []
+                fun bump()
                     global count
                     count += 1
                     print count
@@ -293,7 +293,7 @@ namespace Tests
             Assert.AreEqual(new[] { "1" }, output);
 
             script.Reload(@"
-                fun bump []
+                fun bump()
                     global count
                     count += 10
                     print count
@@ -304,7 +304,7 @@ namespace Tests
             Assert.AreEqual(new[] { "1", "11" }, output);
 
             script.Reload(@"
-                fun bump []
+                fun bump()
                     global count
                     count += 100
                     print count
@@ -340,7 +340,7 @@ namespace Tests
         public void ReloadWithSyntaxErrorPreservesOldState()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun greet []
+                fun greet()
                     print ""hello""
                 end
             ");
@@ -364,7 +364,7 @@ namespace Tests
             var output = new List<string>();
             var script = new WarScriptLanguage("test", @"
                 x = 10
-                fun get_x []
+                fun get_x()
                     print x
                 end
             ", null, (s, msg) => output.Add(msg));
@@ -375,11 +375,11 @@ namespace Tests
 
             // Mutate x via call
             script.Reload(@"
-                fun set_x [val]
+                fun set_x(val)
                     global x
                     x = val
                 end
-                fun get_x []
+                fun get_x()
                     print x
                 end
             ");
@@ -393,7 +393,7 @@ namespace Tests
         public void StaleHandleNotUsedAfterReload()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun greet []
+                fun greet()
                     print ""hello""
                 end
             ");
@@ -402,7 +402,7 @@ namespace Tests
             Assert.IsNotNull(oldHandle);
 
             script.Reload(@"
-                fun greet []
+                fun greet()
                     print ""goodbye""
                 end
             ");

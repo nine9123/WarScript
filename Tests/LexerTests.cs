@@ -191,10 +191,10 @@ namespace Tests
         [Test]
         public void TestClass()
         {
-            var source = "class Person [ name, age ]\n" +
+            var source = "class Person( name, age )\n" +
                          "end\n" +
-                         "person = new Person[\"Randy Marsh\", 45]\n" +
-                         "print person :: name + \" is \" + person :: age + \" years old\"";
+                         "person = new Person(\"Randy Marsh\", 45)\n" +
+                         "print person.name + \" is \" + person.age + \" years old\"";
             var tokens = LexicalParser.Parse(source);
 
             Assert.AreEqual(32, tokens.Count);
@@ -209,7 +209,7 @@ namespace Tests
             Assert.AreEqual(1, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.GroupDivider, tokens[++count].Type);
-            Assert.AreEqual("[", tokens[count].Value);
+            Assert.AreEqual("(", tokens[count].Value);
             Assert.AreEqual(1, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.Variable, tokens[++count].Type);
@@ -225,7 +225,7 @@ namespace Tests
             Assert.AreEqual(1, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.GroupDivider, tokens[++count].Type);
-            Assert.AreEqual("]", tokens[count].Value);
+            Assert.AreEqual(")", tokens[count].Value);
             Assert.AreEqual(1, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.LineBreak, tokens[++count].Type);
@@ -257,7 +257,7 @@ namespace Tests
             Assert.AreEqual(3, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.GroupDivider, tokens[++count].Type);
-            Assert.AreEqual("[", tokens[count].Value);
+            Assert.AreEqual("(", tokens[count].Value);
             Assert.AreEqual(3, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.Text, tokens[++count].Type);
@@ -273,7 +273,7 @@ namespace Tests
             Assert.AreEqual(3, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.GroupDivider, tokens[++count].Type);
-            Assert.AreEqual("]", tokens[count].Value);
+            Assert.AreEqual(")", tokens[count].Value);
             Assert.AreEqual(3, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.LineBreak, tokens[++count].Type);
@@ -289,7 +289,7 @@ namespace Tests
             Assert.AreEqual(4, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.Operator, tokens[++count].Type);
-            Assert.AreEqual("::", tokens[count].Value);
+            Assert.AreEqual(".", tokens[count].Value);
             Assert.AreEqual(4, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.Variable, tokens[++count].Type);
@@ -313,7 +313,7 @@ namespace Tests
             Assert.AreEqual(4, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.Operator, tokens[++count].Type);
-            Assert.AreEqual("::", tokens[count].Value);
+            Assert.AreEqual(".", tokens[count].Value);
             Assert.AreEqual(4, tokens[count].RowNumber);
 
             Assert.AreEqual(TokenType.Variable, tokens[++count].Type);
@@ -367,7 +367,7 @@ namespace Tests
         [Test]
         public void ThisBeforeClosingBracket()
         {
-            var tokens = LexicalParser.Parse("arr_remove[objects, this]");
+            var tokens = LexicalParser.Parse("arr_remove(objects, this)");
             var thisToken = tokens.FirstOrDefault(t => t.Value == "this");
             Assert.IsNotNull(thisToken);
             Assert.AreEqual(TokenType.This, thisToken.Type,
@@ -377,7 +377,7 @@ namespace Tests
         [Test]
         public void NullBeforeClosingBracket()
         {
-            var tokens = LexicalParser.Parse("call[null]");
+            var tokens = LexicalParser.Parse("call(null)");
             var nullToken = tokens.FirstOrDefault(t => t.Value == "null");
             Assert.IsNotNull(nullToken);
             Assert.AreEqual(TokenType.Null, nullToken.Type,
@@ -395,10 +395,10 @@ namespace Tests
         [Test]
         public void At_Field_IsThisPropertyAccess_AtTheColumnOfTheAt()
         {
-            // T3.3 (DEC-6, 5.7): `@hp` lexes as `this :: hp`, every token at the `@`.
+            // T3.3 (DEC-6, 5.7): `@hp` lexes as `this.hp`, every token at the `@`.
             var tokens = LexicalParser.Parse("x = @hp_2 + 1");
             Assert.AreEqual(
-                new[] { "Variable x 1", "Operator = 3", "This this 5", "Operator :: 5", "Variable hp_2 5", "Operator + 11", "Numeric 1 13" },
+                new[] { "Variable x 1", "Operator = 3", "This this 5", "Operator . 5", "Variable hp_2 5", "Operator + 11", "Numeric 1 13" },
                 tokens.Select(t => t.Type + " " + t.Value + " " + t.Column).ToArray());
         }
 

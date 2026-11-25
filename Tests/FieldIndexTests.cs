@@ -19,16 +19,16 @@ namespace Tests
     public class FieldIndexTests
     {
         private const string Source =
-            "class Unit [hp, name]\n" +
+            "class Unit(hp, name)\n" +
             "    zeta = 0\n" +
             "    @armor = 1\n" +
             "    alpha = hp\n" +
-            "    fun heal [n]\n" +
+            "    fun heal(n)\n" +
             "        local = n\n" +
             "        @hp = @hp + local\n" +
             "    end\n" +
             "end\n" +
-            "class Hero [hp, name, title] : Unit [hp, name]\n" +
+            "class Hero(hp, name, title) : Unit(hp, name)\n" +
             "    rank = 1\n" +
             "end\n";
 

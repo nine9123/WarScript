@@ -30,16 +30,16 @@ namespace Tests
         public void A06_ReentrantHostCall()
         {
             var failure = Reentrant(@"
-fun on_event [x]
+fun on_event(x)
     return x
 end
-fun main []
+fun main()
     a = 1
-    b = fire []
+    b = fire()
     print ""after fire, a="" + a + "" b="" + b
     return 0
 end
-main []
+main()
 print ""top done""", "after fire, a=1 b=7", "top done");
             Assert.IsNull(failure, failure);
         }
@@ -49,19 +49,19 @@ print ""top done""", "after fire, a=1 b=7", "top done");
         {
             // PROP-1: the callback's error continues from the native call site.
             var failure = Reentrant(@"
-fun on_event [x]
+fun on_event(x)
     return x / 0
 end
-fun main []
+fun main()
     begin
-        b = fire []
+        b = fire()
         print ""not reached""
     rescue e
         print ""rescued "" + e
     end
     return 0
 end
-main []
+main()
 print ""top done""", "rescued Division by zero", "top done");
             Assert.IsNull(failure, failure);
         }
@@ -70,15 +70,15 @@ print ""top done""", "rescued Division by zero", "top done");
         public void A06_ReentrantCallbackErrorEndsTheOuterCall()
         {
             var failure = ReentrantError(@"
-fun on_event [x]
+fun on_event(x)
     return x / 0
 end
-fun main []
-    b = fire []
+fun main()
+    b = fire()
     print ""not reached""
     return 0
 end
-main []
+main()
 print ""top done""", "Division by zero");
             Assert.IsNull(failure, failure);
         }
@@ -96,10 +96,10 @@ print ""top done""", "Division by zero");
             WarScriptLanguage s = null;
             var output = new List<string>();
             s = new WarScriptLanguage("t", @"
-fun on_event [x]
-    return fire []
+fun on_event(x)
+    return fire()
 end
-fire []
+fire()
 print ""not reached""", null, (w, m) => output.Add(m));
             s.GlobalDefinitionScope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("fire", new List<string>()),
@@ -189,7 +189,7 @@ print ""not reached""", null, (w, m) => output.Add(m));
         {
             var output = new List<string>();
             var s = new WarScriptLanguage("t", @"
-fun show [v]
+fun show(v)
     print v
 end", null, (w, m) => output.Add(m));
             var failure = RunChecked(s, out var unhandled);
@@ -253,9 +253,9 @@ end", null, (w, m) => output.Add(m));
         public void A19_DisassembleHandlerOpcodes()
         {
             var s = new WarScriptLanguage("t", @"
-fun f [arr, i]
+fun f(arr, i)
     begin
-        arr{i} = 1
+        arr[i] = 1
     rescue e
         print e
     end
@@ -283,17 +283,17 @@ end", null, (w, m) => { });
             var output = new List<string>();
             WarScriptLanguage s = null;
             s = new WarScriptLanguage("t", @"
-class Box [v]
+class Box(v)
 end
 # Another class has a 'boom', so the call compiles (T3.8, PROP-29).
 class Decoy
-    fun boom []
+    fun boom()
     end
 end
-install []
-b = new Box [1]
+install()
+b = new Box(1)
 begin
-    b :: boom []
+    b.boom()
     print ""not reached""
 rescue e
     print ""rescued "" + e

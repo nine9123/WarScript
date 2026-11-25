@@ -24,44 +24,44 @@ assert "a<3: {a < 3}" == "a<3: false"
 assert "a==5: {a == 5}" == "a==5: true"
 
 # ── 4. Interpolation with class properties ──
-class Player [name, level, hp]
+class Player(name, level, hp)
 end
-p = new Player ["Hero", 10, 100]
-assert "{p :: name} (Lv.{p :: level}) HP:{p :: hp}" == "Hero (Lv.10) HP:100"
+p = new Player("Hero", 10, 100)
+assert "{p.name} (Lv.{p.level}) HP:{p.hp}" == "Hero (Lv.10) HP:100"
 
 # ── 5. Interpolation with method calls ──
-class Formatter [prefix]
-    fun format [msg]
+class Formatter(prefix)
+    fun format(msg)
         return "{@prefix}: {msg}"
     end
 end
-f = new Formatter ["LOG"]
-assert f :: format ["started"] == "LOG: started"
-assert f :: format ["done"] == "LOG: done"
+f = new Formatter("LOG")
+assert f.format("started") == "LOG: started"
+assert f.format("done") == "LOG: done"
 
 # ── 6. Interpolation in loop building table ──
-rows = {}
+rows = []
 loop i in 0..3
     rows << "row {i}: {i * 10}"
 end
-assert rows{0} == "row 0: 0"
-assert rows{1} == "row 1: 10"
-assert rows{2} == "row 2: 20"
+assert rows[0] == "row 0: 0"
+assert rows[1] == "row 1: 10"
+assert rows[2] == "row 2: 20"
 
 # ── 7. Interpolation with array access ──
-colors = {"red", "green", "blue"}
-assert "first={colors{0}}" == "first=red"
-assert "last={colors{2}}" == "last=blue"
+colors = ["red", "green", "blue"]
+assert "first={colors[0]}" == "first=red"
+assert "last={colors[2]}" == "last=blue"
 
 idx = 1
-assert "idx {idx} is {colors{idx}}" == "idx 1 is green"
+assert "idx {idx} is {colors[idx]}" == "idx 1 is green"
 
 # ── 8. Interpolation in function return ──
-fun greeting [name, time]
+fun greeting(name, time)
     return "Good {time}, {name}!"
 end
-assert greeting ["Alice", "morning"] == "Good morning, Alice!"
-assert greeting ["Bob", "evening"] == "Good evening, Bob!"
+assert greeting("Alice", "morning") == "Good morning, Alice!"
+assert greeting("Bob", "evening") == "Good evening, Bob!"
 
 # ── 9. Multiple consecutive interpolations ──
 a = "X"

@@ -5,7 +5,7 @@
 # did falling off the end. The rescue body now runs under an ensure-only
 # handler, so the ensure block runs whichever way the rescue body is left,
 # once.
-fun leave_by_return []
+fun leave_by_return()
     begin
         raise "a"
     rescue e
@@ -14,7 +14,7 @@ fun leave_by_return []
         print "ensure after return"
     end
 end
-print leave_by_return []
+print leave_by_return()
 
 begin
     begin
@@ -51,7 +51,7 @@ rescue e
     print "outer " + e
 end
 
-fun ends_normally []
+fun ends_normally()
     begin
         raise "a"
     rescue e
@@ -62,7 +62,7 @@ fun ends_normally []
     raise "later"
 end
 begin
-    ends_normally []
+    ends_normally()
 rescue e
     print "outer " + e
 end
@@ -85,7 +85,7 @@ rescue e
 end
 
 # A return from a rescue body nested in another begin runs both ensure blocks.
-fun nested []
+fun nested()
     begin
         begin
             raise "a"
@@ -98,20 +98,20 @@ fun nested []
         print "outer ensure"
     end
 end
-print nested []
+print nested()
 # Without an ensure block the rescue body runs under no handler of its
 # block, so recursing from it is not limited by the 32 handler slots.
-fun retry [n]
+fun retry(n)
     begin
         raise "a"
     rescue e
         if n > 0
-            return retry [n - 1]
+            return retry(n - 1)
         end
         return "retried"
     end
 end
-print retry [60]
+print retry(60)
 # 'next' and 'break' out of such a rescue body leave the enclosing
 # handler in place.
 begin

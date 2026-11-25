@@ -81,7 +81,7 @@ namespace Tests
         [Test]
         public void FunctionBody()
         {
-            var script = Script("fun f []\n" + Repeat(30000, i => "    x = 1", "\n") + "\nend");
+            var script = Script("fun f()\n" + Repeat(30000, i => "    x = 1", "\n") + "\nend");
             var error = Assert.Throws<CompileError>(() => script.CompileWithoutRunning());
             Assert.AreEqual("function too large (bytecode exceeds 65,535 bytes)", error.Reason);
         }
@@ -112,17 +112,17 @@ namespace Tests
         [Test]
         public void ArgumentCount_ExactlyAtTheLimitRuns()
         {
-            var source = "fun f [" + Repeat(255, i => "p" + i, ", ") + "]\n    return p0 + p254\nend\nprint f [" + Args(255) + "]";
+            var source = "fun f(" + Repeat(255, i => "p" + i, ", ") + ")\n    return p0 + p254\nend\nprint f(" + Args(255) + ")";
             var (_, output) = TestHelper.Run("limits", source);
             CollectionAssert.AreEqual(new[] { "2" }, output);
         }
 
-        [TestCase("f = null\nprint f [{0}]")]                                            // Call
-        [TestCase("f = null\nfun g []\n    return f [{0}]\nend")]                          // TailCall
-        [TestCase("fun g [h]\n    return h [{0}]\nend")]                                   // CallValue
-        [TestCase("class C\n    fun m []\n    end\nend\nc = new C\nprint c :: m [{0}]")]   // CallMethod
-        [TestCase("class C [{1}]\nend\nc = new C [{0}]")]                                         // NewInstance
-        [TestCase("class C\n    class D [{1}]\n    end\nend\nc = new C\nd = c :: new D [{0}]")]  // NewNestedInstance
+        [TestCase("f = null\nprint f({0})")]                                            // Call
+        [TestCase("f = null\nfun g()\n    return f({0})\nend")]                          // TailCall
+        [TestCase("fun g(h)\n    return h({0})\nend")]                                   // CallValue
+        [TestCase("class C\n    fun m()\n    end\nend\nc = new C\nprint c.m({0})")]   // CallMethod
+        [TestCase("class C({1})\nend\nc = new C({0})")]                                         // NewInstance
+        [TestCase("class C\n    class D({1})\n    end\nend\nc = new C\nd = c.new D({0})")]  // NewNestedInstance
         public void ArgumentCount_PastTheLimitIsACompileError(string template)
         {
             // {1}: a constructor taking 255 arguments (T3.8: 'new' must pass
@@ -139,13 +139,13 @@ namespace Tests
         [Test]
         public void ParameterCount()
         {
-            Compile("fun f [" + Repeat(255, i => "p" + i, ", ") + "]\nend");
-            Compile("g = fun [" + Repeat(255, i => "p" + i, ", ") + "] end");
-            var function = CompileFails("x = 1\n  fun f [" + Repeat(256, i => "p" + i, ", ") + "]\nend");
+            Compile("fun f(" + Repeat(255, i => "p" + i, ", ") + ")\nend");
+            Compile("g = fun(" + Repeat(255, i => "p" + i, ", ") + ") end");
+            var function = CompileFails("x = 1\n  fun f(" + Repeat(256, i => "p" + i, ", ") + ")\nend");
             Assert.AreEqual("more than 255 parameters", function.Reason);
             Assert.AreEqual(2, function.Line);
             Assert.AreEqual(3, function.Column, "at the function's 'fun' (T3.1)");
-            var lambda = CompileFails("x = 1\ng = fun [" + Repeat(256, i => "p" + i, ", ") + "] end");
+            var lambda = CompileFails("x = 1\ng = fun(" + Repeat(256, i => "p" + i, ", ") + ") end");
             Assert.AreEqual("more than 255 parameters", lambda.Reason);
             Assert.AreEqual(2, lambda.Line);
             Assert.AreEqual(5, lambda.Column, "at the lambda's 'fun' (T3.1)");
@@ -176,9 +176,9 @@ namespace Tests
             // 65,535 elements fit the operand but not a function: the size
             // limit is what stops it. One more is the array literal error.
             Assert.AreEqual("function too large (bytecode exceeds 65,535 bytes)",
-                CompileFails("x = {" + Repeat(65535, i => "null", ", ") + "}").Reason);
+                CompileFails("x = [" + Repeat(65535, i => "null", ", ") + "]").Reason);
             LexicalParser.ClearCache();
-            var error = CompileFails("x = 1\nx = {" + Repeat(65536, i => "null", ", ") + "}");
+            var error = CompileFails("x = 1\nx = [" + Repeat(65536, i => "null", ", ") + "]");
             Assert.AreEqual("array literal too large; build it with <<", error.Reason);
             Assert.AreEqual(2, error.Line);
         }

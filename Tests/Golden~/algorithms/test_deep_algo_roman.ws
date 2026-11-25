@@ -1,6 +1,6 @@
 # test_deep_algo_roman.ws — Roman numeral converter
 
-fun to_roman [n]
+fun to_roman(n)
     result = ""
     loop n >= 10
         result += "X"
@@ -25,10 +25,10 @@ fun to_roman [n]
     return result
 end
 
-assert to_roman [1] == "I"
-assert to_roman [3] == "III"
-assert to_roman [4] == "IV"
-assert to_roman [9] == "IX"
-assert to_roman [14] == "XIV"
-assert to_roman [27] == "XXVII"
-assert to_roman [39] == "XXXIX"
+assert to_roman(1) == "I"
+assert to_roman(3) == "III"
+assert to_roman(4) == "IV"
+assert to_roman(9) == "IX"
+assert to_roman(14) == "XIV"
+assert to_roman(27) == "XXVII"
+assert to_roman(39) == "XXXIX"

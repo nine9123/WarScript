@@ -30,10 +30,10 @@ namespace Tests
         public void WrongArity_IsACompileError_AtTheClassName_AndInstallsNothing()
         {
             var (script, _) = Script(
-                "class Unit [team, hp]\n" +
+                "class Unit(team, hp)\n" +
                 "end\n" +
-                "fun spawn []\n" +
-                "    return 1 + (new Unit [\"red\"])\n" +
+                "fun spawn()\n" +
+                "    return 1 + (new Unit(\"red\"))\n" +
                 "end\n");
 
             var result = script.Compile();
@@ -56,18 +56,18 @@ namespace Tests
             // compiles when one of them takes that many arguments.
             var (script, output) = Script(
                 "class Car\n" +
-                "    class Part [name]\n" +
+                "    class Part(name)\n" +
                 "    end\n" +
-                "    fun part []\n" +
-                "        return new Part [\"wheel\"]\n" +
+                "    fun part()\n" +
+                "        return new Part(\"wheel\")\n" +
                 "    end\n" +
                 "end\n" +
                 "class Boat\n" +
                 "    class Part\n" +
                 "    end\n" +
                 "end\n" +
-                "print (new Car []) :: part [] :: name\n" +
-                "x = new Part [1, 2]\n");
+                "print (new Car()).part().name\n" +
+                "x = new Part(1, 2)\n");
 
             var result = script.Compile();
 
@@ -81,13 +81,13 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "fun make []\n    return new Unit [\"red\"]\nend\n",
+                ["lib"] = "fun make()\n    return new Unit(\"red\")\nend\n",
             };
             var (script, output) = Script(
                 "import \"lib\"\n" +
-                "class Unit [team]\n" +
+                "class Unit(team)\n" +
                 "end\n" +
-                "print make [] :: team\n", files);
+                "print make().team\n", files);
 
             Assert.IsTrue(script.Compile().Success);
             Assert.IsTrue(script.Run().IsOk);
@@ -99,11 +99,11 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "x = 1\nfun make []\n    return new Unit []\nend\n",
+                ["lib"] = "x = 1\nfun make()\n    return new Unit()\nend\n",
             };
             var (script, _) = Script(
                 "import \"lib\"\n" +
-                "class Unit [team]\n" +
+                "class Unit(team)\n" +
                 "end\n", files);
 
             var result = script.Compile();
@@ -115,13 +115,13 @@ namespace Tests
             Assert.AreEqual(3, error.Line);
             var run = script.Run();
             Assert.AreEqual(ScriptErrorKind.CompileError, run.Error.Kind);
-            Assert.AreEqual("    return new Unit []", run.Error.SourceLine, "the import's line, not the importer's");
+            Assert.AreEqual("    return new Unit()", run.Error.SourceLine, "the import's line, not the importer's");
         }
 
         [Test]
         public void AnUndefinedClass_IsACompileError()
         {
-            var (script, _) = Script("class Unit\nend\nu = new Unti []\n");
+            var (script, _) = Script("class Unit\nend\nu = new Unti()\n");
 
             var result = script.Compile();
 
@@ -135,7 +135,7 @@ namespace Tests
         {
             // The instance's class decides what 'obj :: new C' finds; an
             // instance of another script is a TypeError there (6.7).
-            var (script, _) = Script("fun nested [u]\n    return u :: new Part [1]\nend\n");
+            var (script, _) = Script("fun nested(u)\n    return u.new Part(1)\nend\n");
 
             Assert.IsTrue(script.Compile().Success);
         }
@@ -145,7 +145,7 @@ namespace Tests
         {
             var (script, output) = Script(
                 "class Car\n" +
-                "    class Part [name]\n" +
+                "    class Part(name)\n" +
                 "    end\n" +
                 "end\n" +
                 "class Boat\n" +
@@ -153,11 +153,11 @@ namespace Tests
                 "    end\n" +
                 "end\n" +
                 "begin\n" +
-                "    p = (new Boat []) :: new Part [\"sail\"]\n" +
+                "    p = (new Boat()).new Part(\"sail\")\n" +
                 "rescue e\n" +
                 "    print e\n" +
                 "end\n" +
-                "p = (new Boat []) :: new Part [\"sail\"]\n");
+                "p = (new Boat()).new Part(\"sail\")\n");
 
             var result = script.Run();
 

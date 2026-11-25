@@ -31,11 +31,11 @@ namespace Tests
 
         private const string Typo =
             "health = 100\n" +
-            "fun damage [amt]\n" +
+            "fun damage(amt)\n" +
             "    helth = health - amt\n" +
             "    return health\n" +
             "end\n" +
-            "print damage [30]\n";
+            "print damage(30)\n";
 
         [Test]
         public void UnreadLocal_IsAWarning_AndTheScriptStillRuns()
@@ -61,7 +61,7 @@ namespace Tests
         public void TheWarningIsAtTheFirstAssignment_OncePerLocal()
         {
             var (script, _) = Script(
-                "fun f []\n" +
+                "fun f()\n" +
                 "    if true\n" +
                 "        a = 1\n" +
                 "    end\n" +
@@ -80,13 +80,13 @@ namespace Tests
         public void EveryKindOfRead_CountsAsARead()
         {
             var (script, _) = Script(
-                "fun reads [p]\n" +
+                "fun reads(p)\n" +
                 "    a = 1\n" +
                 "    print a\n" +                       // plain read
-                "    arr = {1, 2}\n" +
-                "    arr{0} = 5\n" +                    // index write reads the array
-                "    f = fun [x] return x end\n" +
-                "    f [1]\n" +                         // call through a local
+                "    arr = [1, 2]\n" +
+                "    arr[0] = 5\n" +                    // index write reads the array
+                "    f = fun(x) return x end\n" +
+                "    f(1)\n" +                         // call through a local
                 "    n = 0\n" +
                 "    n += 1\n" +                        // compound assignment reads it
                 "    begin\n" +
@@ -94,15 +94,15 @@ namespace Tests
                 "    ensure\n" +
                 "        print e1\n" +                  // read in an ensure block
                 "    end\n" +
-                "    s = {}\n" +
+                "    s = []\n" +
                 "    s << 1\n" +
                 "    return p\n" +
                 "end\n" +
                 "top = 1\n" +                           // a global: never warned about
-                "class C [q]\n" +
+                "class C(q)\n" +
                 "    field = 2\n" +                     // a field: never warned about
                 "end\n" +
-                "fun loops []\n" +
+                "fun loops()\n" +
                 "    loop i in 0..3\n" +                // loop and rescue variables are not body locals
                 "    end\n" +
                 "    begin\n" +
@@ -120,7 +120,7 @@ namespace Tests
         [Test]
         public void ALambdasUnreadLocal_IsAWarning()
         {
-            var (script, _) = Script("g = fun [x]\n    unused = x\n    return x\nend\n");
+            var (script, _) = Script("g = fun(x)\n    unused = x\n    return x\nend\n");
 
             var warnings = Warnings(script.Compile());
 
@@ -132,8 +132,8 @@ namespace Tests
         [Test]
         public void AWarningInAnImport_NamesTheImport()
         {
-            var files = new Dictionary<string, string> { ["lib"] = "fun helper []\n    t = 1\nend\n" };
-            var (script, _) = Script("import \"lib\"\nhelper []\n", files);
+            var files = new Dictionary<string, string> { ["lib"] = "fun helper()\n    t = 1\nend\n" };
+            var (script, _) = Script("import \"lib\"\nhelper()\n", files);
 
             var warnings = Warnings(script.Compile());
 
@@ -145,7 +145,7 @@ namespace Tests
         [Test]
         public void ACompileError_ComesFirst_ThenTheWarningsFoundBeforeIt()
         {
-            var (script, _) = Script("fun f []\n    t = 1\nend\nfun g []\n    print u\n    u = 1\nend\n");
+            var (script, _) = Script("fun f()\n    t = 1\nend\nfun g()\n    print u\n    u = 1\nend\n");
 
             var result = script.Compile();
 
@@ -163,16 +163,16 @@ namespace Tests
             // The ensure body is compiled twice (inlined where 'break' leaves
             // its block), and the lambda in it with it: one warning.
             var (script, _) = Script(
-                "fun f []\n" +
+                "fun f()\n" +
                 "    loop i in 0..2\n" +
                 "        begin\n" +
                 "            break\n" +
                 "        ensure\n" +
-                "            g = fun []\n" +
+                "            g = fun()\n" +
                 "                z = 1\n" +
                 "                return 0\n" +
                 "            end\n" +
-                "            g []\n" +
+                "            g()\n" +
                 "        end\n" +
                 "    end\n" +
                 "    return 0\n" +
@@ -191,12 +191,12 @@ namespace Tests
         public void CodeAfterReturn_IsAWarning_AtTheFirstUnreachableStatement_OncePerBlock()
         {
             var (script, output) = Script(
-                "fun f []\n" +
+                "fun f()\n" +
                 "    return 1\n" +
                 "    print \"a\"\n" +
                 "    print \"b\"\n" +
                 "end\n" +
-                "print f []\n");
+                "print f()\n");
 
             var result = script.Compile();
 
@@ -220,8 +220,8 @@ namespace Tests
                 "    raise \"no\"\n" +
                 "end\n" +
                 "print x\n" +
-                "class C [a]\n" +
-                "    fun m []\n" +
+                "class C(a)\n" +
+                "    fun m()\n" +
                 "        begin\n" +
                 "            return @a\n" +
                 "        ensure\n" +
@@ -236,7 +236,7 @@ namespace Tests
         [Test]
         public void CodeAfterRaiseInAClassBody_IsAWarning()
         {
-            var (script, _) = Script("class C [a]\n    raise \"no\"\n    b = 2\nend\n");
+            var (script, _) = Script("class C(a)\n    raise \"no\"\n    b = 2\nend\n");
 
             var warnings = Warnings(script.Compile());
 
@@ -288,7 +288,7 @@ namespace Tests
         [Test]
         public void WarningsAsErrors_DoesNotAffectAWarningFreeScript()
         {
-            var (script, output) = Script("fun f [a]\n    b = a\n    return b\nend\nprint f [2]\n");
+            var (script, output) = Script("fun f(a)\n    b = a\n    return b\nend\nprint f(2)\n");
             script.WarningsAsErrors = true;
 
             Assert.IsTrue(script.Compile().Success);

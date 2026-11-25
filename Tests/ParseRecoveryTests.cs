@@ -87,14 +87,14 @@ namespace Tests
         public void ErrorsInFunctionsAndLambdas_AreAllReported()
         {
             var script = Script(
-                "fun f [a]\n" +
+                "fun f(a)\n" +
                 "    return (\n" +
                 "    print a\n" +
                 "end\n" +
-                "fun g [b, b]\n" +
+                "fun g(b, b)\n" +
                 "    print ]\n" +
                 "end\n" +
-                "h = fun [x]\n" +
+                "h = fun(x)\n" +
                 "    y = (\n" +
                 "    return x\n" +
                 "end\n" +
@@ -104,7 +104,7 @@ namespace Tests
 
             CollectionAssert.AreEqual(new[]
             {
-                "Error main:2:12", "Error main:5:11", "Error main:9:9", "Error main:12:7",
+                "Error main:2:12", "Error main:5:10", "Error main:9:9", "Error main:12:7",
             }, Positions(result));
             Assert.AreEqual("Parameter 'b' is declared twice", result.Diagnostics[1].Message);
         }
@@ -132,12 +132,12 @@ namespace Tests
             // failed statement cause no errors of their own.
             var script = Script(
                 "x = (\n" +
-                "y = {1,\n" +
-                "     2}\n" +
-                "z = Array_map [{1}, fun [v]\n" +
+                "y = [1,\n" +
+                "     2]\n" +
+                "z = Array_map([1], fun(v)\n" +
                 "    return v\n" +
-                "end]\n" +
-                "w = ]\n");
+                "end)\n" +
+                "w = )\n");
 
             CollectionAssert.AreEqual(new[] { "Error main:1:5", "Error main:7:3" }, Positions(script.Compile()));
         }
@@ -146,10 +146,10 @@ namespace Tests
         public void AnUnclosedBracket_EndsAtTheNextStatementLine()
         {
             var script = Script(
-                "fun f [a]\n" +
+                "fun f(a)\n" +
                 "    return a\n" +
                 "end\n" +
-                "x = f [1\n" +
+                "x = f(1\n" +
                 "if true\n" +
                 "    print 1\n" +
                 "end\n" +

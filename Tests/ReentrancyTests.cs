@@ -69,13 +69,13 @@ end";
         public void CallbackInstructions_CountAgainstTheOuterBudget()
         {
             const string source = @"
-fun on_event []" + Burn + @"
+fun on_event()" + Burn + @"
 end
-fire []
-fire []
+fire()
+fire()
 print ""done""";
             // Each callback fits in the budget on its own...
-            var (one, oneOutput) = RunWithCallback(source.Replace("fire []\nfire []", "fire []"),
+            var (one, oneOutput) = RunWithCallback(source.Replace("fire()\nfire()", "fire()"),
                 s => s.InstructionBudget = Budget);
             CollectionAssert.AreEqual(new[] { "done" }, oneOutput);
             Assert.IsNull(Unhandled(one));
@@ -91,11 +91,11 @@ print ""done""";
         {
             // A 1,000-character text is estimated at 2,040 bytes.
             const string source = @"
-fun on_event []
+fun on_event()
     t = ""x"" * 1000
 end
 loop i in 0..COUNT
-    fire []
+    fire()
 end
 print ""done""";
             var (few, fewOutput) = RunWithCallback(source.Replace("COUNT", "2"), s => s.MemoryBudget = 5000);
@@ -130,10 +130,10 @@ print ""done""", (s, _) => s.InstructionBudget = Budget, Resolve);
         public void EveryOutermostEntry_StartsWithAFullBudget()
         {
             var (script, output) = RunWithCallback(@"
-fun on_event []" + Burn + @"
+fun on_event()" + Burn + @"
 end
-fun tick []
-    fire []
+fun tick()
+    fire()
     print ""tick""
 end", s => s.InstructionBudget = Budget);
 
@@ -148,7 +148,7 @@ end", s => s.InstructionBudget = Budget);
         {
             var output = new List<string>();
             var script = new WarScriptLanguage("t", @"
-fun work []
+fun work()
     loop k in 0..3" + Burn.Replace("\n", "\n    ") + @"
         print ""step "" + k
         yield
@@ -170,10 +170,10 @@ end", null, (w, m) => output.Add(m));
             var output = new List<string>();
             WarScriptLanguage s = null;
             s = new WarScriptLanguage("t", @"
-fun work []" + Burn + @"
+fun work()" + Burn + @"
     print ""work done""
 end" + Burn + @"
-begin_work []
+begin_work()
 print ""done""", null, (w, m) => output.Add(m));
             AddNative(s, "begin_work", _ =>
             {
@@ -205,13 +205,13 @@ print ""done""", null, (w, m) => output.Add(m));
             var output = new List<string>();
             WarScriptLanguage s = null;
             s = new WarScriptLanguage("t", @"
-fun go []
-    deeper []
+fun go()
+    deeper()
 end
-fun on_event []
+fun on_event()
     print ""callback""
 end
-deeper []
+deeper()
 print ""done""", null, (w, m) => output.Add(m));
             var level = 0;
             string refused = null;
@@ -247,18 +247,18 @@ print ""done""", null, (w, m) => output.Add(m));
         {
             var output = new List<string>();
             WarScriptLanguage s = null;
-            s = new WarScriptLanguage("t", @"fun on_event []
+            s = new WarScriptLanguage("t", @"fun on_event()
     x = 1
 end
-fun main []
+fun main()
     begin
-        fire []
+        fire()
     rescue e
         print ""rescued""
     end
     print ""after fire""
 end
-main []", null, (w, m) => output.Add(m));
+main()", null, (w, m) => output.Add(m));
             var nested = new List<ScriptStatus>();
             AddNative(s, "fire", _ =>
             {
@@ -294,8 +294,8 @@ main []", null, (w, m) => output.Add(m));
             var output = new List<string>();
             WarScriptLanguage s = null;
             s = new WarScriptLanguage("t", @"
-fun work []
-    tick []
+fun work()
+    tick()
     print ""first""
     yield
     print ""second""
@@ -319,10 +319,10 @@ end", null, (w, m) => output.Add(m));
         {
             var output = new List<string>();
             WarScriptLanguage s = null;
-            s = new WarScriptLanguage("t", @"fun fails []
+            s = new WarScriptLanguage("t", @"fun fails()
     raise ""first""
 end
-fun guarded []
+fun guarded()
     begin
         print ""guarded ran""
     rescue e
@@ -330,7 +330,7 @@ fun guarded []
     end
 end
 begin
-    fire []
+    fire()
     print ""after fire""
 rescue e
     print ""outer rescued "" + e
@@ -362,20 +362,20 @@ end", null, (w, m) => output.Add(m));
             // (a compile error), so what is left to check is that the
             // callback runs and the method's instance is intact afterwards.
             var (_, output) = RunWithCallback(@"
-fun on_event []
+fun on_event()
     print ""callback""
 end
-class C [x]
-    fun go []
+class C(x)
+    fun go()
         begin
-            fire []
+            fire()
         rescue e
             print e
         end
         print @x
     end
 end
-(new C [7]) :: go []", _ => { });
+(new C(7)).go()", _ => { });
             CollectionAssert.AreEqual(new[] { "callback", "7" }, output);
         }
     }

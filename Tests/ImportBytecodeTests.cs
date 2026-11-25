@@ -45,7 +45,7 @@ namespace Tests
 
         /// <summary>The source of an import 'inner' defining <c>inner_fn []</c>, for a build of its importer.</summary>
         private static Dictionary<string, string> InnerFn =>
-            new Dictionary<string, string> { ["inner"] = "fun inner_fn [] return 0 end" };
+            new Dictionary<string, string> { ["inner"] = "fun inner_fn() return 0 end" };
 
         private static (WarScriptLanguage script, List<string> output) Run(
             string source,
@@ -67,9 +67,9 @@ namespace Tests
         {
             var bytecode = new Dictionary<string, byte[]>
             {
-                ["lib"] = Compile("fun helper [x] return x * 10 end")
+                ["lib"] = Compile("fun helper(x) return x * 10 end")
             };
-            var (_, output) = Run("import \"lib\"\nprint helper [2]", bytecode);
+            var (_, output) = Run("import \"lib\"\nprint helper(2)", bytecode);
             Assert.AreEqual("20", output[0]);
         }
 
@@ -79,14 +79,14 @@ namespace Tests
             var bytecode = new Dictionary<string, byte[]>
             {
                 ["shapes"] = Compile(
-                    "class Rect [w, h]\n" +
-                    "fun area []\n" +
-                    "return this :: w * this :: h\n" +
+                    "class Rect(w, h)\n" +
+                    "fun area()\n" +
+                    "return this.w * this.h\n" +
                     "end\n" +
                     "end")
             };
             var (_, output) = Run(
-                "import \"shapes\"\nr = new Rect [3, 4]\nprint r :: area []", bytecode);
+                "import \"shapes\"\nr = new Rect(3, 4)\nprint r.area()", bytecode);
             Assert.AreEqual("12", output[0]);
         }
 
@@ -95,9 +95,9 @@ namespace Tests
         {
             var bytecode = new Dictionary<string, byte[]>
             {
-                ["noisy"] = Compile("print \"loaded\"\nfun f [] return 1 end")
+                ["noisy"] = Compile("print \"loaded\"\nfun f() return 1 end")
             };
-            var (_, output) = Run("import \"noisy\"\nprint f []", bytecode);
+            var (_, output) = Run("import \"noisy\"\nprint f()", bytecode);
             Assert.AreEqual(new[] { "loaded", "1" }, output);
         }
 
@@ -106,12 +106,12 @@ namespace Tests
         {
             var bytecode = new Dictionary<string, byte[]>
             {
-                ["mathy"] = Compile("fun hypot [a, b] return sqrt [a * a + b * b] end")
+                ["mathy"] = Compile("fun hypot(a, b) return sqrt(a * a + b * b) end")
             };
             // sqrt is a fixed-point approximation, so the comparison is made
             // in-script rather than by parsing the printed text
             var (_, output) = Run(
-                "import \"mathy\"\nprint abs [hypot [3, 4] - 5] < 0.001", bytecode);
+                "import \"mathy\"\nprint abs(hypot(3, 4) - 5) < 0.001", bytecode);
             Assert.AreEqual("true", output[0]);
         }
 
@@ -120,10 +120,10 @@ namespace Tests
         {
             var bytecode = new Dictionary<string, byte[]>
             {
-                ["outer"] = Compile("import \"inner\"\nfun outer_fn [] return inner_fn [] + 1 end", InnerFn),
-                ["inner"] = Compile("fun inner_fn [] return 41 end")
+                ["outer"] = Compile("import \"inner\"\nfun outer_fn() return inner_fn() + 1 end", InnerFn),
+                ["inner"] = Compile("fun inner_fn() return 41 end")
             };
-            var (_, output) = Run("import \"outer\"\nprint outer_fn []", bytecode);
+            var (_, output) = Run("import \"outer\"\nprint outer_fn()", bytecode);
             Assert.AreEqual("42", output[0]);
         }
 
@@ -135,10 +135,10 @@ namespace Tests
             // 'outer'.
             var bytecode = new Dictionary<string, byte[]>
             {
-                ["outer"] = Compile("import \"inner\"\nfun outer_fn [] return 1 end"),
-                ["inner"] = Compile("fun inner_fn [] return 41 end")
+                ["outer"] = Compile("import \"inner\"\nfun outer_fn() return 1 end"),
+                ["inner"] = Compile("fun inner_fn() return 41 end")
             };
-            var (script, output) = Run("import \"outer\"\nprint inner_fn [] + outer_fn []", bytecode);
+            var (script, output) = Run("import \"outer\"\nprint inner_fn() + outer_fn()", bytecode);
             Assert.AreEqual("42", output[0]);
             Assert.IsNotNull(script.GetFunction("inner_fn", 0));
         }
@@ -168,13 +168,13 @@ namespace Tests
         {
             var bytecode = new Dictionary<string, byte[]>
             {
-                ["outer"] = Compile("import \"inner\"\nfun outer_fn [] return inner_fn [] + 1 end", InnerFn)
+                ["outer"] = Compile("import \"inner\"\nfun outer_fn() return inner_fn() + 1 end", InnerFn)
             };
             var files = new Dictionary<string, string>
             {
-                ["inner"] = "fun inner_fn [] return 41 end"
+                ["inner"] = "fun inner_fn() return 41 end"
             };
-            var (_, output) = Run("import \"outer\"\nprint outer_fn []", bytecode, files);
+            var (_, output) = Run("import \"outer\"\nprint outer_fn()", bytecode, files);
             Assert.AreEqual("42", output[0]);
         }
 
@@ -183,24 +183,24 @@ namespace Tests
         {
             var bytecode = new Dictionary<string, byte[]>
             {
-                ["lib"] = Compile("fun which [] return \"bytecode\" end")
+                ["lib"] = Compile("fun which() return \"bytecode\" end")
             };
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "fun which [] return \"source\" end"
+                ["lib"] = "fun which() return \"source\" end"
             };
-            var (_, output) = Run("import \"lib\"\nprint which []", bytecode, files);
+            var (_, output) = Run("import \"lib\"\nprint which()", bytecode, files);
             Assert.AreEqual("bytecode", output[0]);
         }
 
         [Test]
         public void ImportedBytecode_SamePathTwice_OnlyLoadedOnce()
         {
-            var bytes = Compile("print \"loaded\"\nfun f [] return 1 end");
+            var bytes = Compile("print \"loaded\"\nfun f() return 1 end");
             var resolverCalls = 0;
 
             var (_, output) = TestHelper.Run("import_bytecode_test",
-                "import \"once\"\nimport \"once\"\nprint f []",
+                "import \"once\"\nimport \"once\"\nprint f()",
                 bytecodeResolver: _ => { resolverCalls++; return bytes; });
 
             Assert.AreEqual(new[] { "loaded", "1" }, output);
@@ -229,9 +229,9 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "fun helper [x] return x * 10 end"
+                ["lib"] = "fun helper(x) return x * 10 end"
             };
-            var (_, output) = Run("import \"lib\"\nprint helper [2]",
+            var (_, output) = Run("import \"lib\"\nprint helper(2)",
                 new Dictionary<string, byte[]>(), files);
             Assert.AreEqual("20", output[0]);
         }
@@ -245,9 +245,9 @@ namespace Tests
             };
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "fun helper [x] return x * 10 end"
+                ["lib"] = "fun helper(x) return x * 10 end"
             };
-            var (_, output) = Run("import \"lib\"\nprint helper [2]", bytecode, files);
+            var (_, output) = Run("import \"lib\"\nprint helper(2)", bytecode, files);
 
             StringAssert.Contains("could not be loaded", output[0]);
             StringAssert.Contains("lib", output[0]);
@@ -275,8 +275,8 @@ namespace Tests
         public void ResolverThrows_WarnsAndCompilesSource()
         {
             var (_, output) = TestHelper.Run("import_bytecode_test",
-                "import \"lib\"\nprint helper [2]",
-                fileResolver: _ => "fun helper [x] return x * 10 end",
+                "import \"lib\"\nprint helper(2)",
+                fileResolver: _ => "fun helper(x) return x * 10 end",
                 bytecodeResolver: _ => throw new IOException("disk error"));
 
             StringAssert.Contains("disk error", output[0]);
@@ -292,9 +292,9 @@ namespace Tests
             };
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "fun helper [x] return x * 10 end"
+                ["lib"] = "fun helper(x) return x * 10 end"
             };
-            var (_, output) = Run("import \"lib\"\nprint helper [2]", bytecode, files);
+            var (_, output) = Run("import \"lib\"\nprint helper(2)", bytecode, files);
             Assert.AreEqual("20", output[0]);
         }
 
@@ -313,7 +313,7 @@ namespace Tests
             // import is a compile error of the importing script, in that file.
             var bytecode = new Dictionary<string, byte[]>
             {
-                ["outer"] = Compile("import \"inner\"\nfun outer_fn [] return 1 end")
+                ["outer"] = Compile("import \"inner\"\nfun outer_fn() return 1 end")
             };
             var e = Assert.Throws<WarScript.Exception.SyntaxException>(() =>
                 Run("import \"outer\"\nprint \"after\"", bytecode, new Dictionary<string, string>()));
@@ -326,11 +326,11 @@ namespace Tests
         {
             var bytecode = new Dictionary<string, byte[]>
             {
-                ["outer"] = Compile("import \"inner\"\nprint \"outer\"\nfun outer_fn [] return inner_fn [] + 1 end", InnerFn)
+                ["outer"] = Compile("import \"inner\"\nprint \"outer\"\nfun outer_fn() return inner_fn() + 1 end", InnerFn)
             };
-            var files = new Dictionary<string, string> { ["inner"] = "print \"inner\"\nfun inner_fn [] return 1 end" };
+            var files = new Dictionary<string, string> { ["inner"] = "print \"inner\"\nfun inner_fn() return 1 end" };
             var output = new List<string>();
-            var script = new WarScriptLanguage("main", "import \"outer\"\nprint outer_fn []",
+            var script = new WarScriptLanguage("main", "import \"outer\"\nprint outer_fn()",
                 path => files.TryGetValue(path, out var src) ? src : null, (_, m) => output.Add(m),
                 path => bytecode.TryGetValue(path, out var bytes) ? bytes : null);
 
@@ -348,9 +348,9 @@ namespace Tests
             {
                 ["outer"] = Compile("import \"inner\"")
             };
-            var files = new Dictionary<string, string> { ["inner"] = "fun f [] return 1 end" };
+            var files = new Dictionary<string, string> { ["inner"] = "fun f() return 1 end" };
             var e = Assert.Throws<WarScript.Exception.SyntaxException>(() =>
-                Run("import \"outer\"\nfun f [] return 2 end", bytecode, files));
+                Run("import \"outer\"\nfun f() return 2 end", bytecode, files));
             StringAssert.Contains("Function 'f' with 0 arguments is already defined in 'inner'", e.Message);
         }
 
@@ -359,8 +359,8 @@ namespace Tests
         {
             var bytecode = new Dictionary<string, byte[]>
             {
-                ["a"] = Compile("fun helper [x] return 1 end"),
-                ["b"] = Compile("fun helper [y] return 2 end")
+                ["a"] = Compile("fun helper(x) return 1 end"),
+                ["b"] = Compile("fun helper(y) return 2 end")
             };
             var e = Assert.Throws<WarScript.Exception.SyntaxException>(
                 () => Run("import \"a\"\nimport \"b\"", bytecode));
@@ -373,7 +373,7 @@ namespace Tests
         {
             var bytecode = new Dictionary<string, byte[]> { ["lib"] = Compile("class Unit end") };
             var e = Assert.Throws<WarScript.Exception.SyntaxException>(
-                () => Run("import \"lib\"\nclass Unit [hp] end", bytecode));
+                () => Run("import \"lib\"\nclass Unit(hp) end", bytecode));
             StringAssert.Contains("Class 'Unit' is already defined in 'lib'", e.Message);
             Assert.AreEqual(2, e.Line);
         }
@@ -383,11 +383,11 @@ namespace Tests
         {
             // Q-16: a bytecode import's classes have no source, so the
             // compiler cannot check the bindings; 'new' raises the error.
-            var bytecode = new Dictionary<string, byte[]> { ["ops"] = Compile("class Sub [a, b]\nend\nclass Mul [a, b]\nend") };
+            var bytecode = new Dictionary<string, byte[]> { ["ops"] = Compile("class Sub(a, b)\nend\nclass Mul(a, b)\nend") };
             var (_, output) = Run(
                 "import \"ops\"\n" +
-                "class Calculator [p, q] : Sub [q, p], Mul [p, q]\nend\n" +
-                "begin\n    c = new Calculator [2, 10]\nrescue e\n    print e\nend",
+                "class Calculator(p, q) : Sub(q, p), Mul(p, q)\nend\n" +
+                "begin\n    c = new Calculator(2, 10)\nrescue e\n    print e\nend",
                 bytecode);
             Assert.AreEqual(new[] { "'a' is bound twice in class 'Calculator': base class 'Mul' binds its parameter 'a' to a different argument" }, output);
         }

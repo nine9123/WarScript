@@ -43,14 +43,14 @@ namespace Tests
         [Test]
         public void CallStack_IsInnermostFirst_WithTheLineEachFrameIsAt()
         {
-            var (script, _) = Script(@"fun inner [x]
+            var (script, _) = Script(@"fun inner(x)
     return x / 0
 end
-fun outer []
+fun outer()
     y = 1
-    return inner [y] + 1
+    return inner(y) + 1
 end
-outer []
+outer()
 ");
             var result = script.Run();
 
@@ -72,16 +72,16 @@ outer []
         [Test]
         public void CallStack_NamesLambdasConstructorsAndMethods()
         {
-            var (script, _) = Script(@"class Unit [hp]
-    fun hit [f]
-        return f [this :: hp]
+            var (script, _) = Script(@"class Unit(hp)
+    fun hit(f)
+        return f(this.hp)
     end
 end
-class Spawner []
-    u = new Unit [0]
-    r = u :: hit [fun [x] return 1 / x end]
+class Spawner()
+    u = new Unit(0)
+    r = u.hit(fun(x) return 1 / x end)
 end
-s = new Spawner []
+s = new Spawner()
 ");
             var result = script.Run();
 
@@ -113,13 +113,13 @@ s = new Spawner []
             // (PROP-1): the stack holds the callback's frames, then the frames
             // of the script that called the native.
             WarScriptLanguage s = null;
-            var (script, _) = Script(@"fun on_event []
-    return missing []
+            var (script, _) = Script(@"fun on_event()
+    return missing()
 end
-fun main []
-    fire []
+fun main()
+    fire()
 end
-main []
+main()
 if false
     missing = 0
 end
@@ -141,14 +141,14 @@ end
         [Test]
         public void ErrorReRaisedByAnEnsureBlock_KeepsItsKindAndStack()
         {
-            var (script, output) = Script(@"fun f []
+            var (script, output) = Script(@"fun f()
     begin
         x = 1 / 0
     ensure
         print ""ensure""
     end
 end
-f []
+f()
 ");
             var result = script.Run();
 
@@ -163,13 +163,13 @@ f []
             // BUDGET-2: every instruction after the budget ran out raises
             // again, here at the rescue handler of the script body; the error
             // the host sees is still the one raised inside spin.
-            var (script, output) = Script(@"fun spin []
+            var (script, output) = Script(@"fun spin()
     loop true
         x = 1
     end
 end
 begin
-    spin []
+    spin()
 rescue e
     print ""rescued""
 end
@@ -206,7 +206,7 @@ end
         [Test]
         public void RaisedNonTextValue_KeepsTheValue()
         {
-            var (script, _) = Script("raise {1, 2}\n");
+            var (script, _) = Script("raise [1, 2]\n");
 
             var result = script.Run();
 
@@ -220,7 +220,7 @@ end
         [Test]
         public void NativeHelper_MissingArgument_IsAnArgumentError()
         {
-            var (script, _) = Script("x = needs_two [1]\n");
+            var (script, _) = Script("x = needs_two(1)\n");
             AddNative(script, "needs_two", 1, args =>
                 WarValue.FromNumeric(NativeHelper.NumericArg(args, 0) + NativeHelper.NumericArg(args, 1)));
 
@@ -236,7 +236,7 @@ end
         public void NativeHelper_WrongType_IsATypeError_AndRescuable()
         {
             var (script, output) = Script(@"begin
-    x = takes_text [5]
+    x = takes_text(5)
 rescue e
     print e
 end
@@ -262,7 +262,7 @@ end
         [Test]
         public void NativeThrowingScriptErrorException_HasThatKind_AtTheCallLine()
         {
-            var (script, _) = Script("x = 1\ny = lookup [x]\n");
+            var (script, _) = Script("x = 1\ny = lookup(x)\n");
             AddNative(script, "lookup", 1, _ => throw new ScriptErrorException(ScriptErrorKind.IndexError, "no such slot"));
 
             var result = script.Run();
@@ -275,7 +275,7 @@ end
         [Test]
         public void NativeThrowingAnythingElse_IsANativeError()
         {
-            var (script, _) = Script("x = boom []\n");
+            var (script, _) = Script("x = boom()\n");
             AddNative(script, "boom", 0, _ => throw new InvalidOperationException("bad state"));
 
             var result = script.Run();
@@ -303,7 +303,7 @@ end
         [Test]
         public void CoroutineError_HasTheCoroutinesFrames()
         {
-            var (script, _) = Script(@"fun co []
+            var (script, _) = Script(@"fun co()
     yield
     assert false
 end
@@ -321,7 +321,7 @@ end
         [Test]
         public void HostFault_HasNoCallStack()
         {
-            var (script, _) = Script("fun f []\n    x = 1\nend\n");
+            var (script, _) = Script("fun f()\n    x = 1\nend\n");
             script.Run();
             script.AddBreakpoint(2);
             script.DebugHook = ctx => throw new InvalidOperationException("host failed");

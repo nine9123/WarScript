@@ -2,7 +2,7 @@
 # test_deep_operators.ws
 # Deep operator interaction tests: exercises all the
 # bug-fixed patterns (!!x, !(expr), parens around and/or,
-# !obj :: method, "literal"{i}, this :: prop{i}),
+# !obj.method, "literal"[i], this.prop[i]),
 # complex precedence chains, all operators combined
 # ──────────────────────────────────────────────────────
 
@@ -46,28 +46,28 @@ assert !((a and b) and c)
 assert (a or (b and c))
 
 # ── 5. String literal indexing ──
-assert "hello"{0} == "h"
-assert "hello"{4} == "o"
-assert "world"{2} == "r"
-assert "a"{0} == "a"
-assert "abcdef"{3} == "d"
+assert "hello"[0] == "h"
+assert "hello"[4] == "o"
+assert "world"[2] == "r"
+assert "a"[0] == "a"
+assert "abcdef"[3] == "d"
 
 # ── 6. Not before class property access ──
-class Flag [active]
-    fun is_active []
-        return this :: active
+class Flag(active)
+    fun is_active()
+        return this.active
     end
-    fun is_inactive []
-        return !this :: active
+    fun is_inactive()
+        return !this.active
     end
 end
 
-on = new Flag [true]
-off = new Flag [false]
-assert on :: is_active []
-assert !on :: is_inactive []
-assert off :: is_inactive []
-assert !off :: is_active []
+on = new Flag(true)
+off = new Flag(false)
+assert on.is_active()
+assert !on.is_inactive()
+assert off.is_inactive()
+assert !off.is_active()
 
 # ── 7. Not before instanceof ──
 class Animal
@@ -121,13 +121,13 @@ x /= 2 + 2
 assert x == 7
 
 # ── 12. Array operations with all arithmetic ──
-arr = {}
+arr = []
 arr << 2 + 3
 arr << 10 - 3
 arr << 2 * 4
 arr << 20 / 5
 arr << 17 % 5
-assert arr == {5, 7, 8, 4, 2}
+assert arr == [5, 7, 8, 4, 2]
 
 # ── 13. String concatenation mixed with arithmetic ──
 assert "(" + (3 + 4) + ")" == "(7)"
@@ -142,16 +142,16 @@ assert !("a" == "b")
 assert !(true == false)
 
 # ── 15. Combination of all operator types in one test ──
-class Box [val]
-    fun get []
-        return this :: val
+class Box(val)
+    fun get()
+        return this.val
     end
 end
-b = new Box [10]
-assert b :: get [] + 5 * 2 == 20
-assert b :: get [] > 5 and b :: get [] < 20
-assert !(b :: get [] > 100)
+b = new Box(10)
+assert b.get() + 5 * 2 == 20
+assert b.get() > 5 and b.get() < 20
+assert !(b.get() > 100)
 assert b is Box
 assert !(b is Animal)
-b :: val = b :: get [] + 5
-assert b :: get [] == 15
+b.val = b.get() + 5
+assert b.get() == 15

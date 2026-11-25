@@ -2,4 +2,4 @@
 # compile error (at runtime it was a NameError: errors/undefined_class.ws).
 class Unit
 end
-u = new Unti []   # expect-compile-error: Class 'Unti' is not defined
+u = new Unti()   # expect-compile-error: Class 'Unti' is not defined

@@ -6,7 +6,7 @@
 # ──────────────────────────────────────────────────────
 
 # ── 1. Nested loops with break only affecting inner ──
-result = {}
+result = []
 loop i in 0..4
     loop j in 0..10
         if j == 3
@@ -15,10 +15,10 @@ loop i in 0..4
     end
     result << i
 end
-assert result == {0, 1, 2, 3}
+assert result == [0, 1, 2, 3]
 
 # ── 2. Nested loops with next only affecting inner ──
-result = {}
+result = []
 loop i in 0..3
     inner_sum = 0
     loop j in 0..10
@@ -29,10 +29,10 @@ loop i in 0..3
     end
     result << inner_sum
 end
-assert result == {25, 25, 25}
+assert result == [25, 25, 25]
 
 # ── 3. FizzBuzz complete ──
-result = {}
+result = []
 loop i in 1..16
     if i % 15 == 0
         result << "FizzBuzz"
@@ -44,15 +44,15 @@ loop i in 1..16
         result << i
     end
 end
-assert result{0} == 1
-assert result{2} == "Fizz"
-assert result{4} == "Buzz"
-assert result{14} == "FizzBuzz"
-assert result{6} == 7
+assert result[0] == 1
+assert result[2] == "Fizz"
+assert result[4] == "Buzz"
+assert result[14] == "FizzBuzz"
+assert result[6] == 7
 
 # ── 4. While loop as state machine ──
 state = "start"
-steps = {}
+steps = []
 loop state != "done"
     steps << state
     if state == "start"
@@ -65,14 +65,14 @@ loop state != "done"
         state = "done"
     end
 end
-assert steps == {"start", "processing", "validating", "complete"}
+assert steps == ["start", "processing", "validating", "complete"]
 
 # ── 5. Early return from deeply nested structure ──
-fun find_in_matrix [matrix, target, rows, cols]
+fun find_in_matrix(matrix, target, rows, cols)
     loop r in 0..rows
-        row = matrix{r}
+        row = matrix[r]
         loop c in 0..cols
-            if row{c} == target
+            if row[c] == target
                 return "found at " + r + "," + c
             end
         end
@@ -80,20 +80,20 @@ fun find_in_matrix [matrix, target, rows, cols]
     return "not found"
 end
 
-mat = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}}
-assert find_in_matrix [mat, 5, 3, 3] == "found at 1,1"
-assert find_in_matrix [mat, 9, 3, 3] == "found at 2,2"
-assert find_in_matrix [mat, 1, 3, 3] == "found at 0,0"
-assert find_in_matrix [mat, 10, 3, 3] == "not found"
+mat = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+assert find_in_matrix(mat, 5, 3, 3) == "found at 1,1"
+assert find_in_matrix(mat, 9, 3, 3) == "found at 2,2"
+assert find_in_matrix(mat, 1, 3, 3) == "found at 0,0"
+assert find_in_matrix(mat, 10, 3, 3) == "not found"
 
 # ── 6. Loop building conditional structure ──
-fun categorize [values, n]
+fun categorize(values, n)
     global low, mid, high, result
-    low = {}
-    mid = {}
-    high = {}
+    low = []
+    mid = []
+    high = []
     loop i in 0..n
-        v = values{i}
+        v = values[i]
         if v < 33
             low << v
         elif v < 66
@@ -102,26 +102,26 @@ fun categorize [values, n]
             high << v
         end
     end
-    result = {}
+    result = []
     result << low
     result << mid
     result << high
     return result
 end
 
-categories = categorize [{10, 50, 80, 20, 90, 40, 70, 30, 60, 5}, 10]
-low = categories{0}
-mid = categories{1}
-high = categories{2}
-assert low == {10, 20, 30, 5}
-assert mid == {50, 40, 60}
-assert high == {80, 90, 70}
+categories = categorize([10, 50, 80, 20, 90, 40, 70, 30, 60, 5], 10)
+low = categories[0]
+mid = categories[1]
+high = categories[2]
+assert low == [10, 20, 30, 5]
+assert mid == [50, 40, 60]
+assert high == [80, 90, 70]
 
 # ── 7. Break inside nested if inside loop ──
 found_idx = -1
-haystack = {"apple", "banana", "cherry", "date", "elderberry"}
+haystack = ["apple", "banana", "cherry", "date", "elderberry"]
 loop i in 0..5
-    if haystack{i} == "cherry"
+    if haystack[i] == "cherry"
         found_idx = i
         break
     end
@@ -142,7 +142,7 @@ assert x == 56
 assert y == 60
 
 # ── 9. Nested if in loop with early next ──
-result = {}
+result = []
 loop i in 0..10
     if i < 3
         next
@@ -156,14 +156,14 @@ loop i in 0..10
         result << "odd:" + i
     end
 end
-assert result == {"odd:3", "even:4", "odd:5", "even:6", "odd:7"}
+assert result == ["odd:3", "even:4", "odd:5", "even:6", "odd:7"]
 
 # ── 10. Class method with complex control flow ──
-class Processor []
-    fun process [data, n]
-        result = {}
+class Processor()
+    fun process(data, n)
+        result = []
         loop i in 0..n
-            val = data{i}
+            val = data[i]
             if val < 0
                 next
             end
@@ -181,25 +181,25 @@ class Processor []
 end
 
 p = new Processor
-assert p :: process [{-5, 3, 4, -1, 7, 10, 200, 8}, 8] == {10, 2, 22, 5}
+assert p.process([-5, 3, 4, -1, 7, 10, 200, 8], 8) == [10, 2, 22, 5]
 
 # ── 11. For loop with dynamic step ──
-result = {}
+result = []
 loop i in 0..20 by 4
     result << i
 end
-assert result == {0, 4, 8, 12, 16}
+assert result == [0, 4, 8, 12, 16]
 
 # ── 12. Iterable loop with modification of external state ──
-names = {"alice", "bob", "charlie"}
-upper_names = {}
+names = ["alice", "bob", "charlie"]
+upper_names = []
 loop name in names
     upper_names << "Mr. " + name
 end
-assert upper_names == {"Mr. alice", "Mr. bob", "Mr. charlie"}
+assert upper_names == ["Mr. alice", "Mr. bob", "Mr. charlie"]
 
 # ── 13. Deeply nested conditions ──
-fun deep_classify [a, b, c]
+fun deep_classify(a, b, c)
     if a > 0
         if b > 0
             if c > 0
@@ -222,9 +222,9 @@ fun deep_classify [a, b, c]
         end
     end
 end
-assert deep_classify [1, 1, 1] == "+++"
-assert deep_classify [1, 1, -1] == "++-"
-assert deep_classify [1, -1, 1] == "+-+"
-assert deep_classify [1, -1, -1] == "+--"
-assert deep_classify [-1, 1, 0] == "-+?"
-assert deep_classify [-1, -1, 0] == "--?"
+assert deep_classify(1, 1, 1) == "+++"
+assert deep_classify(1, 1, -1) == "++-"
+assert deep_classify(1, -1, 1) == "+-+"
+assert deep_classify(1, -1, -1) == "+--"
+assert deep_classify(-1, 1, 0) == "-+?"
+assert deep_classify(-1, -1, 0) == "--?"

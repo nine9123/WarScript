@@ -83,9 +83,9 @@ namespace Tests
                     GREEN
                     BLUE
                 end
-                print Color :: RED
-                print Color :: GREEN
-                print Color :: BLUE
+                print Color.RED
+                print Color.GREEN
+                print Color.BLUE
             ");
             Assert.AreEqual(new[] { "0", "1", "2" }, output);
         }
@@ -99,8 +99,8 @@ namespace Tests
                     RUNNING = 1
                     JUMPING = 5
                 end
-                print State :: IDLE
-                print State :: JUMPING
+                print State.IDLE
+                print State.JUMPING
             ");
             Assert.AreEqual(new[] { "0", "5" }, output);
         }
@@ -114,9 +114,9 @@ namespace Tests
                     MEDIUM
                     HIGH
                 end
-                print Prio :: LOW
-                print Prio :: MEDIUM
-                print Prio :: HIGH
+                print Prio.LOW
+                print Prio.MEDIUM
+                print Prio.HIGH
             ");
             Assert.AreEqual(new[] { "10", "11", "12" }, output);
         }
@@ -131,9 +131,9 @@ namespace Tests
                     LEFT
                     RIGHT
                 end
-                print Dir :: name [Dir :: UP]
-                print Dir :: name [Dir :: RIGHT]
-                print Dir :: name [99]
+                print Dir.name(Dir.UP)
+                print Dir.name(Dir.RIGHT)
+                print Dir.name(99)
             ");
             Assert.AreEqual(new[] { "UP", "RIGHT", "unknown" }, output);
         }
@@ -161,16 +161,16 @@ namespace Tests
                     UP
                     DOWN
                 end
-                fun describe [d]
-                    if d == Dir :: UP
+                fun describe(d)
+                    if d == Dir.UP
                         return ""up""
-                    elif d == Dir :: DOWN
+                    elif d == Dir.DOWN
                         return ""down""
                     end
                     return ""other""
                 end
-                print describe [Dir :: UP]
-                print describe [Dir :: DOWN]
+                print describe(Dir.UP)
+                print describe(Dir.DOWN)
             ");
             Assert.AreEqual(new[] { "up", "down" }, output);
         }
@@ -183,8 +183,8 @@ namespace Tests
                     PHYSICAL
                     MAGICAL
                 end
-                t = DamageType :: MAGICAL
-                print ""Damage: "" + DamageType :: name [t]
+                t = DamageType.MAGICAL
+                print ""Damage: "" + DamageType.name(t)
             ");
             Assert.AreEqual(new[] { "Damage: MAGICAL" }, output);
         }
@@ -194,11 +194,11 @@ namespace Tests
         {
             var (_, output) = TestHelper.Run("test", @"
                 const SPEED = 5
-                fun move [x, speed = SPEED]
+                fun move(x, speed = SPEED)
                     return x + speed
                 end
-                print move [10]
-                print move [10, 20]
+                print move(10)
+                print move(10, 20)
             ");
             Assert.AreEqual(new[] { "15", "30" }, output);
         }
@@ -212,9 +212,9 @@ namespace Tests
                     GREEN
                     BLUE
                 end
-                print Color :: values{0}
-                print Color :: values{1}
-                print Color :: values{2}
+                print Color.values[0]
+                print Color.values[1]
+                print Color.values[2]
             ");
             Assert.AreEqual(new[] { "0", "1", "2" }, output);
         }
@@ -228,9 +228,9 @@ namespace Tests
                     GREEN
                     BLUE
                 end
-                print Color :: names{0}
-                print Color :: names{1}
-                print Color :: names{2}
+                print Color.names[0]
+                print Color.names[1]
+                print Color.names[2]
             ");
             Assert.AreEqual(new[] { "RED", "GREEN", "BLUE" }, output);
         }
@@ -244,7 +244,7 @@ namespace Tests
                     GREEN
                     BLUE
                 end
-                print Color :: count
+                print Color.count
             ");
             Assert.AreEqual(new[] { "3" }, output);
         }
@@ -259,8 +259,8 @@ namespace Tests
                     LEFT
                     RIGHT
                 end
-                loop v in Dir :: values
-                    print Dir :: name [v]
+                loop v in Dir.values
+                    print Dir.name(v)
                 end
             ");
             Assert.AreEqual(new[] { "UP", "DOWN", "LEFT", "RIGHT" }, output);
@@ -274,7 +274,7 @@ namespace Tests
                     UP
                     DOWN
                 end
-                loop n in Dir :: names
+                loop n in Dir.names
                     print n
                 end
             ");

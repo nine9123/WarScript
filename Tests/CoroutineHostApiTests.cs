@@ -25,7 +25,7 @@ namespace Tests
         public void UncaughtRaiseInsideCoroutine_KillsCoroutine_LogsError_LeavesNoRaisedState()
         {
             var (script, output) = TestHelper.Run("co_raise", @"
-fun co []
+fun co()
     yield
     raise ""boom""
 end
@@ -44,7 +44,7 @@ end
         public void RescueSpansYield_ExceptionAfterResumeIsStillCaught()
         {
             var (script, output) = TestHelper.Run("co_rescue", @"
-fun co []
+fun co()
     begin
         print ""before""
         yield
@@ -66,7 +66,7 @@ end
         public void InstructionBudgetExceededInsideCoroutine_KillsCoroutine()
         {
             var (script, output) = TestHelper.Run("co_budget", @"
-fun co []
+fun co()
     yield
     loop true
         x = 1
@@ -94,7 +94,7 @@ end
             // scripts must not rely on ensure for cleanup across yields when
             // the host may stop them.
             var (script, output) = TestHelper.Run("co_stop_ensure", @"
-fun co []
+fun co()
     begin
         print ""in""
         yield
@@ -119,7 +119,7 @@ end
         public void ZeroDtTick_DoesNotFireWait()
         {
             var (script, output) = TestHelper.Run("co_zero_dt", @"
-fun co []
+fun co()
     print ""start""
     yield wait 1.0
     print ""done""
@@ -140,7 +140,7 @@ end
         public void NegativeWaitDuration_FiresOnNextTick()
         {
             var (script, output) = TestHelper.Run("co_neg_wait", @"
-fun co []
+fun co()
     yield wait -1
     print ""fired""
 end
@@ -159,7 +159,7 @@ end
         public void LoopLocalsAccumulateAcrossRepeatedWaits()
         {
             var (script, output) = TestHelper.Run("co_locals", @"
-fun co []
+fun co()
     total = 0
     loop i in 0..3
         total += i + 10
@@ -183,7 +183,7 @@ end
         [Test]
         public void StopCoroutine_UnknownId_ReturnsFalse()
         {
-            var (script, _) = TestHelper.Run("co_bogus_stop", "fun co []\n    yield\nend\n");
+            var (script, _) = TestHelper.Run("co_bogus_stop", "fun co()\n    yield\nend\n");
             Assert.IsFalse(script.StopCoroutine(999));
         }
 
@@ -191,7 +191,7 @@ end
         public void StartCoroutine_WrongArity_ReturnsMinusOneAndANameError()
         {
             var (script, output) = TestHelper.Run("co_wrong_arity", @"
-fun co [a]
+fun co(a)
     yield
 end
 ");
@@ -213,7 +213,7 @@ end
         {
             var output = new List<string>();
             var called = false;
-            var script = new WarScriptLanguage("no_bytecode", "fun co []\n    yield\nend\n", null, (s, msg) => output.Add(msg));
+            var script = new WarScriptLanguage("no_bytecode", "fun co()\n    yield\nend\n", null, (s, msg) => output.Add(msg));
             script.GlobalDefinitionScope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("host_fn", new List<string>()),
                 args => { called = true; return WarValue.Null; }, "", ""));
@@ -262,7 +262,7 @@ end
         public void PlainCallHittingYield_StopsAtYield_AndSetsIsYielded()
         {
             var (script, output) = TestHelper.Run("plain_yield", @"
-fun gen []
+fun gen()
     print ""a""
     yield
     print ""b""
@@ -284,7 +284,7 @@ end
         {
             var hitLines = new List<int>();
             var (script, _) = TestHelper.Run("co_debug", @"
-fun co []
+fun co()
     a = 1
     yield
     b = 2

@@ -144,7 +144,7 @@ namespace Tests
 x = 0 - 1500.25
 print x
 print ""v="" + x
-print {x, 0 - 7}
+print [x, 0 - 7]
 print ""{x} and {1 / 3}""");
                 CollectionAssert.AreEqual(new[]
                 {
@@ -191,10 +191,10 @@ print ""{x} and {1 / 3}""");
         public void NativeObject_WithoutAFormatter_PrintsItsTypeName()
         {
             var (_, output) = RunWithThings(@"
-t = thing []
+t = thing()
 print t
 print ""t="" + t
-print {t, other []}");
+print [t, other()]");
             CollectionAssert.AreEqual(new[] { "<HostThing>", "t=<HostThing>", "[<HostThing>, <OtherThing>]" }, output);
         }
 
@@ -202,11 +202,11 @@ print {t, other []}");
         public void RegisteredFormatter_IsUsedByPrintAndTextOperators()
         {
             var (_, output) = RunWithThings(@"
-t = thing []
+t = thing()
 print t
 print ""t="" + t
 print ""in text: {t}""
-print {t, other []}",
+print [t, other()]",
                 s => s.RegisterNativeFormatter<HostThing>(h => "thing#" + h.Id.ToString(CultureInfo.InvariantCulture)));
             CollectionAssert.AreEqual(new[]
             {
@@ -218,7 +218,7 @@ print {t, other []}",
         public void FormatterThrowingScriptError_RaisesARescuableError()
         {
             var (_, output) = RunWithThings(@"
-t = thing []
+t = thing()
 begin
     print ""t="" + t
 rescue e
@@ -238,7 +238,7 @@ end",
             // A formatter is host code, not a native function (6.9): any other
             // exception it throws is a failure of the host and stops the entry.
             var (script, output) = RunWithThings(@"
-t = thing []
+t = thing()
 begin
     print ""t="" + t
 rescue e
@@ -255,8 +255,8 @@ print ""not reached""",
         public void F64Vec3_UsesTheNumberFormat_EvenWithAFormatterRegistered()
         {
             var (_, output) = RunWithThings(@"
-print vec []
-print ""at "" + vec []",
+print vec()
+print ""at "" + vec()",
                 s => s.RegisterNativeFormatter<F64Vec3>(v => "custom"));
             const string expected = "(-3, 0.5, 0.33333333325572311878204345703125)";
             CollectionAssert.AreEqual(new[] { expected, "at " + expected }, output);
@@ -266,7 +266,7 @@ print ""at "" + vec []",
         public void FunctionValue_PrintsAsFun()
         {
             var (_, output) = TestHelper.Run("t", @"
-double = fun [x] return x * 2 end
+double = fun(x) return x * 2 end
 print double
 print ""f: "" + double");
             CollectionAssert.AreEqual(new[] { "<fun lambda>", "f: <fun lambda>" }, output);

@@ -38,20 +38,20 @@ assert "check: {val > 3}" == "check: true"
 assert "check: {val < 3}" == "check: false"
 
 # ── Interpolation with function call ──
-fun double [n]
+fun double(n)
     return n * 2
 end
-assert "doubled: {double [7]}" == "doubled: 14"
+assert "doubled: {double(7)}" == "doubled: 14"
 
 # ── Interpolation with class property ──
-class Hero [name, hp]
+class Hero(name, hp)
 end
-h = new Hero ["Warrior", 100]
-assert "{h :: name} has {h :: hp} hp" == "Warrior has 100 hp"
+h = new Hero("Warrior", 100)
+assert "{h.name} has {h.hp} hp" == "Warrior has 100 hp"
 
 # ── Interpolation with nested braces (array access) ──
-arr = {10, 20, 30}
-assert "val: {arr{1}}" == "val: 20"
+arr = [10, 20, 30]
+assert "val: {arr[1]}" == "val: 20"
 
 # ── Interpolation with multiple segments ──
 x = 1
@@ -81,13 +81,13 @@ result = "{part1} {part2}!"
 assert result == "hello world!"
 
 # ── Interpolation with complex class expression ──
-class Point [x, y]
-    fun to_string []
+class Point(x, y)
+    fun to_string()
         return "({@x}, {@y})"
     end
 end
-p = new Point [3, 4]
-assert "point = {p :: to_string []}" == "point = (3, 4)"
+p = new Point(3, 4)
+assert "point = {p.to_string()}" == "point = (3, 4)"
 
 # ── No interpolation (plain string) ──
 assert "no interpolation here" == "no interpolation here"
@@ -98,13 +98,13 @@ assert "result: {2 + 3 * 4}" == "result: 14"
 assert "result: {(2 + 3) * 4}" == "result: 20"
 
 # ── Interpolation inside loop ──
-messages = {}
+messages = []
 loop i in 0..3
     messages << "item {i}"
 end
-assert messages{0} == "item 0"
-assert messages{1} == "item 1"
-assert messages{2} == "item 2"
+assert messages[0] == "item 0"
+assert messages[1] == "item 1"
+assert messages[2] == "item 2"
 
 # ── Interpolation with conditional-set values ──
 status = "unknown"

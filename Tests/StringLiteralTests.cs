@@ -250,8 +250,8 @@ namespace Tests
             var source = string.Join("\n",
                 "snippet = \"\"\"",
                 "greeting = \"hello\"",
-                "party = {1, 2, 3}",
-                "print \"{greeting}, {party{0}} of {party{2}}\"",
+                "party = [1, 2, 3]",
+                "print \"{greeting}, {party[0]} of {party[2]}\"",
                 "\"\"\"",
                 "print snippet");
 
@@ -267,12 +267,12 @@ namespace Tests
         public void RawLiteralSourceCanBePassedThroughAFunction()
         {
             var (_, output) = TestHelper.Run("test", string.Join("\n",
-                "fun option [label, action]",
+                "fun option(label, action)",
                 "    return label + \" -> \" + action",
                 "end",
-                "print option [\"Ask about the war\", \"\"\"npc_say [\"It ended.\"]\"\"\"]"));
+                "print option(\"Ask about the war\", \"\"\"npc_say(\"It ended.\")\"\"\")"));
 
-            Assert.AreEqual(new[] { "Ask about the war -> npc_say [\"It ended.\"]" }, output);
+            Assert.AreEqual(new[] { "Ask about the war -> npc_say(\"It ended.\")" }, output);
         }
 
         [Test]

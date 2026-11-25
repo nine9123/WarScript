@@ -138,11 +138,11 @@ print z
             var steppedEntries = new List<(string fn, int line)>();
             // Line 1=(blank), 2=fun helper[], 3=x=1, 4=x=2, 5=end, 6=helper[], 7=print "done"
             var (script, output) = TestHelper.Run("test", @"
-fun helper []
+fun helper()
     x = 1
     x = 2
 end
-helper []
+helper()
 print ""done""
             ", setupScope: (s, _) =>
             {
@@ -167,11 +167,11 @@ print ""done""
             // Set breakpoint inside helper to confirm stepping into functions works.
             // Then use StepInto to walk subsequent lines.
             var (script, output) = TestHelper.Run("test", @"
-fun helper []
+fun helper()
     x = 1
     x = 2
 end
-helper []
+helper()
 print ""done""
             ", setupScope: (s, _) =>
             {
@@ -195,11 +195,11 @@ print ""done""
             Dictionary<string, WarValue> capturedLocals = null;
             // Line 1=(blank), 2=fun add[a,b], 3=result=a+b, 4=return result, 5=end, 6=print add[10,20]
             var (script, output) = TestHelper.Run("test", @"
-fun add [a, b]
+fun add(a, b)
     result = a + b
     return result
 end
-print add [10, 20]
+print add(10, 20)
             ", setupScope: (s, _) =>
             {
                 s.AddBreakpoint(4); // return result
@@ -223,12 +223,12 @@ print add [10, 20]
             Dictionary<string, WarValue> capturedLocals = null;
             // Line 1=(blank), 2=fun test[], 3=loop i in 0..5, 4=x=i, 5=end, 6=end, 7=test[]
             var (script, output) = TestHelper.Run("test", @"
-fun test []
+fun test()
     loop i in 0..5
         x = i
     end
 end
-test []
+test()
             ", setupScope: (s, _) =>
             {
                 s.AddBreakpoint(4); // x = i
@@ -250,13 +250,13 @@ test []
             List<DebugContext.StackEntry> capturedStack = null;
             // Line 1=(blank), 2=fun inner[], 3=print "hi", 4=end, 5=fun outer[], 6=inner[], 7=end, 8=outer[]
             var (script, output) = TestHelper.Run("test", @"
-fun inner []
+fun inner()
     print ""hi""
 end
-fun outer []
-    inner []
+fun outer()
+    inner()
 end
-outer []
+outer()
             ", setupScope: (s, _) =>
             {
                 s.AddBreakpoint(3); // print "hi" inside inner
@@ -278,10 +278,10 @@ outer []
             string capturedName = null;
             // Line 1=(blank), 2=fun my_func[], 3=x=42, 4=end, 5=my_func[]
             var (script, output) = TestHelper.Run("test", @"
-fun my_func []
+fun my_func()
     x = 42
 end
-my_func []
+my_func()
             ", setupScope: (s, _) =>
             {
                 s.AddBreakpoint(3); // x = 42
@@ -363,7 +363,7 @@ print x
             var hitLines = new List<int>();
             // Line 1=(blank), 2=fun tick[], 3=x=1, 4=x=2, 5=end
             var (script, output) = TestHelper.Run("test", @"
-fun tick []
+fun tick()
     x = 1
     x = 2
 end

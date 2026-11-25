@@ -68,7 +68,7 @@ namespace Tests
 
         private static byte[] SavedBytecode()
         {
-            var script = new WarScriptLanguage("t", "fun f []\n    return 1\nend\nprint f []", null, null);
+            var script = new WarScriptLanguage("t", "fun f()\n    return 1\nend\nprint f()", null, null);
             var ms = new MemoryStream();
             script.SaveBytecode(ms);
             return ms.ToArray();
@@ -213,7 +213,7 @@ namespace Tests
             // T3.5: the body's locals are the function's ReservedLocals; its
             // code does not start with one Null per local any more.
             var (_, definitions) = new WarScriptLanguage("t",
-                "fun f [a]\n    x = a\n    y = x + 1\n    return y\nend", null, null).CompileWithoutRunning();
+                "fun f(a)\n    x = a\n    y = x + 1\n    return y\nend", null, null).CompileWithoutRunning();
             var f = definitions.GetFunction("f", 1).Compiled;
             Assert.AreEqual(2, f.ReservedLocals);
             Assert.AreEqual((byte)OpCode.GetLocal, f.Chunk.Code[0]);
@@ -403,7 +403,7 @@ namespace Tests
             var underflow = new byte[] { (byte)OpCode.Pop, Null_, Ret };
             RejectedBody(underflow, "script body has arity 1", arity: 1);
 
-            var host = new WarScriptLanguage("t", "class P []\n    x = 1\nend\np = new P []", null, null);
+            var host = new WarScriptLanguage("t", "class P()\n    x = 1\nend\np = new P()", null, null);
             var (body, definitions) = host.CompileWithoutRunning();
             definitions.ClassDefinitions.Single().CompiledConstructor = Function("P#ctor", 1, underflow);
             var ms = new MemoryStream();
@@ -422,7 +422,7 @@ namespace Tests
             body.ReservedLocals = 1;
             Rejected(File_(body), "script body reserves 1 locals");
 
-            var host = new WarScriptLanguage("t", "class P []\n    x = 1\nend\np = new P []", null, null);
+            var host = new WarScriptLanguage("t", "class P()\n    x = 1\nend\np = new P()", null, null);
             var (top, definitions) = host.CompileWithoutRunning();
             var ctor = Function("P#ctor", 0, new[] { Null_, Ret });
             ctor.ReservedLocals = 1;
@@ -483,7 +483,7 @@ namespace Tests
         [Test]
         public void LineTable_RoundTripsThroughAFile_ForEveryByte()
         {
-            var source = "x = 1\nfun f [a]\n    if a > 0\n        return a * 2\n    end\n    return 0\nend\n\nprint f [x]\nprint f [0]";
+            var source = "x = 1\nfun f(a)\n    if a > 0\n        return a * 2\n    end\n    return 0\nend\n\nprint f(x)\nprint f(0)";
             var (body, definitions) = new WarScriptLanguage("t", source, null, null).CompileWithoutRunning();
             var ms = new MemoryStream();
             using (var w = new BinaryWriter(ms, System.Text.Encoding.UTF8, leaveOpen: true))
@@ -596,7 +596,7 @@ namespace Tests
         public void Loader_RejectedFile_LeavesTheInstanceUnchanged()
         {
             var output = new List<string>();
-            var script = new WarScriptLanguage("t", "fun f []\n    print \"old\"\nend", null, (w, m) => output.Add(m));
+            var script = new WarScriptLanguage("t", "fun f()\n    print \"old\"\nend", null, (w, m) => output.Add(m));
             script.Run();
             var bad = File_(Function("<script>", 0, new byte[] { 58, Null_, Ret }));
             Assert.Throws<InvalidDataException>(() => script.LoadBytecode(new MemoryStream(bad)));
@@ -614,7 +614,7 @@ namespace Tests
             var args = string.Join(", ", Enumerable.Range(0, 200));
             var output = new List<string>();
             var script = new WarScriptLanguage("t",
-                "g = fun [] return {" + literal + "} end\nbegin\n    print Array_length [g [" + args + "]]\nrescue e\n    print e\nend\nprint \"after\"",
+                "g = fun() return [" + literal + "] end\nbegin\n    print Array_length(g(" + args + "))\nrescue e\n    print e\nend\nprint \"after\"",
                 null, (w, m) => output.Add(m));
             WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
             script.Run();
@@ -628,7 +628,7 @@ namespace Tests
             var literal = string.Join(", ", Enumerable.Range(0, 1100));
             var output = new List<string>();
             var script = new WarScriptLanguage("t",
-                "fun big []\n    return {" + literal + "}\nend\nbegin\n    big []\nrescue e\n    print e\nend\nprint \"after\"",
+                "fun big()\n    return [" + literal + "]\nend\nbegin\n    big()\nrescue e\n    print e\nend\nprint \"after\"",
                 null, (w, m) => output.Add(m));
             script.Run();
             CollectionAssert.AreEqual(new[] { "Value stack overflow", "after" }, output);
@@ -727,9 +727,9 @@ namespace Tests
         public void Disassembler_DecodesHandlerAndIndexSetOpcodes()
         {
             var script = new WarScriptLanguage("t", @"
-fun f [arr, i]
+fun f(arr, i)
     begin
-        arr{i} = 1
+        arr[i] = 1
     rescue e
         print e
     end

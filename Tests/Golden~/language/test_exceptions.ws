@@ -52,7 +52,7 @@ end
 assert ensure_ran2
 
 # ── Ensure runs even when rescue handles it ──
-log = {}
+log = []
 begin
     log << "begin"
     raise "fail"
@@ -62,7 +62,7 @@ rescue e
 ensure
     log << "ensure"
 end
-assert log == {"begin", "rescue", "ensure"}
+assert log == ["begin", "rescue", "ensure"]
 
 # ── Rescue without ensure ──
 rescued_val = null
@@ -74,27 +74,27 @@ end
 assert rescued_val == "test error"
 
 # ── Class-based exception ──
-class MyError [message]
+class MyError(message)
 end
 
 rescued_msg = null
 begin
-    raise new MyError ["something went wrong"]
+    raise new MyError("something went wrong")
 rescue err
-    rescued_msg = err :: message
+    rescued_msg = err.message
 end
 assert rescued_msg == "something went wrong"
 
 # ── Multiple class exceptions ──
-class NotFoundError [entity]
+class NotFoundError(entity)
 end
-class ValidationError [field]
+class ValidationError(field)
 end
 
 # Raise NotFoundError
 error_type = null
 begin
-    raise new NotFoundError ["user"]
+    raise new NotFoundError("user")
 rescue err
     if err is NotFoundError
         error_type = "not_found"
@@ -105,7 +105,7 @@ assert error_type == "not_found"
 # Raise ValidationError
 error_type2 = null
 begin
-    raise new ValidationError ["email"]
+    raise new ValidationError("email")
 rescue err
     if err is ValidationError
         error_type2 = "validation"
@@ -114,14 +114,14 @@ end
 assert error_type2 == "validation"
 
 # ── Exception in function ──
-fun risky_function []
+fun risky_function()
     raise "function error"
 end
 
 caught_func = false
 caught_func_val = null
 begin
-    risky_function []
+    risky_function()
 rescue e
     caught_func = true
     caught_func_val = e
@@ -130,27 +130,27 @@ assert caught_func
 assert caught_func_val == "function error"
 
 # ── Exception stops execution flow ──
-steps = {}
-fun step1 []
+steps = []
+fun step1()
     steps << "step1"
 end
-fun step2 []
+fun step2()
     steps << "step2"
     raise "fail at step2"
     steps << "unreachable"    # expect-warning: unreachable code after 'raise'
 end
-fun step3 []
+fun step3()
     steps << "step3"
 end
 
 begin
-    step1 []
-    step2 []
-    step3 []
+    step1()
+    step2()
+    step3()
 rescue e
     steps << "rescued"
 end
-assert steps == {"step1", "step2", "rescued"}
+assert steps == ["step1", "step2", "rescued"]
 
 # ── Nested begin/rescue ──
 outer_caught = false
@@ -168,17 +168,17 @@ assert inner_caught
 assert !outer_caught
 
 # ── Exception with class hierarchy ──
-class BaseException [msg]
+class BaseException(msg)
 end
-class SpecificException [msg, code] : BaseException [msg]
+class SpecificException(msg, code) : BaseException(msg)
 end
 
 result = null
 begin
-    raise new SpecificException ["detailed error", 404]
+    raise new SpecificException("detailed error", 404)
 rescue e
     if e is SpecificException
-        result = e :: code
+        result = e.code
     end
 end
 assert result == 404
@@ -196,7 +196,7 @@ end
 assert state == "in rescue -> ensure"
 
 # ── Exception in loop ──
-results = {}
+results = []
 loop i in 0..5
     caught_in_loop = false
     begin
@@ -208,4 +208,4 @@ loop i in 0..5
         results << "skipped"
     end
 end
-assert results == {0, 1, 2, "skipped", 4}
+assert results == [0, 1, 2, "skipped", 4]

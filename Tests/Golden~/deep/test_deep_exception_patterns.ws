@@ -2,48 +2,48 @@
 # exception data, nested rescue, cleanup patterns
 
 # ── 1. Custom exception hierarchy ──
-class AppError [message, code]
+class AppError(message, code)
 end
-class HttpError [message, code, status] : AppError [message, code]
+class HttpError(message, code, status) : AppError(message, code)
 end
-class NotFound [message, code, path] : HttpError [message, code, code]
+class NotFound(message, code, path) : HttpError(message, code, code)
 end
-class ServerError [message, code] : HttpError [message, code, code]
+class ServerError(message, code) : HttpError(message, code, code)
 end
 
 # ── 2. Exception handler dispatch ──
-fun handle [err]
+fun handle(err)
     if err is NotFound
         nf = err as NotFound
-        return "404: " + nf :: path
+        return "404: " + nf.path
     elif err is ServerError
-        return "500: " + err :: message
+        return "500: " + err.message
     elif err is HttpError
-        return "HTTP " + err :: code
+        return "HTTP " + err.code
     elif err is AppError
-        return "App: " + err :: message
+        return "App: " + err.message
     end
     return "unknown"
 end
 
 result = null
 begin
-    raise new NotFound ["not found", 404, "/api/user"]
+    raise new NotFound("not found", 404, "/api/user")
 rescue e
-    result = handle [e]
+    result = handle(e)
 end
 assert result == "404: /api/user"
 
 result = null
 begin
-    raise new ServerError ["disk full", 500]
+    raise new ServerError("disk full", 500)
 rescue e
-    result = handle [e]
+    result = handle(e)
 end
 assert result == "500: disk full"
 
 # ── 3. Instanceof checks on exception ──
-err = new NotFound ["missing", 404, "/test"]
+err = new NotFound("missing", 404, "/test")
 assert err is NotFound
 assert err is HttpError
 assert err is AppError
@@ -66,25 +66,25 @@ assert attempt == 3
 assert success
 
 # ── 5. Collecting errors from loop ──
-errors = {}
+errors = []
 loop i in 0..5
     begin
         if i == 1
-            raise new AppError ["bad input", 400]
+            raise new AppError("bad input", 400)
         elif i == 3
-            raise new AppError ["conflict", 409]
+            raise new AppError("conflict", 409)
         end
     rescue e
-        errors << e :: code
+        errors << e.code
     end
 end
-assert errors == {400, 409}
+assert errors == [400, 409]
 
 # ── 6. Exception with array data ──
-class BatchError [failed_items]
+class BatchError(failed_items)
 end
 
-failed = {}
+failed = []
 loop i in 0..8
     if i % 3 == 0
         failed << i
@@ -93,14 +93,14 @@ end
 
 caught_items = null
 begin
-    raise new BatchError [failed]
+    raise new BatchError(failed)
 rescue e
-    caught_items = e :: failed_items
+    caught_items = e.failed_items
 end
-assert caught_items == {0, 3, 6}
+assert caught_items == [0, 3, 6]
 
 # ── 7. Ensure runs before rescue propagation ──
-cleanup_order = {}
+cleanup_order = []
 begin
     begin
         cleanup_order << "inner_begin"
@@ -113,11 +113,11 @@ rescue e
 ensure
     cleanup_order << "outer_ensure"
 end
-assert cleanup_order == {"inner_begin", "inner_ensure", "outer_rescue", "outer_ensure"}
+assert cleanup_order == ["inner_begin", "inner_ensure", "outer_rescue", "outer_ensure"]
 
 # ── 8. Function that always cleans up ──
 resource_open = false
-fun use_resource []
+fun use_resource()
     global resource_open
     resource_open = true
     begin
@@ -128,7 +128,7 @@ fun use_resource []
 end
 
 begin
-    use_resource []
+    use_resource()
 rescue e
     # caught
 end
@@ -145,7 +145,7 @@ end
 assert err_msg == "User 42 not found"
 
 # ── 10. Sequential error handling ──
-log = {}
+log = []
 loop i in 0..4
     ok = false
     begin
@@ -160,4 +160,4 @@ loop i in 0..4
         log << "ok at " + i
     end
 end
-assert log == {"caught at 0", "ok at 1", "caught at 2", "ok at 3"}
+assert log == ["caught at 0", "ok at 1", "caught at 2", "ok at 3"]

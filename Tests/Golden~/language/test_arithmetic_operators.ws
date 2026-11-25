@@ -70,8 +70,8 @@ assert "hi" * 0 == ""
 assert 3 * "ab" == "ababab"
 
 # ── String subtraction (Replace removes ALL occurrences) ──
-assert Text_remove ["hello world", "world"] == "hello "
-assert Text_remove ["test", "xyz"] == "test"
+assert Text_remove("hello world", "world") == "hello "
+assert Text_remove("test", "xyz") == "test"
 
 # ── String concatenation via + ──
 assert "hello" + " " + "world" == "hello world"
@@ -79,10 +79,10 @@ assert "age: " + 25 == "age: 25"
 assert 10 + " items" == "10 items"
 
 # ── Array concatenation via + ──
-assert {1, 2} + {3, 4} == {1, 2, 3, 4}
-assert {} + {1} == {1}
-assert {1} + {} == {1}
-assert {} + {} == {}
+assert [1, 2] + [3, 4] == [1, 2, 3, 4]
+assert [] + [1] == [1]
+assert [1] + [] == [1]
+assert [] + [] == []
 
 # ── Chained arithmetic ──
 assert 2 + 3 * 4 == 14

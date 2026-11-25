@@ -35,10 +35,10 @@ namespace Tests
         public void AnUnknownProperty_IsACompileError_AtItsName_AndInstallsNothing()
         {
             var (script, _) = Script(
-                "class Unit [hp]\n" +
+                "class Unit(hp)\n" +
                 "end\n" +
-                "fun probe [u]\n" +
-                "    return 1 + u :: hpp\n" +
+                "fun probe(u)\n" +
+                "    return 1 + u.hpp\n" +
                 "end\n");
 
             var result = script.Compile();
@@ -48,7 +48,7 @@ namespace Tests
             Assert.AreEqual("'hpp' is not a field or method of any class", error.Message);
             Assert.AreEqual("main", error.ScriptName);
             Assert.AreEqual(4, error.Line);
-            Assert.AreEqual(21, error.Column, "at the property name");
+            Assert.AreEqual(18, error.Column, "at the property name");
             Assert.IsNull(script.GetFunction("probe", 1));
             Assert.AreEqual(ScriptErrorKind.CompileError, script.Run().Error.Kind);
         }
@@ -58,13 +58,13 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "fun team_of [u]\n    return u :: team\nend\n",
+                ["lib"] = "fun team_of(u)\n    return u.team\nend\n",
             };
             var (script, output) = Script(
                 "import \"lib\"\n" +
-                "class Unit [team]\n" +
+                "class Unit(team)\n" +
                 "end\n" +
-                "print team_of [new Unit [\"red\"]]\n", files);
+                "print team_of(new Unit(\"red\"))\n", files);
 
             Assert.IsTrue(script.Compile().Success);
             Assert.IsTrue(script.Run().IsOk);
@@ -80,8 +80,8 @@ namespace Tests
             };
             var (script, _) = Script(
                 "import \"lib\"\n" +
-                "print Team :: BLUE\n" +
-                "print Team :: GREEN\n", files);
+                "print Team.BLUE\n" +
+                "print Team.GREEN\n", files);
 
             var result = script.Compile();
 
@@ -96,11 +96,11 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "x = 1\nfun team_of [u]\n    return u :: taem\nend\n",
+                ["lib"] = "x = 1\nfun team_of(u)\n    return u.taem\nend\n",
             };
             var (script, _) = Script(
                 "import \"lib\"\n" +
-                "class Unit [team]\n" +
+                "class Unit(team)\n" +
                 "end\n", files);
 
             var result = script.Compile();
@@ -109,7 +109,7 @@ namespace Tests
             Assert.AreEqual("'taem' is not a field or method of any class", result.Diagnostics[0].Message);
             Assert.AreEqual("lib", result.Diagnostics[0].ScriptName);
             Assert.AreEqual(3, result.Diagnostics[0].Line);
-            Assert.AreEqual("    return u :: taem", script.Run().Error.SourceLine, "the import's line");
+            Assert.AreEqual("    return u.taem", script.Run().Error.SourceLine, "the import's line");
         }
 
         [Test]
@@ -122,11 +122,11 @@ namespace Tests
                 "    enum Kind\n" +
                 "        A\n" +
                 "    end\n" +
-                "    fun probe []\n" +
-                "        return @Kind :: A\n" +
+                "    fun probe()\n" +
+                "        return @Kind.A\n" +
                 "    end\n" +
                 "end\n" +
-                "x = (new Unit []) :: Kind :: A\n");
+                "x = (new Unit()).Kind.A\n");
 
             Assert.IsTrue(script.Compile().Success, string.Join("; ", script.Compile().Diagnostics));
         }
@@ -136,7 +136,7 @@ namespace Tests
         {
             // What the binding generator emits for a [WsEnum]: a class
             // registered without fields, its instance a host constant.
-            var source = "print Team :: RED\nprint Team :: name [0]\nx = Team :: GREEN\n";
+            var source = "print Team.RED\nprint Team.name(0)\nx = Team.GREEN\n";
             var (script, _) = Script(source);
             RegisterHostEnum(script, "Team", "RED");
 
@@ -152,7 +152,7 @@ namespace Tests
         {
             // The VM accepts any field of such a class, so the compiler
             // cannot prove a name unknown.
-            var (script, _) = Script("fun probe [u]\n    return u :: anything\nend\n");
+            var (script, _) = Script("fun probe(u)\n    return u.anything\nend\n");
             var details = new ClassDetails("Gadget", new List<string>());
             script.GlobalDefinitionScope.AddClass(new ClassDefinition(details, new List<ClassDetails>(),
                 new ClassStatement(script, 0, "Gadget"), new DefinitionScope(script, null)));

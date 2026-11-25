@@ -9,50 +9,50 @@
 # ── A global (IndexSetGlobal) ──
 s = "abcde"
 begin
-    s{0} = "X"
+    s[0] = "X"
 rescue e
     print e
 end
 assert s == "abcde"
 
 # ── A parameter and a local (IndexSetLocal) ──
-fun replace_first [s, c]
+fun replace_first(s, c)
     t = s
     begin
-        t{0} = c
+        t[0] = c
     rescue e
         print "local: " + e
     end
     begin
-        s{0} = c
+        s[0] = c
     rescue e2
         print "parameter: " + e2
     end
     return t
 end
-assert replace_first ["world", "W"] == "world"
+assert replace_first("world", "W") == "world"
 
 # ── A property (IndexSetProp) ──
-class Label [text]
+class Label(text)
 end
-lbl = new Label ["hello"]
+lbl = new Label("hello")
 begin
-    lbl :: text{0} = "H"
+    lbl.text[0] = "H"
 rescue e3
     print "property: " + e3
 end
-assert lbl :: text == "hello"
+assert lbl.text == "hello"
 
 # ── Out of bounds is still TypeError: the write itself is not allowed ──
 begin
-    s{99} = "X"
+    s[99] = "X"
 rescue e5
     print "out of bounds: " + e5
 end
 
 # ── Building a new text instead ──
 w = "hello"
-w = "H" + w{1} + w{2} + w{3} + w{4}
+w = "H" + w[1] + w[2] + w[3] + w[4]
 assert w == "Hello"
 
 # expect: Cannot assign to an index of text: text is immutable

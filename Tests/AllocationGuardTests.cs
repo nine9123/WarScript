@@ -34,7 +34,7 @@ namespace Tests
             var output = RunWithLimits(setup + @"
 begin
     r = " + expression + @"
-    print Array_length [r]
+    print Array_length(r)
 rescue e
     print e
 end", maxText, maxArray);
@@ -102,43 +102,43 @@ end", maxText);
         [Test]
         public void ArrayConcatenation_AtTheLimitSucceeds_PastItFails()
         {
-            Assert.AreEqual("3", Outcome("", "{1, 2} + {3}", maxArray: 3));
-            Assert.AreEqual("Array too long", Outcome("", "{1, 2} + {3, 4}", maxArray: 3));
-            Assert.AreEqual("Array too long", Outcome("", "{} + {1, 2, 3, 4}", maxArray: 3));
+            Assert.AreEqual("3", Outcome("", "[1, 2] + [3]", maxArray: 3));
+            Assert.AreEqual("Array too long", Outcome("", "[1, 2] + [3, 4]", maxArray: 3));
+            Assert.AreEqual("Array too long", Outcome("", "[] + [1, 2, 3, 4]", maxArray: 3));
         }
 
         [Test]
         public void Append_AtTheLimitSucceeds_PastItFails()
         {
-            Assert.AreEqual("3", Outcome("a = {1, 2}", "a << 3", maxArray: 3));
-            Assert.AreEqual("Array too long", Outcome("a = {1, 2, 3}", "a << 4", maxArray: 3));
+            Assert.AreEqual("3", Outcome("a = [1, 2]", "a << 3", maxArray: 3));
+            Assert.AreEqual("Array too long", Outcome("a = [1, 2, 3]", "a << 4", maxArray: 3));
         }
 
         [Test]
         public void Literal_AtTheLimitSucceeds_PastItFails()
         {
-            Assert.AreEqual("3", Outcome("", "{1, 2, 3}", maxArray: 3));
-            Assert.AreEqual("Array too long", Outcome("", "{1, 2, 3, 4}", maxArray: 3));
+            Assert.AreEqual("3", Outcome("", "[1, 2, 3]", maxArray: 3));
+            Assert.AreEqual("Array too long", Outcome("", "[1, 2, 3, 4]", maxArray: 3));
         }
 
         [Test]
         public void ArrayInsert_AtTheLimitSucceeds_PastItFails()
         {
-            Assert.AreEqual("3", Outcome("a = {1, 2}", "Array_insert [a, 0, 9]", maxArray: 3));
-            Assert.AreEqual("Array too long", Outcome("a = {1, 2, 3}", "Array_insert [a, 0, 9]", maxArray: 3));
+            Assert.AreEqual("3", Outcome("a = [1, 2]", "Array_insert(a, 0, 9)", maxArray: 3));
+            Assert.AreEqual("Array too long", Outcome("a = [1, 2, 3]", "Array_insert(a, 0, 9)", maxArray: 3));
         }
 
         [Test]
         public void FailedAppend_LeavesTheArrayUnchanged()
         {
             var output = RunWithLimits(@"
-a = {1, 2, 3}
+a = [1, 2, 3]
 begin
     a << 4
 rescue e
     print e
 end
-print Array_length [a]", maxArray: 3);
+print Array_length(a)", maxArray: 3);
             CollectionAssert.AreEqual(new[] { "Array too long", "3" }, output);
         }
 
@@ -166,7 +166,7 @@ end", maxText: int.MaxValue, memoryBudget: 1000);
             // 64 + 10 * 16 allows exactly 10 appends; the 11th fails before
             // it changes the array.
             var output = RunWithLimits(@"
-a = {}
+a = []
 begin
     loop true
         a << 1
@@ -174,7 +174,7 @@ begin
 rescue e
     print e
 end
-print Array_length [a]", memoryBudget: 64 + 10 * 16);
+print Array_length(a)", memoryBudget: 64 + 10 * 16);
             CollectionAssert.AreEqual(new[] { "Memory budget exceeded", "10" }, output);
         }
 
@@ -185,20 +185,20 @@ print Array_length [a]", memoryBudget: 64 + 10 * 16);
             // 16 + 96: the derived part fits the budget, its base part does
             // not. No constructor body may run once the budget error is raised.
             var output = RunWithLimits(@"
-log = {}
-class B [x]
+log = []
+class B(x)
     log << ""B ctor""
 end
-class D [x] : B [x]
+class D(x) : B(x)
     log << ""D ctor""
 end
 begin
-    d = new D [1]
+    d = new D(1)
     print ""created""
 rescue e
     print e
 end
-print Array_length [log]", memoryBudget: 2 * 112 - 1 + 64);
+print Array_length(log)", memoryBudget: 2 * 112 - 1 + 64);
             CollectionAssert.AreEqual(new[] { "Memory budget exceeded", "0" }, output);
         }
     }

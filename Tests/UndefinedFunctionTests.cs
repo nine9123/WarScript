@@ -36,9 +36,9 @@ namespace Tests
         public void AnUndefinedCall_IsACompileError_AtTheName_AndInstallsNothing()
         {
             var (script, output) = Script(
-                "fun helper []\n" +
+                "fun helper()\n" +
                 "end\n" +
-                "x = 1 + nope [2]\n");
+                "x = 1 + nope(2)\n");
 
             var result = script.Compile();
 
@@ -55,11 +55,11 @@ namespace Tests
         [Test]
         public void ANative_IsKnown_WithItsArity()
         {
-            var (script, output) = Script("print twice [3]\n");
+            var (script, output) = Script("print twice(3)\n");
             Assert.IsTrue(script.Run().IsOk);
             Assert.AreEqual(new[] { "6" }, output);
 
-            var (wrong, _) = Script("print twice [3, 4]\n");
+            var (wrong, _) = Script("print twice(3, 4)\n");
             Assert.AreEqual("Function 'twice' takes 1 argument, not 2", wrong.Compile().Diagnostics[0].Message);
         }
 
@@ -69,7 +69,7 @@ namespace Tests
             // Any value: the VM's fallback decides at runtime.
             var (script, output) = Script(
                 "begin\n" +
-                "    HOST_HOOK [1]\n" +
+                "    HOST_HOOK(1)\n" +
                 "rescue e\n" +
                 "    print e\n" +
                 "end\n");
@@ -82,10 +82,10 @@ namespace Tests
         [Test]
         public void AGlobalTheInstanceHolds_IsKnown_AfterAReload()
         {
-            var (script, output) = Script("op = fun [x] return x + 1 end\n");
+            var (script, output) = Script("op = fun(x) return x + 1 end\n");
             Assert.IsTrue(script.Run().IsOk);
 
-            script.Reload("print op [4]\n");
+            script.Reload("print op(4)\n");
 
             Assert.IsTrue(script.Run().IsOk);
             Assert.AreEqual(new[] { "5" }, output);
@@ -96,12 +96,12 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "fun from_lib []\n    return from_main [] + 1\nend\n",
+                ["lib"] = "fun from_lib()\n    return from_main() + 1\nend\n",
             };
             var (script, output) = Script(
                 "import \"lib\"\n" +
-                "fun from_main []\n    return 3\nend\n" +
-                "print from_lib []\n", files);
+                "fun from_main()\n    return 3\nend\n" +
+                "print from_lib()\n", files);
 
             Assert.IsTrue(script.Run().IsOk);
             Assert.AreEqual(new[] { "4" }, output);
@@ -110,7 +110,7 @@ namespace Tests
         [Test]
         public void AnUndefinedCallInAnImport_IsReportedInTheImport()
         {
-            var files = new Dictionary<string, string> { ["lib"] = "\ny = missing []\n" };
+            var files = new Dictionary<string, string> { ["lib"] = "\ny = missing()\n" };
             var (script, _) = Script("import \"lib\"\n", files);
 
             var result = script.Compile();
@@ -127,15 +127,15 @@ namespace Tests
             // Which globals a bytecode import writes (one may hold a function
             // value) is not known at compile time, so the call compiles; the
             // VM is the backstop.
-            var lib = new WarScriptLanguage("lib", "fun known [] return 1 end\n", null, null);
+            var lib = new WarScriptLanguage("lib", "fun known() return 1 end\n", null, null);
             var stream = new System.IO.MemoryStream();
             lib.SaveBytecode(stream);
             var bytes = stream.ToArray();
             var (script, output) = Script(
                 "import \"lib\"\n" +
-                "print known []\n" +
+                "print known()\n" +
                 "begin\n" +
-                "    unknown []\n" +
+                "    unknown()\n" +
                 "rescue e\n" +
                 "    print e\n" +
                 "end\n",
@@ -149,8 +149,8 @@ namespace Tests
         public void ATailCall_IsChecked()
         {
             var (script, _) = Script(
-                "fun f [n]\n" +
-                "    return g [n]\n" +
+                "fun f(n)\n" +
+                "    return g(n)\n" +
                 "end\n");
             var result = script.Compile();
             Assert.AreEqual("Function 'g' is not defined", result.Diagnostics[0].Message);

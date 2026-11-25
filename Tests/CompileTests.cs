@@ -25,7 +25,7 @@ namespace Tests
             return (script, output);
         }
 
-        private const string Valid = "print \"top\"\nfun f [a]\n    return a + 1\nend\n";
+        private const string Valid = "print \"top\"\nfun f(a)\n    return a + 1\nend\n";
 
         // ── Success ─────────────────────────────────────────────
 
@@ -62,7 +62,7 @@ namespace Tests
         [Test]
         public void Call_AfterCompile_RunsTheFunction()
         {
-            var (script, output) = Script("fun f [a]\n    print a * 2\nend\n");
+            var (script, output) = Script("fun f(a)\n    print a * 2\nend\n");
             Assert.IsTrue(script.Compile().Success);
 
             script.Call(script.GetFunction("f", 1), WarValue.FromNumeric(21));
@@ -73,7 +73,7 @@ namespace Tests
         [Test]
         public void StartCoroutine_BeforeRun_CompilesTheScript()
         {
-            var (script, output) = Script("print \"top\"\nfun co []\n    print \"a\"\n    yield\n    print \"b\"\nend\n");
+            var (script, output) = Script("print \"top\"\nfun co()\n    print \"a\"\n    yield\n    print \"b\"\nend\n");
 
             var id = script.StartCoroutine("co", null);
 
@@ -122,7 +122,7 @@ namespace Tests
         public void CompilerLimitError_CarriesItsReasonAndLine()
         {
             var args = string.Join(", ", Enumerable.Range(0, 256).Select(i => "1"));
-            var (script, _) = Script("fun f [a]\nend\nx = 1\nf [" + args + "]\n");
+            var (script, _) = Script("fun f(a)\nend\nx = 1\nf(" + args + ")\n");
 
             var result = script.Compile();
 
@@ -142,7 +142,7 @@ namespace Tests
         [Test]
         public void FailedCompile_IsCached_AndLeavesNoDefinitions()
         {
-            var (script, output) = Script("fun f []\n    return 1\nend\nprint \"top\"\nx = (\n");
+            var (script, output) = Script("fun f()\n    return 1\nend\nprint \"top\"\nx = (\n");
 
             var first = script.Compile();
 
@@ -166,7 +166,7 @@ namespace Tests
         [Test]
         public void EntryPoints_ReturnTheCompileError_WithContextsRestored()
         {
-            var (script, output) = Script("print \"top\"\nfun co []\n    yield\nend\nx = (\n");
+            var (script, output) = Script("print \"top\"\nfun co()\n    yield\nend\nx = (\n");
             var before = Invariants.Capture(script);
             var diagnostic = script.Compile().Diagnostics[0];
 
@@ -200,12 +200,12 @@ namespace Tests
             script.Run();
             var ok = script.Compile();
 
-            Assert.Throws<SyntaxException>(() => script.Reload("fun g [\n"));
+            Assert.Throws<SyntaxException>(() => script.Reload("fun g(\n"));
             var failed = script.Compile();
             Assert.IsFalse(failed.Success);
             Assert.IsNull(script.GetFunction("f", 1));
 
-            script.Reload("fun g []\n    print \"g\"\nend\n");
+            script.Reload("fun g()\n    print \"g\"\nend\n");
             var again = script.Compile();
             Assert.IsTrue(again.Success);
             Assert.AreNotSame(failed, again);

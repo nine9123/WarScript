@@ -86,34 +86,34 @@ namespace Tests
         {
             var manifest = NativeManifest.Parse(Sample);
             var good = Script(
-                "u = spawn_unit [\"orc\"]\n" +
-                "v = new Unit [\"x\"]\n" +
-                "v :: move [1, 2]\n" +
-                "print v :: hp\n" +
+                "u = spawn_unit(\"orc\")\n" +
+                "v = new Unit(\"x\")\n" +
+                "v.move(1, 2)\n" +
+                "print v.hp\n" +
                 "print player\n" +
                 "print MAX_UNITS\n" +
-                "print Team :: Neutral\n", manifest).script.Compile();
+                "print Team.Neutral\n", manifest).script.Compile();
             Assert.IsTrue(good.Success, FirstDiagnostic(good));
 
             Assert.AreEqual("Function 'spawn_unit' takes 1 or 2 arguments, not 3",
-                FirstDiagnostic(Script("spawn_unit [1, 2, 3]\n", manifest).script.Compile()));
+                FirstDiagnostic(Script("spawn_unit(1, 2, 3)\n", manifest).script.Compile()));
             Assert.AreEqual("Class 'Unit' takes 1 argument, not 0",
-                FirstDiagnostic(Script("u = new Unit []\n", manifest).script.Compile()));
+                FirstDiagnostic(Script("u = new Unit()\n", manifest).script.Compile()));
             Assert.AreEqual("'speed' is not a field or method of any class",
-                FirstDiagnostic(Script("fun f [u]\n    return u :: speed\nend\n", manifest).script.Compile()));
+                FirstDiagnostic(Script("fun f(u)\n    return u.speed\nend\n", manifest).script.Compile()));
             Assert.AreEqual("Cannot reassign constant 'MAX_UNITS'",
                 FirstDiagnostic(Script("MAX_UNITS = 3\n", manifest).script.Compile()));
             Assert.AreEqual("undefined variable 'nobody'",
                 FirstDiagnostic(Script("print nobody\n", manifest).script.Compile()));
             Assert.AreEqual("Function 'spawn_unit' with 1 argument shadows a native function",
-                FirstDiagnostic(Script("fun spawn_unit [k]\n    return k\nend\n", manifest).script.Compile()));
+                FirstDiagnostic(Script("fun spawn_unit(k)\n    return k\nend\n", manifest).script.Compile()));
         }
 
         [Test]
         public void AClassWithoutAFieldsLine_AcceptsAnyProperty()
         {
             var manifest = NativeManifest.Parse("warscript-manifest 1\nclass Unit kind\n");
-            var result = Script("fun f [u]\n    return u :: anything\nend\n", manifest).script.Compile();
+            var result = Script("fun f(u)\n    return u.anything\nend\n", manifest).script.Compile();
             Assert.IsTrue(result.Success, FirstDiagnostic(result));
         }
 
@@ -121,11 +121,11 @@ namespace Tests
         public void AStubThatRuns_RaisesARescuableError_AndAnEnumWorks()
         {
             var (script, output) = Script(
-                "print Team :: name [1]\n" +
-                "print Team :: values\n" +
+                "print Team.name(1)\n" +
+                "print Team.values\n" +
                 "print player\n" +
                 "begin\n" +
-                "    spawn_unit [\"orc\"]\n" +
+                "    spawn_unit(\"orc\")\n" +
                 "rescue e\n" +
                 "    print e\n" +
                 "end\n", NativeManifest.Parse(Sample));
@@ -144,7 +144,7 @@ namespace Tests
         public void ARegisteredNative_WinsOverTheManifest()
         {
             var output = new List<string>();
-            var script = new WarScriptLanguage("main", "print abs [-2]\nprint MAX\n", null, (s, msg) => output.Add(msg));
+            var script = new WarScriptLanguage("main", "print abs(-2)\nprint MAX\n", null, (s, msg) => output.Add(msg));
             WarScriptLibraryRegistry.RegisterAll(script, script.GlobalDefinitionScope);
             script.GlobalMemoryScope.Set("MAX", WarValue.FromNumeric(5));
             NativeManifest.Parse("warscript-manifest 1\nfunction abs 1 x\nconst MAX\n").Register(script);
@@ -223,22 +223,22 @@ namespace Tests
             Assert.AreEqual("Cannot apply '-' to text and number",
                 FirstDiagnostic(Script("x = TITLE - 1\n", manifest).script.Compile()));
             Assert.AreEqual("Cannot apply '<<' to number and number",
-                FirstDiagnostic(Script("x = Team :: Blue << 1\n", manifest).script.Compile()));
+                FirstDiagnostic(Script("x = Team.Blue << 1\n", manifest).script.Compile()));
             Assert.AreEqual("Cannot apply '-' to text and number",
-                FirstDiagnostic(Script("x = Team :: name [0] - 1\n", manifest).script.Compile()));
+                FirstDiagnostic(Script("x = Team.name(0) - 1\n", manifest).script.Compile()));
             Assert.AreEqual("Cannot apply '-' to array and number",
-                FirstDiagnostic(Script("x = Team :: values - 1\n", manifest).script.Compile()));
+                FirstDiagnostic(Script("x = Team.values - 1\n", manifest).script.Compile()));
 
             // No type, or a name the script cannot rely on: not typed.
             Assert.IsTrue(Script("x = ANY - \"x\"\n", manifest).script.Compile().Success, "untyped");
             Assert.IsTrue(Script("x = player - \"x\"\n", manifest).script.Compile().Success, "a host global");
-            Assert.IsTrue(Script("x = Team :: name - 1\n", manifest).script.Compile().Success, "name read as a field");
+            Assert.IsTrue(Script("x = Team.name - 1\n", manifest).script.Compile().Success, "name read as a field");
         }
 
         [Test]
         public void AHostConstantsValue_TypesOperands_AndIsCaptured()
         {
-            var (script, _) = Script("x = TAG * TAG\ny = LIMIT + {1}\n", NativeManifest.Parse("warscript-manifest 2\n"));
+            var (script, _) = Script("x = TAG * TAG\ny = LIMIT + [1]\n", NativeManifest.Parse("warscript-manifest 2\n"));
             script.GlobalMemoryScope.Set("TAG", WarValue.FromText("t"));
             script.ConstantNames.Add("TAG");
             script.GlobalMemoryScope.Set("LIMIT", WarValue.FromNumeric(3));
@@ -255,7 +255,7 @@ namespace Tests
         [Test]
         public void AManifestEnumsMembers_AreConstant()
         {
-            var (script, _) = Script("t = Team\nt :: Red = 5\n", NativeManifest.Parse(Sample));
+            var (script, _) = Script("t = Team\nt.Red = 5\n", NativeManifest.Parse(Sample));
             var result = script.Run();
             Assert.AreEqual(ScriptErrorKind.TypeError, result.Error.Kind);
             Assert.AreEqual("Cannot assign to 'Red' of enum 'Team': enum members are constant", result.Error.Message);
@@ -309,8 +309,8 @@ namespace Tests
             try
             {
                 File.WriteAllText(Path.Combine(dir, "game.wsmanifest"), Sample);
-                File.WriteAllText(Path.Combine(dir, "good.ws"), "u = spawn_unit [\"orc\"]\n");
-                File.WriteAllText(Path.Combine(dir, "bad.ws"), "x = 1\nu = spawn_unit []\n");
+                File.WriteAllText(Path.Combine(dir, "good.ws"), "u = spawn_unit(\"orc\")\n");
+                File.WriteAllText(Path.Combine(dir, "bad.ws"), "x = 1\nu = spawn_unit()\n");
 
                 var (goodExit, good) = RunRunner(runner, dir, "good.ws");
                 Assert.AreEqual(0, goodExit, good);
@@ -341,8 +341,8 @@ namespace Tests
             try
             {
                 File.WriteAllText(Path.Combine(dir, "game.wsmanifest"), Sample);
-                File.WriteAllText(Path.Combine(dir, "lib", "a.ws"), "import \"lib/b.ws\"\nu = spawn_unit [helper []]\n");
-                File.WriteAllText(Path.Combine(dir, "lib", "b.ws"), "fun helper []\n    x = 1\n    return \"orc\"\nend\n");
+                File.WriteAllText(Path.Combine(dir, "lib", "a.ws"), "import \"lib/b.ws\"\nu = spawn_unit(helper())\n");
+                File.WriteAllText(Path.Combine(dir, "lib", "b.ws"), "fun helper()\n    x = 1\n    return \"orc\"\nend\n");
 
                 var (_, fromFolder) = RunRunner(runner, dir, Path.Combine("lib", "a.ws"));
                 StringAssert.Contains("Import 'lib/b.ws' not found", fromFolder);

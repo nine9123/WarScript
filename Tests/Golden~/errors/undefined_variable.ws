@@ -8,9 +8,9 @@ if false
 end
 n = null
 print n
-fun read_it [] return nowhere end
+fun read_it() return nowhere end
 begin
-    read_it []
+    read_it()
 rescue e
     print e
 end

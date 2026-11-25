@@ -193,11 +193,11 @@ namespace Tests
             {
                 T(TokenType.Keyword, "class", 1),
                 T(TokenType.Variable, "Person", 1),
-                T(TokenType.GroupDivider, "[", 1),
+                T(TokenType.GroupDivider, "(", 1),
                 T(TokenType.Variable, "name", 1),
                 T(TokenType.GroupDivider, ",", 1),
                 T(TokenType.Variable, "age", 1),
-                T(TokenType.GroupDivider, "]", 1),
+                T(TokenType.GroupDivider, ")", 1),
                 T(TokenType.LineBreak, "\n", 1),
                 T(TokenType.Keyword, "end", 2),
                 T(TokenType.LineBreak, "\n", 2),
@@ -205,21 +205,21 @@ namespace Tests
                 T(TokenType.Operator, "=", 3),
                 T(TokenType.Operator, "new", 3),
                 T(TokenType.Variable, "Person", 3),
-                T(TokenType.GroupDivider, "[", 3),
+                T(TokenType.GroupDivider, "(", 3),
                 T(TokenType.Text, "Randy Marsh", 3),
                 T(TokenType.GroupDivider, ",", 3),
                 T(TokenType.Numeric, "45", 3),
-                T(TokenType.GroupDivider, "]", 3),
+                T(TokenType.GroupDivider, ")", 3),
                 T(TokenType.LineBreak, "\n", 3),
                 T(TokenType.Keyword, "print", 4),
                 T(TokenType.Variable, "person", 4),
-                T(TokenType.Operator, "::", 4),
+                T(TokenType.Operator, ".", 4),
                 T(TokenType.Variable, "name", 4),
                 T(TokenType.Operator, "+", 4),
                 T(TokenType.Text, " is ", 4),
                 T(TokenType.Operator, "+", 4),
                 T(TokenType.Variable, "person", 4),
-                T(TokenType.Operator, "::", 4),
+                T(TokenType.Operator, ".", 4),
                 T(TokenType.Variable, "age", 4),
                 T(TokenType.Operator, "+", 4),
                 T(TokenType.Text, " years old", 4)
@@ -301,7 +301,7 @@ namespace Tests
         {
             // T3.3: the module structure (imports, top-level statements, definitions).
             var module = StatementParser.ParseModule(_script,
-                LexicalParser.Parse("# lib\nimport \"a\"\nimport \"b\"\nfun f [] return 1 end\nx = f []"), "m");
+                LexicalParser.Parse("# lib\nimport \"a\"\nimport \"b\"\nfun f() return 1 end\nx = f()"), "m");
 
             Assert.AreEqual(new[] { "a", "b" }, module.Imports.Select(i => i.Path).ToArray());
             Assert.AreEqual(3, module.TopLevel.StatementsToExecute.Count);
@@ -314,7 +314,7 @@ namespace Tests
         public void GlobalStatement_HoldsItsNames()
         {
             var module = StatementParser.ParseModule(_script,
-                LexicalParser.Parse("fun f []\n    global a, b,\n        c\n    a = 1\nend"), "m");
+                LexicalParser.Parse("fun f()\n    global a, b,\n        c\n    a = 1\nend"), "m");
 
             var body = module.Definitions.GetFunction("f", 0).Statement.StatementsToExecute;
             Assert.IsInstanceOf<GlobalStatement>(body[0]);
@@ -322,9 +322,9 @@ namespace Tests
             Assert.AreEqual((2, 5), (body[0].RowNumber, body[0].Column));
         }
 
-        [TestCase("fun f []\n    global\nend")]
-        [TestCase("fun f []\n    global a,\nend")]
-        [TestCase("fun f []\n    global 1\nend")]
+        [TestCase("fun f()\n    global\nend")]
+        [TestCase("fun f()\n    global a,\nend")]
+        [TestCase("fun f()\n    global 1\nend")]
         public void GlobalStatement_WithoutNames_IsASyntaxError(string source)
         {
             Assert.Throws<WarScript.Exception.SyntaxException>(() =>

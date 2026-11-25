@@ -36,9 +36,9 @@ namespace Tests
         public void AFunctionShadowingANative_IsACompileError_AtItsName_AndInstallsNothing()
         {
             var (script, output) = Script(
-                "fun helper []\n" +
+                "fun helper()\n" +
                 "end\n" +
-                "fun twice [a]\n" +
+                "fun twice(a)\n" +
                 "    return a\n" +
                 "end\n");
 
@@ -58,8 +58,8 @@ namespace Tests
         public void AFunctionInsideAFunction_ShadowingANative_IsACompileError()
         {
             var (script, _) = Script(
-                "fun outer []\n" +
-                "    fun twice [a]\n" +
+                "fun outer()\n" +
+                "    fun twice(a)\n" +
                 "        return a\n" +
                 "    end\n" +
                 "end\n");
@@ -75,17 +75,17 @@ namespace Tests
         public void AMethodNamedLikeANative_Compiles_AndStillLogs()
         {
             var (script, output) = Script(
-                "class C []\n" +
-                "    fun twice [a]\n" +
+                "class C()\n" +
+                "    fun twice(a)\n" +
                 "        return a\n" +
                 "    end\n" +
-                "    fun call [a]\n" +
-                "        return twice [a]\n" +
+                "    fun call(a)\n" +
+                "        return twice(a)\n" +
                 "    end\n" +
                 "end\n" +
-                "c = new C []\n" +
-                "print c :: call [3]\n" +
-                "print twice [3]\n");
+                "c = new C()\n" +
+                "print c.call(3)\n" +
+                "print twice(3)\n");
 
             Assert.IsTrue(script.Run().IsOk);
 
@@ -96,11 +96,11 @@ namespace Tests
         public void AFunctionOfAnotherArity_Compiles()
         {
             var (script, output) = Script(
-                "fun twice [a, b]\n" +
+                "fun twice(a, b)\n" +
                 "    return a + b\n" +
                 "end\n" +
-                "print twice [3]\n" +
-                "print twice [3, 4]\n");
+                "print twice(3)\n" +
+                "print twice(3, 4)\n");
 
             Assert.IsTrue(script.Run().IsOk);
 
@@ -112,13 +112,13 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "fun is_unit [v]\n    return v is Unit\nend\n",
+                ["lib"] = "fun is_unit(v)\n    return v is Unit\nend\n",
             };
             var (script, output) = Script(
                 "import \"lib\"\n" +
                 "class Unit\n" +
                 "end\n" +
-                "print is_unit [new Unit []]\n", files);
+                "print is_unit(new Unit())\n", files);
 
             Assert.IsTrue(script.Run().IsOk, script.Fault?.ToString());
 
@@ -130,7 +130,7 @@ namespace Tests
         {
             var files = new Dictionary<string, string>
             {
-                ["lib"] = "fun is_unit [v]\n    return v as Unti\nend\n",
+                ["lib"] = "fun is_unit(v)\n    return v as Unti\nend\n",
             };
             var (script, _) = Script("import \"lib\"\nclass Unit\nend\n", files);
 

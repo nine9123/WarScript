@@ -15,11 +15,11 @@ namespace Tests
         public void RepeatedPropertyReadUsesCache()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class Entity [name, hp]
+                class Entity(name, hp)
                 end
-                e = new Entity [""Hero"", 100]
+                e = new Entity(""Hero"", 100)
                 loop i in 0..100
-                    print e :: hp
+                    print e.hp
                 end
             ");
             Assert.AreEqual(100, output.Count);
@@ -31,13 +31,13 @@ namespace Tests
         public void RepeatedPropertyWriteUsesCache()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class Counter [value]
+                class Counter(value)
                 end
-                c = new Counter [0]
+                c = new Counter(0)
                 loop i in 0..100
-                    c :: value = c :: value + 1
+                    c.value = c.value + 1
                 end
-                print c :: value
+                print c.value
             ");
             Assert.AreEqual(new[] { "100" }, output);
         }
@@ -46,14 +46,14 @@ namespace Tests
         public void MethodAccessWithCachedProperties()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class Entity [name, hp]
-                    fun status []
-                        print this :: name + "": "" + this :: hp
+                class Entity(name, hp)
+                    fun status()
+                        print this.name + "": "" + this.hp
                     end
                 end
-                e = new Entity [""Warrior"", 50]
+                e = new Entity(""Warrior"", 50)
                 loop i in 0..3
-                    e :: status []
+                    e.status()
                 end
             ");
             Assert.AreEqual(3, output.Count);
@@ -68,16 +68,16 @@ namespace Tests
             // The same GetProperty bytecode site sees different class types.
             // Cache should invalidate and re-fill on type change.
             var (_, output) = TestHelper.Run("test", @"
-                class Cat [name, sound]
+                class Cat(name, sound)
                 end
-                class Dog [name, sound]
+                class Dog(name, sound)
                 end
-                fun speak [animal]
-                    print animal :: name + "": "" + animal :: sound
+                fun speak(animal)
+                    print animal.name + "": "" + animal.sound
                 end
-                speak [new Cat [""Whiskers"", ""meow""]]
-                speak [new Dog [""Rex"", ""woof""]]
-                speak [new Cat [""Luna"", ""purr""]]
+                speak(new Cat(""Whiskers"", ""meow""))
+                speak(new Dog(""Rex"", ""woof""))
+                speak(new Cat(""Luna"", ""purr""))
             ");
             Assert.AreEqual(new[] { "Whiskers: meow", "Rex: woof", "Luna: purr" }, output);
         }
@@ -86,17 +86,17 @@ namespace Tests
         public void PolymorphicPropertyWrite()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class A [x]
+                class A(x)
                 end
-                class B [x]
+                class B(x)
                 end
-                fun set_x [obj, val]
-                    obj :: x = val
-                    print obj :: x
+                fun set_x(obj, val)
+                    obj.x = val
+                    print obj.x
                 end
-                set_x [new A [0], 10]
-                set_x [new B [0], 20]
-                set_x [new A [0], 30]
+                set_x(new A(0), 10)
+                set_x(new B(0), 20)
+                set_x(new A(0), 30)
             ");
             Assert.AreEqual(new[] { "10", "20", "30" }, output);
         }
@@ -107,13 +107,13 @@ namespace Tests
         public void InheritedPropertyCached()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class Animal [name]
+                class Animal(name)
                 end
-                class Dog [name, breed] : Animal [name]
+                class Dog(name, breed) : Animal(name)
                 end
-                d = new Dog [""Rex"", ""Lab""]
-                print d :: name
-                print d :: breed
+                d = new Dog(""Rex"", ""Lab"")
+                print d.name
+                print d.breed
             ");
             Assert.AreEqual(new[] { "Rex", "Lab" }, output);
         }
@@ -123,14 +123,14 @@ namespace Tests
         {
             // Shared ValueReferences: mutating via derived updates base
             var (_, output) = TestHelper.Run("test", @"
-                class Animal [name, hp]
+                class Animal(name, hp)
                 end
-                class Dog [name, hp, breed] : Animal [name, hp]
+                class Dog(name, hp, breed) : Animal(name, hp)
                 end
-                d = new Dog [""Rex"", 100, ""Lab""]
-                d :: hp = 50
+                d = new Dog(""Rex"", 100, ""Lab"")
+                d.hp = 50
                 base = d as Animal
-                print base :: hp
+                print base.hp
             ");
             Assert.AreEqual(new[] { "50" }, output);
         }
@@ -141,13 +141,13 @@ namespace Tests
         public void MultiPropertyClassCorrectIndices()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class Item [name, weight, value, stackable]
+                class Item(name, weight, value, stackable)
                 end
-                i = new Item [""Sword"", 5, 100, false]
-                print i :: name
-                print i :: weight
-                print i :: value
-                print i :: stackable
+                i = new Item(""Sword"", 5, 100, false)
+                print i.name
+                print i.weight
+                print i.value
+                print i.stackable
             ");
             Assert.AreEqual(new[] { "Sword", "5", "100", "false" }, output);
         }
@@ -156,13 +156,13 @@ namespace Tests
         public void MultiPropertyWriteThenRead()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class Vec3 [x, y, z]
+                class Vec3(x, y, z)
                 end
-                v = new Vec3 [1, 2, 3]
-                v :: x = 10
-                v :: y = 20
-                v :: z = 30
-                print v :: x + v :: y + v :: z
+                v = new Vec3(1, 2, 3)
+                v.x = 10
+                v.y = 20
+                v.z = 30
+                print v.x + v.y + v.z
             ");
             Assert.AreEqual(new[] { "60" }, output);
         }
@@ -173,11 +173,11 @@ namespace Tests
         public void IndexSetPropUsesCache()
         {
             var (_, output) = TestHelper.Run("test", @"
-                class Grid [cells]
+                class Grid(cells)
                 end
-                g = new Grid [{0, 0, 0}]
-                g :: cells{1} = 42
-                print g :: cells{1}
+                g = new Grid([0, 0, 0])
+                g.cells[1] = 42
+                print g.cells[1]
             ");
             Assert.AreEqual(new[] { "42" }, output);
         }
@@ -188,12 +188,12 @@ namespace Tests
         public void CacheSlotsWorkAfterSerialization()
         {
             var (script1, _) = TestHelper.Run("test", @"
-                class Entity [name, hp]
+                class Entity(name, hp)
                 end
-                fun test_entity []
-                    e = new Entity [""Hero"", 100]
-                    e :: hp = 75
-                    print e :: name + "": "" + e :: hp
+                fun test_entity()
+                    e = new Entity(""Hero"", 100)
+                    e.hp = 75
+                    print e.name + "": "" + e.hp
                 end
             ");
 
@@ -218,22 +218,22 @@ namespace Tests
         public void CachesWorkAfterReload()
         {
             var (script, output) = TestHelper.Run("test", @"
-                class Entity [hp]
+                class Entity(hp)
                 end
-                fun get_hp [e]
-                    return e :: hp
+                fun get_hp(e)
+                    return e.hp
                 end
             ");
 
             script.Reload(@"
-                class Entity [hp]
+                class Entity(hp)
                 end
-                fun get_hp [e]
-                    return e :: hp
+                fun get_hp(e)
+                    return e.hp
                 end
-                fun make []
-                    e = new Entity [42]
-                    print get_hp [e]
+                fun make()
+                    e = new Entity(42)
+                    print get_hp(e)
                 end
             ");
             script.Call(script.GetFunction("make", 0));
@@ -246,13 +246,13 @@ namespace Tests
         public void Caches_ArePerInstance_NotInTheCompiledCode()
         {
             var (script, output) = TestHelper.Run("test", @"
-                class Entity [hp]
+                class Entity(hp)
                 end
-                fun get_hp [e]
-                    return e :: hp
+                fun get_hp(e)
+                    return e.hp
                 end
-                fun make []
-                    print get_hp [new Entity [42]]
+                fun make()
+                    print get_hp(new Entity(42))
                 end
             ");
             Assert.IsTrue(script.Call(script.GetFunction("make", 0)).IsOk);
@@ -276,19 +276,19 @@ namespace Tests
             // The frame of 'one' fetches its one-slot caches, then tail-calls
             // 'three', whose third slot must come from its own caches.
             var (_, output) = TestHelper.Run("test", @"
-                class P [a, b, c]
+                class P(a, b, c)
                 end
-                fun three [p]
-                    return p :: a + p :: b + p :: c
+                fun three(p)
+                    return p.a + p.b + p.c
                 end
-                fun one [p]
-                    if p :: a > 100
+                fun one(p)
+                    if p.a > 100
                         return 0
                     end
-                    return three [p]
+                    return three(p)
                 end
-                print one [new P [1, 2, 3]]
-                print one [new P [4, 5, 6]]
+                print one(new P(1, 2, 3))
+                print one(new P(4, 5, 6))
             ");
             Assert.AreEqual(new[] { "6", "15" }, output);
         }

@@ -64,7 +64,7 @@ namespace Tests
         [Test]
         public void CompileError_CarriesTheLabel()
         {
-            var (script, output) = Script("fun f [\n");
+            var (script, output) = Script("fun f(\n");
 
             var result = script.Run();
 
@@ -77,7 +77,7 @@ namespace Tests
         [Test]
         public void HostFault_CarriesTheLabel()
         {
-            var (script, output) = Script("fun f []\n    x = 1\nend\n");
+            var (script, output) = Script("fun f()\n    x = 1\nend\n");
             Assert.IsTrue(script.Run().IsOk);
             script.AddBreakpoint(2);
             script.DebugHook = ctx => throw new InvalidOperationException("host failed");
@@ -93,10 +93,10 @@ namespace Tests
         [Test]
         public void RefusedEntry_CarriesTheLabel()
         {
-            var (script, _) = Script("fun f []\nend\n");
+            var (script, _) = Script("fun f()\nend\n");
             Assert.IsTrue(script.Run().IsOk);
             var f = script.GetFunction("f", 0);
-            script.Reload("fun g []\nend\n");
+            script.Reload("fun g()\nend\n");
 
             var result = script.Call(f);
 
@@ -107,7 +107,7 @@ namespace Tests
         [Test]
         public void HaltedResult_IsTheFaultWithTheLabelItWasReportedWith()
         {
-            var (script, _) = Script("fun f []\n    return 1 / 0\nend\n");
+            var (script, _) = Script("fun f()\n    return 1 / 0\nend\n");
             Assert.IsTrue(script.Run().IsOk);
             var f = script.GetFunction("f", 0);
             Assert.AreEqual(ScriptStatus.Error, script.Call(f).Status);
@@ -137,7 +137,7 @@ namespace Tests
         public void ShadowingANativeLogLine_IsPrefixed()
         {
             // A method: a function shadowing a native is a compile error (PROP-12).
-            var (script, output) = Script("class C []\n    fun twice [a]\n        return a\n    end\nend\n");
+            var (script, output) = Script("class C()\n    fun twice(a)\n        return a\n    end\nend\n");
             script.GlobalDefinitionScope.AddFunction(new NativeFunctionDefinition(
                 new FunctionDetails("twice", new List<string> { "a" }), args => args[0], "", ""));
 

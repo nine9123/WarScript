@@ -4,4 +4,4 @@ enum Element
     WATER
     FIRE   # expect-compile-error: Enum member 'FIRE' is already declared in enum 'Element'
 end
-print Element :: FIRE
+print Element.FIRE

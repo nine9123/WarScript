@@ -17,7 +17,7 @@ namespace Tests
             var (script, output) = TestHelper.Run("inline",
                 "s = \"abcde\"\n" +
                 "begin\n" +
-                "s{2} = \"Z\"\n" +
+                "s[2] = \"Z\"\n" +
                 "rescue e\n" +
                 "print e\n" +
                 "end\n" +
@@ -43,11 +43,11 @@ namespace Tests
             var nativeFn = (NativeFunctionDefinition)isNullFn.Definition;
             var resultNull = nativeFn.NativeBody(new List<WarValue> { WarValue.Null });
             Assert.IsTrue(resultNull.IsLogical);
-            Assert.IsTrue(resultNull.LogicalValue, "is_null[null] should return true");
+            Assert.IsTrue(resultNull.LogicalValue, "is_null(null) should return true");
 
             var resultNum = nativeFn.NativeBody(new List<WarValue> { WarValue.FromNumeric(42) });
             Assert.IsTrue(resultNum.IsLogical);
-            Assert.IsFalse(resultNum.LogicalValue, "is_null[42] should return false");
+            Assert.IsFalse(resultNum.LogicalValue, "is_null(42) should return false");
         }
 
         [Test]
@@ -68,8 +68,8 @@ namespace Tests
         public void Bug4_EqualsNotEquals_ArrayDirect()
         {
             var (script, output) = TestHelper.Run("inline",
-                "a = {1, 2, 3}\n" +
-                "b = {1, 2, 3}\n" +
+                "a = [1, 2, 3]\n" +
+                "b = [1, 2, 3]\n" +
                 "print a == b\n" +
                 "print a != b");
             Assert.IsFalse(script.ExceptionContext.IsRaised());
@@ -83,24 +83,24 @@ namespace Tests
         public void Perf_ASTCaching_SecondRunShouldBeFaster()
         {
             var source = @"
-fun fib[n]
+fun fib(n)
     if n < 2
         return n
     end
-    return fib[n - 1] + fib[n - 2]
+    return fib(n - 1) + fib(n - 2)
 end
-class Point[x, y]
-    fun add[other]
-        return new Point[this :: x + other :: x, this :: y + other :: y]
+class Point(x, y)
+    fun add(other)
+        return new Point(this.x + other.x, this.y + other.y)
     end
 end
-result = fib[10]
+result = fib(10)
 assert result == 55
-p1 = new Point[1, 2]
-p2 = new Point[3, 4]
-p3 = p1 :: add[p2]
-assert p3 :: x == 4
-assert p3 :: y == 6
+p1 = new Point(1, 2)
+p2 = new Point(3, 4)
+p3 = p1.add(p2)
+assert p3.x == 4
+assert p3.y == 6
 ";
             var output = new List<string>();
             var script = new WarScriptLanguage("perf_test", source, null,

@@ -7,34 +7,34 @@
 
 # ── 1. Global variable visible everywhere ──
 global_x = 42
-fun read_global_x []
+fun read_global_x()
     return global_x
 end
-assert read_global_x [] == 42
+assert read_global_x() == 42
 
 # ── 2. Function modifies global ──
 counter = 0
-fun bump_counter []
+fun bump_counter()
     global counter
     counter += 1
 end
-bump_counter []
-bump_counter []
-bump_counter []
+bump_counter()
+bump_counter()
+bump_counter()
 assert counter == 3
 
 # ── 3. Multiple functions share same global ──
 shared = 0
-fun add_to_shared [n]
+fun add_to_shared(n)
     global shared
     shared += n
 end
-fun read_shared []
+fun read_shared()
     return shared
 end
-add_to_shared [10]
-add_to_shared [20]
-assert read_shared [] == 30
+add_to_shared(10)
+add_to_shared(20)
+assert read_shared() == 30
 
 # ── 4. Pre-declared variable modified in if ──
 result = "init"
@@ -96,73 +96,73 @@ assert outer_count == 9
 
 # ── 11. Function with same-named parameter as global ──
 x = 100
-fun shadow_test [x]
+fun shadow_test(x)
     return x * 2
 end
-assert shadow_test [5] == 10
+assert shadow_test(5) == 10
 # Global x unchanged
 assert x == 100
 
 # ── 12. Nested function calls with different locals ──
-fun outer_func [a]
-    return inner_func [a + 1]
+fun outer_func(a)
+    return inner_func(a + 1)
 end
-fun inner_func [b]
+fun inner_func(b)
     return b * 10
 end
-assert outer_func [5] == 60
+assert outer_func(5) == 60
 
 # ── 13. Function returning value used in condition ──
-fun is_positive [n]
+fun is_positive(n)
     return n > 0
 end
 
 label = "none"
-if is_positive [5]
+if is_positive(5)
     label = "positive"
 end
 assert label == "positive"
 
 label2 = "none"
-if is_positive [-3]
+if is_positive(-3)
     label2 = "positive"
 end
 assert label2 == "none"
 
 # ── 14. Class methods see constructor parameters ──
-class Config [name, value]
-    fun get_name []
+class Config(name, value)
+    fun get_name()
         return @name
     end
-    fun get_value []
+    fun get_value()
         return @value
     end
-    fun set_value [v]
+    fun set_value(v)
         @value = v
     end
 end
-cfg = new Config ["debug", true]
-assert cfg :: get_name [] == "debug"
-assert cfg :: get_value [] == true
-cfg :: set_value [false]
-assert cfg :: get_value [] == false
+cfg = new Config("debug", true)
+assert cfg.get_name() == "debug"
+assert cfg.get_value() == true
+cfg.set_value(false)
+assert cfg.get_value() == false
 
 # ── 15. Multiple class instances don't share scope ──
-c1 = new Config ["a", 1]
-c2 = new Config ["b", 2]
-c1 :: set_value [99]
-assert c1 :: get_value [] == 99
-assert c2 :: get_value [] == 2
+c1 = new Config("a", 1)
+c2 = new Config("b", 2)
+c1.set_value(99)
+assert c1.get_value() == 99
+assert c2.get_value() == 2
 
 # ── 16. Global modified inside function (not class — class scopes are isolated) ──
-event_log = {}
-fun log_event [msg]
+event_log = []
+fun log_event(msg)
     event_log << msg
 end
-log_event ["start"]
-log_event ["process"]
-log_event ["end"]
-assert event_log == {"start", "process", "end"}
+log_event("start")
+log_event("process")
+log_event("end")
+assert event_log == ["start", "process", "end"]
 
 # ── 17. Begin/rescue scope isolation ──
 rescue_result = "none"
@@ -186,23 +186,23 @@ end
 assert ensure_flag
 
 # ── 19. Complex: function modifying array through multiple calls ──
-data = {}
-fun collect [arr, val]
+data = []
+fun collect(arr, val)
     arr << val
 end
 loop i in 0..5
-    collect [data, i * i]
+    collect(data, i * i)
 end
-assert data == {0, 1, 4, 9, 16}
+assert data == [0, 1, 4, 9, 16]
 
 # ── 20. Variable type changes across scopes ──
 dynamic = 42
 assert dynamic == 42
 dynamic = "now a string"
 assert dynamic == "now a string"
-fun change_dynamic []
+fun change_dynamic()
     global dynamic
     dynamic = true
 end
-change_dynamic []
+change_dynamic()
 assert dynamic == true

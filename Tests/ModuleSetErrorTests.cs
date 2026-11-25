@@ -31,16 +31,16 @@ namespace Tests
         public void EveryError_IsReported_InCheckOrder_ThenTheWarnings()
         {
             var script = Script(
-                "fun g []\n" +
+                "fun g()\n" +
                 "    global MAX\n" +
                 "    MAX = 2\n" +
                 "end\n" +
-                "fun f []\n" +
+                "fun f()\n" +
                 "    unused = 1\n" +
                 "end\n" +
-                "a = new Nope []\n" +
+                "a = new Nope()\n" +
                 "print nobody\n" +
-                "print missing [1]\n" +
+                "print missing(1)\n" +
                 "print nobody2\n" +
                 "const MAX = 1\n");
 
@@ -104,11 +104,11 @@ namespace Tests
         [Test]
         public void AFailedCompile_InstallsNothing_AndAFixedReloadCompiles()
         {
-            var script = Script("fun helper []\nend\nprint a\nprint b\n");
+            var script = Script("fun helper()\nend\nprint a\nprint b\n");
             Assert.AreEqual(2, script.Compile().Diagnostics.Count);
             Assert.IsNull(script.GetFunction("helper", 0));
 
-            script.Reload("fun helper []\nend\na = 1\nprint a\n");
+            script.Reload("fun helper()\nend\na = 1\nprint a\n");
             Assert.IsTrue(script.Compile().Success);
             Assert.IsNotNull(script.GetFunction("helper", 0));
         }

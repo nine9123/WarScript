@@ -2,5 +2,5 @@
 # would only answer false).
 class Unit
 end
-u = new Unit []
+u = new Unit()
 print u is Unti   # expect-compile-error: Class 'Unti' is not defined

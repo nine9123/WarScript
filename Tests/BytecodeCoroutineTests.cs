@@ -15,7 +15,7 @@ namespace Tests
         public void BasicYield()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun sequence []
+                fun sequence()
                     print ""step 1""
                     yield
                     print ""step 2""
@@ -39,7 +39,7 @@ namespace Tests
         public void YieldWait()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun delayed []
+                fun delayed()
                     print ""start""
                     yield wait 1
                     print ""after wait""
@@ -64,7 +64,7 @@ namespace Tests
         public void PreservesVariables()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun sequence []
+                fun sequence()
                     name = ""hero""
                     hp = 100
                     print ""{name}: {hp}""
@@ -91,7 +91,7 @@ namespace Tests
         public void WithArguments()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun greet [name, count]
+                fun greet(name, count)
                     print ""hello {name}""
                     yield
                     print ""goodbye {name} ({count})""
@@ -113,7 +113,7 @@ namespace Tests
         public void LoopingCoroutine()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun pulse []
+                fun pulse()
                     print ""on""
                     yield
                     print ""off""
@@ -139,7 +139,7 @@ namespace Tests
         public void StopById()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun forever []
+                fun forever()
                     print ""tick""
                     yield
                     print ""tick""
@@ -159,12 +159,12 @@ namespace Tests
         public void MultipleCoroutines()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun a []
+                fun a()
                     print ""a1""
                     yield
                     print ""a2""
                 end
-                fun b []
+                fun b()
                     print ""b1""
                     yield
                     print ""b2""
@@ -192,7 +192,7 @@ namespace Tests
         public void YieldInsideForLoop()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun patrol [waypoints]
+                fun patrol(waypoints)
                     loop wp in waypoints
                         print ""moving to "" + wp
                         yield
@@ -227,7 +227,7 @@ namespace Tests
         public void YieldInsideWhileLoop()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun countdown []
+                fun countdown()
                     i = 5
                     loop i > 0
                         print i
@@ -262,7 +262,7 @@ namespace Tests
         public void YieldInsideNestedIfInsideLoop()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun process [items]
+                fun process(items)
                     loop item in items
                         if item > 0
                             print ""positive: "" + item
@@ -299,14 +299,14 @@ namespace Tests
         public void YieldInsideNestedFunctionCall()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun do_step [n]
+                fun do_step(n)
                     print ""step "" + n
                     yield
                     print ""step "" + n + "" done""
                 end
-                fun main_routine []
-                    do_step [1]
-                    do_step [2]
+                fun main_routine()
+                    do_step(1)
+                    do_step(2)
                 end
             ");
 
@@ -325,13 +325,13 @@ namespace Tests
         public void CallerVariablesSurviveYieldInsideCalledFunction()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun helper []
+                fun helper()
                     yield wait 1
                     return 1
                 end
-                fun on_run [room]
+                fun on_run(room)
                     keep = ""x""
-                    got = helper []
+                    got = helper()
                     print keep
                     print got
                     print room
@@ -350,21 +350,21 @@ namespace Tests
         public void CallerVariablesSurviveRepeatedYieldsInDeeperCalls()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun inner [n]
+                fun inner(n)
                     local_n = n * 10
                     yield
                     yield
                     return local_n
                 end
-                fun middle [n]
+                fun middle(n)
                     before = ""m"" + n
-                    v = inner [n]
+                    v = inner(n)
                     return before + "":"" + v
                 end
-                fun outer []
+                fun outer()
                     tag = ""outer""
-                    a = middle [1]
-                    b = middle [2]
+                    a = middle(1)
+                    b = middle(2)
                     print tag + "" "" + a + "" "" + b
                 end
             ");
@@ -381,17 +381,17 @@ namespace Tests
         public void YieldInsideMethodPreservesCallerAndInstance()
         {
             var (script, output) = TestHelper.Run("test", @"
-                class Unit [hp]
-                    fun hit [n]
+                class Unit(hp)
+                    fun hit(n)
                         yield
-                        this :: hp = this :: hp - n
-                        return this :: hp
+                        this.hp = this.hp - n
+                        return this.hp
                     end
                 end
-                fun fight []
+                fun fight()
                     label = ""unit""
-                    u = new Unit [10]
-                    left = u :: hit [3]
+                    u = new Unit(10)
+                    left = u.hit(3)
                     print label + "" "" + left
                 end
             ");
@@ -412,21 +412,21 @@ namespace Tests
             // A class body cannot yield itself (T3.3, PROP-21), but a function
             // it calls can.
             var (script, output) = TestHelper.Run("test", @"
-                fun pause []
+                fun pause()
                     yield
                 end
-                class Base [hp]
+                class Base(hp)
                     print ""base "" + hp
-                    pause []
+                    pause()
                     hp = hp + 1
                 end
-                class Unit [hp] : Base [hp]
+                class Unit(hp) : Base(hp)
                     print ""unit "" + hp
                 end
-                fun spawn []
+                fun spawn()
                     label = ""spawned""
-                    u = new Unit [10]
-                    print label + "" "" + u :: hp
+                    u = new Unit(10)
+                    print label + "" "" + u.hp
                 end
             ");
 
@@ -445,16 +445,16 @@ namespace Tests
         public void YieldInsideCalledFunctionDoesNotLeakIntoHostCalls()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun helper []
+                fun helper()
                     yield
                     return 1
                 end
-                fun co []
+                fun co()
                     keep = ""co""
-                    helper []
+                    helper()
                     print keep
                 end
-                fun probe []
+                fun probe()
                     begin
                         print ""probe {keep}""
                     rescue e
@@ -480,11 +480,11 @@ namespace Tests
         {
             var (script, output) = TestHelper.Run("test", @"
                 counter = 0
-                fun increment []
+                fun increment()
                     global counter
                     counter += 1
                 end
-                fun wait_for_five []
+                fun wait_for_five()
                     print ""waiting""
                     yield until counter >= 5
                     print ""reached""
@@ -513,7 +513,7 @@ namespace Tests
         public void YieldWaitInsideLoop()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun heartbeat []
+                fun heartbeat()
                     loop i in 0..3
                         print ""beat "" + i
                         yield wait 0.5
@@ -541,7 +541,7 @@ namespace Tests
         public void LoopingCoroutineWithYieldInsideLoop()
         {
             var (script, output) = TestHelper.Run("test", @"
-                fun blink []
+                fun blink()
                     loop i in 0..2
                         print ""on""
                         yield
@@ -579,11 +579,11 @@ namespace Tests
         {
             var (script, output) = TestHelper.Run("test", @"
                 hp = 100
-                fun drain []
+                fun drain()
                     global hp
                     hp -= 10
                 end
-                fun monitor []
+                fun monitor()
                     loop hp > 50
                         print ""hp: "" + hp
                         yield
@@ -618,17 +618,17 @@ namespace Tests
         {
             // T3.5: 'this' is part of the suspended method frame.
             var (script, output) = TestHelper.Run("test", @"
-                class Unit [n]
-                    fun walk []
+                class Unit(n)
+                    fun walk()
                         print ""at {@n}""
                         yield
                         @n += 1
                         print ""at {@n}""
                     end
                 end
-                fun patrol []
-                    u = new Unit [1]
-                    u :: walk []
+                fun patrol()
+                    u = new Unit(1)
+                    u.walk()
                     print ""done""
                 end
             ");
@@ -647,23 +647,23 @@ namespace Tests
             // T3.5: the class's definitions are part of the suspended method
             // frame; nothing is set aside on the DefinitionContext between ticks.
             var (script, output) = TestHelper.Run("test", @"
-                fun label [] return ""top"" end
-                class Squad []
-                    class Member [n]
+                fun label() return ""top"" end
+                class Squad()
+                    class Member(n)
                     end
-                    fun label [] return ""squad"" end
-                    fun march []
-                        print label []
+                    fun label() return ""squad"" end
+                    fun march()
+                        print label()
                         yield
-                        print label []
-                        m = new Member [3]
-                        print m :: n
+                        print label()
+                        m = new Member(3)
+                        print m.n
                     end
                 end
-                fun patrol []
+                fun patrol()
                     s = new Squad
-                    s :: march []
-                    print label []
+                    s.march()
+                    print label()
                 end
             ");
             var depth = script.DefinitionContext.Depth;

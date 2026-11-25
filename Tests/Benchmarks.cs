@@ -270,7 +270,7 @@ namespace Tests
             var sb = new StringBuilder();
             for (var i = 0; i < 100; i++)
             {
-                sb.AppendLine($"fun func_{i} [a, b]");
+                sb.AppendLine($"fun func_{i}(a, b)");
                 sb.AppendLine($"    return a + b + {i}");
                 sb.AppendLine("end");
             }
@@ -459,12 +459,12 @@ namespace Tests
         public void Exec_FunctionCall_10k()
         {
             var source = @"
-                fun add [a, b]
+                fun add(a, b)
                     return a + b
                 end
                 sum = 0
                 loop i in 0..10000
-                    sum = add [sum, i]
+                    sum = add(sum, i)
                 end
             ";
             Measure("Exec: function call 10k", () => { Run(source); });
@@ -474,13 +474,13 @@ namespace Tests
         public void Exec_Recursion_Fibonacci()
         {
             var source = @"
-                fun fib [n]
+                fun fib(n)
                     if n < 2
                         return n
                     end
-                    return fib [n - 1] + fib [n - 2]
+                    return fib(n - 1) + fib(n - 2)
                 end
-                result = fib [20]
+                result = fib(20)
             ";
             Measure("Exec: recursive fibonacci(20)", () => { Run(source); });
         }
@@ -491,12 +491,12 @@ namespace Tests
             var sb = new StringBuilder();
             for (var i = 0; i < 200; i++)
             {
-                sb.AppendLine($"fun f_{i} [x]");
+                sb.AppendLine($"fun f_{i}(x)");
                 sb.AppendLine($"    return x + {i}");
                 sb.AppendLine("end");
             }
             // Call the last one to force lookup across all definitions
-            sb.AppendLine("result = f_199 [1]");
+            sb.AppendLine("result = f_199(1)");
             var source = sb.ToString();
 
             Measure("Exec: 200 function defs + lookup last", () => { Run(source); });
@@ -508,7 +508,7 @@ namespace Tests
             var source = @"
                 sum = 0
                 loop i in 0..10000
-                    sum = native_add [sum, i]
+                    sum = native_add(sum, i)
                 end
             ";
             Measure("Exec: native function call 10k", () =>
@@ -536,10 +536,10 @@ namespace Tests
         public void Exec_ClassCreation_1k()
         {
             var source = @"
-                class Point [x, y]
+                class Point(x, y)
                 end
                 loop i in 0..1000
-                    p = new Point [i, i + 1]
+                    p = new Point(i, i + 1)
                 end
             ";
             Measure("Exec: class creation 1k", () => { Run(source); });
@@ -549,12 +549,12 @@ namespace Tests
         public void Exec_ClassPropertyRead_10k()
         {
             var source = @"
-                class Point [x, y]
+                class Point(x, y)
                 end
-                p = new Point [3, 4]
+                p = new Point(3, 4)
                 sum = 0
                 loop i in 0..10000
-                    sum = sum + p :: x
+                    sum = sum + p.x
                 end
             ";
             Measure("Exec: class property read 10k", () => { Run(source); });
@@ -564,11 +564,11 @@ namespace Tests
         public void Exec_ClassPropertyWrite_10k()
         {
             var source = @"
-                class Box [value]
+                class Box(value)
                 end
-                b = new Box [0]
+                b = new Box(0)
                 loop i in 0..10000
-                    b :: value = i
+                    b.value = i
                 end
             ";
             Measure("Exec: class property write 10k", () => { Run(source); });
@@ -578,17 +578,17 @@ namespace Tests
         public void Exec_ClassMethodCall_5k()
         {
             var source = @"
-                class Counter [n]
-                    fun increment []
+                class Counter(n)
+                    fun increment()
                         @n = @n + 1
                     end
-                    fun get []
-                        return this :: n
+                    fun get()
+                        return this.n
                     end
                 end
-                c = new Counter [0]
+                c = new Counter(0)
                 loop i in 0..5000
-                    c :: increment []
+                    c.increment()
                 end
             ";
             Measure("Exec: class method call 5k", () => { Run(source); });
@@ -598,19 +598,19 @@ namespace Tests
         public void Exec_ClassInheritance_MethodLookup()
         {
             var source = @"
-                class A []
-                    fun action []
+                class A()
+                    fun action()
                         return 42
                     end
                 end
-                class B [] : A []
+                class B() : A()
                 end
-                class C [] : B []
+                class C() : B()
                 end
-                obj = new C []
+                obj = new C()
                 sum = 0
                 loop i in 0..5000
-                    sum = sum + obj :: action []
+                    sum = sum + obj.action()
                 end
             ";
             Measure("Exec: inherited method call (3 deep) 5k", () => { Run(source); });
@@ -620,14 +620,14 @@ namespace Tests
         public void Exec_ClassCreationWithInheritance_500()
         {
             var source = @"
-                class Base [a]
+                class Base(a)
                 end
-                class Mid [a, b] : Base [a]
+                class Mid(a, b) : Base(a)
                 end
-                class Leaf [a, b, c] : Mid [a, b]
+                class Leaf(a, b, c) : Mid(a, b)
                 end
                 loop i in 0..500
-                    obj = new Leaf [i, i + 1, i + 2]
+                    obj = new Leaf(i, i + 1, i + 2)
                 end
             ";
             Measure("Exec: inherited class creation (3 deep) 500", () => { Run(source); });
@@ -668,7 +668,7 @@ namespace Tests
         public void Exec_ArrayAppend_5k()
         {
             var source = @"
-                arr = {}
+                arr = []
                 loop i in 0..5000
                     arr << i
                 end
@@ -681,13 +681,13 @@ namespace Tests
         {
             // Build a 100-element array, then read from it in a tight loop
             var source = @"
-                arr = {}
+                arr = []
                 loop i in 0..100
                     arr << i
                 end
                 sum = 0
                 loop i in 0..10000
-                    sum = sum + arr{i % 100}
+                    sum = sum + arr[i % 100]
                 end
             ";
             Measure("Exec: array index read 10k", () => { Run(source); });
@@ -697,12 +697,12 @@ namespace Tests
         public void Exec_ArrayIndexWrite_5k()
         {
             var source = @"
-                arr = {}
+                arr = []
                 loop i in 0..100
                     arr << 0
                 end
                 loop i in 0..5000
-                    arr{i % 100} = i
+                    arr[i % 100] = i
                 end
             ";
             Measure("Exec: array index write 5k", () => { Run(source); });
@@ -712,8 +712,8 @@ namespace Tests
         public void Exec_ArrayConcat_1k()
         {
             var source = @"
-                a = {1, 2, 3}
-                b = {4, 5, 6}
+                a = [1, 2, 3]
+                b = [4, 5, 6]
                 loop i in 0..1000
                     c = a + b
                 end
@@ -725,7 +725,7 @@ namespace Tests
         public void Exec_ArrayIteration_1k()
         {
             var source = @"
-                arr = {}
+                arr = []
                 loop i in 0..1000
                     arr << i
                 end
@@ -865,7 +865,7 @@ namespace Tests
         {
             var (script, _) = Run(@"
                 counter = 0
-                fun tick []
+                fun tick()
                     global counter
                     counter = counter + 1
                 end
@@ -884,7 +884,7 @@ namespace Tests
         {
             var (script, _) = Run(@"
                 sum = 0
-                fun tick [dt]
+                fun tick(dt)
                     global sum
                     sum = sum + dt
                 end
@@ -904,16 +904,16 @@ namespace Tests
         {
             // Simulates a realistic game tick: reads class state, does math, writes back
             var (script, _) = Run(@"
-                class Entity [x, y, hp]
+                class Entity(x, y, hp)
                 end
-                e = new Entity [0, 0, 100]
+                e = new Entity(0, 0, 100)
 
-                fun tick [dx, dy]
-                    e :: x = e :: x + dx
-                    e :: y = e :: y + dy
-                    dist_sq = e :: x * e :: x + e :: y * e :: y
+                fun tick(dx, dy)
+                    e.x = e.x + dx
+                    e.y = e.y + dy
+                    dist_sq = e.x * e.x + e.y * e.y
                     if dist_sq > 10000
-                        e :: hp = e :: hp - 1
+                        e.hp = e.hp - 1
                     end
                 end
             ");
@@ -932,15 +932,15 @@ namespace Tests
         public void CallApi_TickHeavy_GCPressure_Sustained()
         {
             var (script, _) = Run(@"
-                class Entity [x, y, hp]
+                class Entity(x, y, hp)
                 end
-                e = new Entity [0, 0, 100]
-                fun tick [dx, dy]
-                    e :: x = e :: x + dx
-                    e :: y = e :: y + dy
-                    dist_sq = e :: x * e :: x + e :: y * e :: y
+                e = new Entity(0, 0, 100)
+                fun tick(dx, dy)
+                    e.x = e.x + dx
+                    e.y = e.y + dy
+                    dist_sq = e.x * e.x + e.y * e.y
                     if dist_sq > 10000
-                        e :: hp = e :: hp - 1
+                        e.hp = e.hp - 1
                     end
                 end
             ");

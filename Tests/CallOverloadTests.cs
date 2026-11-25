@@ -29,7 +29,7 @@ namespace Tests
         [Test]
         public void SpanCall_PassesTheSpansElements()
         {
-            var (script, _) = Script("fun sub [a, b]\n    return a - b\nend\n");
+            var (script, _) = Script("fun sub(a, b)\n    return a - b\nend\n");
             Assert.IsTrue(script.Run().IsOk);
             var sub = script.GetFunction("sub", 2);
 
@@ -43,7 +43,7 @@ namespace Tests
         [Test]
         public void SpanCall_ShorterThanTheArity_PadsWithNull_SoDefaultsApply()
         {
-            var (script, _) = Script("fun f [a, b = 5]\n    return a + b\nend\n");
+            var (script, _) = Script("fun f(a, b = 5)\n    return a + b\nend\n");
             Assert.IsTrue(script.Run().IsOk);
             // The handle of the full arity, called with one argument: the
             // missing one is null, which triggers the default.
@@ -57,7 +57,7 @@ namespace Tests
         [Test]
         public void SpanCall_EmptySpan_CallsAZeroArityFunction()
         {
-            var (script, _) = Script("fun f []\n    return 42\nend\n");
+            var (script, _) = Script("fun f()\n    return 42\nend\n");
             Assert.IsTrue(script.Run().IsOk);
 
             var result = script.Call(script.GetFunction("f", 0), ReadOnlySpan<WarValue>.Empty);
@@ -68,7 +68,7 @@ namespace Tests
         [Test]
         public void ParamsCall_WithANullArray_IsAnEmptyArgumentList()
         {
-            var (script, _) = Script("fun f [a]\n    return a == null\nend\n");
+            var (script, _) = Script("fun f(a)\n    return a == null\nend\n");
             Assert.IsTrue(script.Run().IsOk);
 
             var result = script.Call(script.GetFunction("f", 1), (WarValue[])null);
@@ -80,7 +80,7 @@ namespace Tests
         [Test]
         public void SpanCall_ReportsErrorsAndRefusalsLikeTheArrayOverload()
         {
-            var (script, _) = Script("fun f [a]\n    return a / 0\nend\n");
+            var (script, _) = Script("fun f(a)\n    return a / 0\nend\n");
             Assert.IsTrue(script.Run().IsOk);
             var f = script.GetFunction("f", 1);
 
@@ -96,7 +96,7 @@ namespace Tests
         public void SpanStartCoroutine_CopiesTheArguments_SoTheBufferCanBeReused()
         {
             var (script, output) = Script(
-                "fun co [a]\n    print a\n    yield\n    print a\nend\n");
+                "fun co(a)\n    print a\n    yield\n    print a\nend\n");
             Assert.IsTrue(script.Run().IsOk);
 
             var buffer = new[] { N(1) };
@@ -114,7 +114,7 @@ namespace Tests
         [Test]
         public void SpanStartCoroutine_LooksTheFunctionUpByTheSpansLength()
         {
-            var (script, _) = Script("fun co [a]\n    yield\nend\n");
+            var (script, _) = Script("fun co(a)\n    yield\nend\n");
             Assert.IsTrue(script.Run().IsOk);
 
             var result = script.StartCoroutine("co", ReadOnlySpan<WarValue>.Empty, false, out var id);
@@ -126,7 +126,7 @@ namespace Tests
         [Test]
         public void TickCoroutines_ValueIsTheNumberOfActiveCoroutines()
         {
-            var (script, _) = Script("fun co [n]\n    loop i in 0..n\n        yield\n    end\nend\n");
+            var (script, _) = Script("fun co(n)\n    loop i in 0..n\n        yield\n    end\nend\n");
             Assert.IsTrue(script.Run().IsOk);
             script.StartCoroutine("co", new ReadOnlySpan<WarValue>(new[] { N(1) }), false, out _);
             script.StartCoroutine("co", new ReadOnlySpan<WarValue>(new[] { N(3) }), false, out _);
@@ -143,7 +143,7 @@ namespace Tests
             if (Tests.Golden.IsolatedRun.RunnerPath() == null)
                 Assert.Ignore("Allocation counting is measured in the headless build only (plan T2.7).");
 
-            var (script, _) = Script("total = 0\nfun tick [dt, k]\n    global total\n    total += dt * k\n    return total\nend\n");
+            var (script, _) = Script("total = 0\nfun tick(dt, k)\n    global total\n    total += dt * k\n    return total\nend\n");
             Assert.IsTrue(script.Run().IsOk);
             var tick = script.GetFunction("tick", 2);
             var buffer = new WarValue[4];
