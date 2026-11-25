@@ -9,8 +9,9 @@
 ---
 
 WarScript is a custom scripting language designed to be embedded into C# applications and Unity
-projects. It provides a simple, Ruby-flavoured syntax for scripting game logic, automation, and
-runtime behaviour without recompiling your project.
+projects. It provides a small, readable syntax — `end`-terminated blocks, `f(x)` calls, `[1, 2]`
+arrays and `obj.x` members — for scripting game logic, automation, and runtime behaviour without
+recompiling your project.
 
 Every WarScript number is a **32.32 fixed-point value** (`FixMath.F64`) rather than a float, so the
 same script produces bit-identical results on every machine and platform — it is built to be the
@@ -149,8 +150,8 @@ WarScript has 7 value types:
 | **Numeric** | `42`, `0.5`, `-3` | `F64` 32.32 fixed-point — *not* a float or double |
 | **Logical** | `true`, `false` | prints as `true` / `false` |
 | **Text** | `"hello"` | interpolation, escapes, and raw `"""..."""` |
-| **Array** | `{1, 2, 3}` | prints as `[1, 2, 3]` |
-| **Class** | `new Point [1, 2]` | prints as the class name |
+| **Array** | `[1, 2, 3]` | prints as `[1, 2, 3]` |
+| **Class** | `new Point(1, 2)` | prints as the class name |
 | **Null** | `null` | |
 | **NativeObject** | supplied by the host | opaque handle to a C# object (e.g. `F64Vec3`) |
 
@@ -176,8 +177,8 @@ fixed-point nature:
 
 ```ruby
 print 1 / 3      # → 0.3333333332557231
-print sqrt [2]   # → 1.4142135614529252
-print pow [2, 10]# → 1023.999994755   (not exactly 1024)
+print sqrt(2)   # → 1.4142135614529252
+print pow(2, 10)# → 1023.999994755   (not exactly 1024)
 ```
 
 - Integer part range is ±2147483647; fractional precision past 9 digits is truncated.
@@ -222,10 +223,10 @@ two arrays; `-`, `/`, `%` and unary `-` take numbers; `*` takes numbers or a tex
 `<`, `<=`, `>`, `>=` take two numbers or two texts (compared ordinally); `<<` needs an array.
 Anything else raises a `TypeError` such as `Cannot apply '-' to text and number`. When both
 operand types are visible in the source (literals, interpolated text, array literals, `null`,
-`true`/`false`, a `const` with such a value, a member, `count`, `values`, `names` or `name [...]`
+`true`/`false`, a `const` with such a value, a member, `count`, `values`, `names` or `name(...)`
 of an enum declared at the top level, a host constant or `[WsEnum]` (or a native manifest's typed
 `const` or `enum`), or another operator's result: `"Sir {name}" - "Sir "`,
-`-"x"`, `1 < 2 < 3`, `5 :: hp`, `TITLE - "Sir "` after `const TITLE = "Sir Bob"`), the same
+`-"x"`, `1 < 2 < 3`, `5.hp`, `TITLE - "Sir "` after `const TITLE = "Sir Bob"`), the same
 message is a compile error instead (so are range-loop bounds `<` rejects, `loop i in 0.."3"`); a
 value from a variable or a call is not inferred and raises at runtime. `==` and `!=`
 never raise: values of different types are simply not equal, so `1 == "1"` is `false`,
@@ -239,11 +240,11 @@ instance and a cast of it (`d == (d as Base)`) are.
 print "hello" + " world"        # → hello world   (concatenate)
 print "ab" * 3                  # → ababab        (repeat)
 print "n=" + 5                  # → n=5           (text + anything is text)
-print "abc"{1}                  # → b             (one-character text)
+print "abc"[1]                  # → b             (one-character text)
 ```
 
-There is no text subtraction; `Text_remove [s, sub]` removes every occurrence of `sub`.
-Text is immutable: `s{0} = "x"` raises a `TypeError`. Reading past either end raises an
+There is no text subtraction; `Text_remove(s, sub)` removes every occurrence of `sub`.
+Text is immutable: `s[0] = "x"` raises a `TypeError`. Reading past either end raises an
 `IndexError`, as for arrays.
 
 #### Interpolation
@@ -263,7 +264,7 @@ print "sum: {1 + 2}"                            # → sum: 3
 print $"Hello {name}"                           # → Hello hero
 ```
 
-Braces nest, so `"{arr{0}}"` indexes inside an interpolation, and a text literal *inside* an
+Any expression fits in a hole (`"{arr[0]}"`, `"{p.name()}"`), and a text literal *inside* an
 interpolation keeps its own braces and quotes: `"result: {"a}b"}"` is `result: a}b`.
 
 #### Escapes
@@ -284,11 +285,11 @@ print "a\nb"                # → two lines
 you carry WarScript source, JSON, or anything else brace- and quote-heavy as a value.
 
 ```ruby
-snippet = """print "{greeting}, {party{0}}""""
+snippet = """print "{greeting}, {party[0]}""""
 
 dialog = """
 if reputation > 50
-    npc_say ["Good to see you again."]
+    npc_say("Good to see you again.")
 end
 """
 ```
@@ -301,44 +302,43 @@ raw. `$"""..."""` is a syntax error — raw literals do not interpolate; concate
 
 ### Arrays
 
-Arrays use `{}` for literals and `{index}` for access (zero-based).
+Arrays use `[...]` for literals and `[index]` for access (zero-based).
 
 ```ruby
-arr = {1, 2, 3}
-print arr{0}              # → 1
+arr = [1, 2, 3]
+print arr[0]              # → 1
 arr << 4                  # append
 print arr                 # → [1, 2, 3, 4]
-arr{1} = 99               # assign by index
+arr[1] = 99               # assign by index
 print arr                 # → [1, 99, 3, 4]
-print Array_length [arr]  # → 4
+print Array_length(arr)  # → 4
 
-mixed = {1, "a", true, null}
+mixed = [1, "a", true, null]
 print mixed               # → [1, a, true, null]
 ```
 
-The index must be a number (a fraction truncates toward zero, so `arr{1.9}` is `arr{1}`); any
+The index must be a number (a fraction truncates toward zero, so `arr[1.9]` is `arr[1]`); any
 other index, or indexing anything but an array or text, raises a `TypeError`. Reading or writing
 an index below 0 or past the end raises an `IndexError` (`Index 3 is out of bounds (length 3)`):
 arrays never grow by index assignment — append with `<<`. Assigning a property of something that
-is not a class instance (`x :: hp = 5` with `x = null`) raises a `TypeError`, as reading it does.
+is not a class instance (`x.hp = 5` with `x = null`) raises a `TypeError`, as reading it does.
 Reading or writing a property an instance does not declare (its classes' constructor parameters
 and the names their class bodies assign) raises a `NameError` (`'hp' is not a field of class
 'Unit'`); a declared field the class body has not assigned yet reads as `null`. When no class of
-the script, its imports or the host has a field or a method of that name, `obj :: x` (or
-`obj :: x [...]`) is already a compile error: `'hpp' is not a field or method of any class`. So a
+the script, its imports or the host has a field or a method of that name, `obj.x` (or
+`obj.x(...)`) is already a compile error: `'hpp' is not a field or method of any class`. So a
 script that reads the fields of an instance another script made must know a class declaring them.
 (Not checked while the host has registered a class without its fields; a generated `[WsEnum]`
 counts with its members.)
 
-**Nested arrays cannot be indexed in one expression.** `grid{0}{1}` silently parses as something
-else; assign to a temporary first:
+Indexes chain, and any value can be indexed — a call's result, a property, a literal:
 
 ```ruby
-grid = {{1, 2}, {3, 4}}
-row = grid{0}
-print row{1}     # → 2
-
-print grid{0}{1} # → [1]   ← WRONG, do not do this
+grid = [[1, 2], [3, 4]]
+print grid[0][1]     # → 2
+grid[1][0] = 30      # assign through a chain
+print grid           # → [[1, 2], [30, 4]]
+print "abc"[1]       # → b
 ```
 
 See [`Array_*` helpers](#standard-library) for search, insert, remove, and copy.
@@ -380,7 +380,7 @@ loop i in 0..10 by 5
 end
 
 # Foreach over an array
-loop item in {"a", "b"}
+loop item in ["a", "b"]
     print item       # → a, b
 end
 ```
@@ -403,21 +403,21 @@ The loop variable is local to the loop and does not clobber a global of the same
 
 ### Functions
 
-Parameters are declared in `[]` and functions are called with `[]`.
+Parameters are declared in `()` and functions are called with `()`.
 
 ```ruby
-fun add [a, b]
+fun add(a, b)
     return a + b
 end
-print add [3, 4]     # → 7
+print add(3, 4)     # → 7
 
-fun fib [n]
+fun fib(n)
     if n < 2
         return n
     end
-    return fib [n - 1] + fib [n - 2]
+    return fib(n - 1) + fib(n - 2)
 end
-print fib [10]       # → 55
+print fib(10)       # → 55
 ```
 
 Functions are resolved by **(name, argument count)** — two functions with the same name and
@@ -425,7 +425,7 @@ different arities are distinct. Defining a function again with an arity the firs
 takes (counting the arities its default parameters allow), or a class name again, is a compile
 error — in the same file, in a class (methods), or anywhere among a script and the files it
 imports, which share one namespace. So is a function with the name and an arity of a native
-(`fun abs [n]` against the stdlib's `abs`: `Function 'abs' with 1 argument shadows a native
+(`fun abs(n)` against the stdlib's `abs`: `Function 'abs' with 1 argument shadows a native
 function`); a method may take a native's name, and then a bare call inside its class reaches the
 method (the host log says `Shadowing native function 'abs'`).
 
@@ -448,13 +448,13 @@ creates it if it does not exist yet. At the top level every assignment writes a 
 count = 0
 label = "hits"
 
-fun bump [n]
+fun bump(n)
     global count          # required to write the global
     total = n * 2         # a local of bump
     count = count + total
     return label + ": " + count     # reading a global needs no declaration
 end
-print bump [3]            # → hits: 6
+print bump(3)            # → hits: 6
 ```
 
 The compiler rejects what would otherwise be a silent mistake:
@@ -470,7 +470,7 @@ The compiler rejects what would otherwise be a silent mistake:
   compiles, and reading it before it is written raises a `NameError` at runtime.
 
 Methods follow the same rules: a bare name in a method is a local or a global, and the instance's
-fields are reached with `@x` / `this :: x`. In a class body a bare assignment declares a field
+fields are reached with `@x` / `this.x`. In a class body a bare assignment declares a field
 (unless the name is declared `global`), and a bare read finds a field first, then a global.
 
 #### Default parameters
@@ -478,11 +478,11 @@ fields are reached with `@x` / `this :: x`. In a class body a bare assignment de
 Trailing parameters may have defaults. The function is registered at every valid arity.
 
 ```ruby
-fun greet [name, greeting = "Hello"]
+fun greet(name, greeting = "Hello")
     return greeting + ", " + name
 end
-print greet ["World"]           # → Hello, World
-print greet ["World", "Hi"]     # → Hi, World
+print greet("World")           # → Hello, World
+print greet("World", "Hi")     # → Hi, World
 ```
 
 Passing `null` explicitly also triggers the default — there is no way to distinguish "missing" from
@@ -491,10 +491,10 @@ Passing `null` explicitly also triggers the default — there is no way to disti
 #### Named arguments
 
 ```ruby
-fun create_unit [name, hp, team]
+fun create_unit(name, hp, team)
     print "{name} ({hp} HP) on team {team}"
 end
-create_unit [team: "Red", name: "Soldier", hp: 100]   # → Soldier (100 HP) on team Red
+create_unit(team: "Red", name: "Soldier", hp: 100)   # → Soldier (100 HP) on team Red
 ```
 
 A parameter given no argument is `null` (so it takes its default). Naming a parameter twice is a
@@ -507,42 +507,42 @@ function defined further down passes them in the order written.
 Argument lists may span lines:
 
 ```ruby
-print add [
+print add(
     1,
     2
-]                    # → 3
+)                    # → 3
 ```
 
 ### Lambdas / first-class functions
 
-Functions are values. `fun [params] ... end` is valid in any expression position.
+Functions are values. `fun(params) ... end` is valid in any expression position.
 
 ```ruby
-double = fun [x] return x * 2 end
-print double [5]     # → 10
+double = fun(x) return x * 2 end
+print double(5)     # → 10
 
 # Pass one in
-fun apply [arr, f]
-    result = {}
+fun apply(arr, f)
+    result = []
     loop item in arr
-        result << f [item]
+        result << f(item)
     end
     return result
 end
-print apply [{1, 2, 3}, fun [x] return x * 10 end]   # → [10, 20, 30]
+print apply([1, 2, 3], fun(x) return x * 10 end)   # → [10, 20, 30]
 
 # Return one out
-fun pick_strategy [mode]
+fun pick_strategy(mode)
     if mode == "aggressive"
-        return fun [u] return u :: attack [] end
+        return fun(u) return u.attack() end
     end
-    return fun [u] return u :: defend [] end
+    return fun(u) return u.defend() end
 end
 
 # Store them in arrays
-ops = {fun [a, b] return a + b end, fun [a, b] return a * b end}
-f = ops{0}
-print f [3, 4]       # → 7
+ops = [fun(a, b) return a + b end, fun(a, b) return a * b end]
+f = ops[0]
+print f(3, 4)       # → 7
 ```
 
 Calling a function value with fewer arguments than it has parameters passes `null` for the rest
@@ -553,13 +553,13 @@ globals; reading a parameter, local or loop variable of the code around them is 
 
 ```ruby
 factor = 3                              # global
-f = fun [x] return x * factor end
-print f [5]                             # → 15   ✔ globals work
+f = fun(x) return x * factor end
+print f(5)                             # → 15   ✔ globals work
 
-fun outer []
+fun outer()
     n = 10                              # local to `outer`
-    g = fun [x] return x + n end        # ✘ compile error: closures are not supported: 'n' ...
-    return g [1]
+    g = fun(x) return x + n end        # ✘ compile error: closures are not supported: 'n' ...
+    return g(1)
 end
 ```
 
@@ -582,8 +582,8 @@ print HALF     # → 50
 
 ### Enums
 
-Named numeric constants grouped under a class instance, accessed with `::`. The enum name itself is
-protected from reassignment, and so are its members: `e = DamageType` then `e :: PHYSICAL = 3` is a
+Named numeric constants grouped under a class instance, accessed with `.`. The enum name itself is
+protected from reassignment, and so are its members: `e = DamageType` then `e.PHYSICAL = 3` is a
 `TypeError` (`Cannot assign to 'PHYSICAL' of enum 'DamageType': enum members are constant`).
 
 ```ruby
@@ -593,20 +593,20 @@ enum DamageType
     TRUE = 5
 end
 
-print DamageType :: PHYSICAL   # → 0
-print DamageType :: MAGICAL    # → 1
-print DamageType :: TRUE       # → 5
-print DamageType :: name [0]   # → PHYSICAL
-print DamageType :: values     # → [0, 1, 5]
-print DamageType :: names      # → [PHYSICAL, MAGICAL, TRUE]
-print DamageType :: count      # → 3
+print DamageType.PHYSICAL   # → 0
+print DamageType.MAGICAL    # → 1
+print DamageType.TRUE       # → 5
+print DamageType.name(0)   # → PHYSICAL
+print DamageType.values     # → [0, 1, 5]
+print DamageType.names      # → [PHYSICAL, MAGICAL, TRUE]
+print DamageType.count      # → 3
 
-loop v in DamageType :: values
-    print DamageType :: name [v]
+loop v in DamageType.values
+    print DamageType.name(v)
 end
 ```
 
-A name after `DamageType ::` that is none of its members, `values`, `names`, `count` or `name` is a
+A name after `DamageType.` that is none of its members, `values`, `names`, `count` or `name` is a
 compile error (`'PHYSCAL' is not a member of enum 'DamageType'`), for an enum declared at the top
 level of the script or of a file it imports.
 
@@ -624,29 +624,29 @@ end
 
 ### Classes
 
-Constructor parameters are declared in `[]`; properties and methods are reached with `::`.
+Constructor parameters are declared in `()`; properties and methods are reached with `.`.
 
 ```ruby
-class Point [x, y]
-    fun magnitude []
-        return sqrt [this :: x * this :: x + this :: y * this :: y]
+class Point(x, y)
+    fun magnitude()
+        return sqrt(this.x * this.x + this.y * this.y)
     end
 end
 
-p = new Point [3, 4]
-print p :: x               # → 3
-print p :: magnitude []    # → 5.000000085681677   (fixed-point sqrt)
+p = new Point(3, 4)
+print p.x               # → 3
+print p.magnitude()    # → 5.000000085681677   (fixed-point sqrt)
 
-p :: x = 10                # properties are assignable
-print p :: x               # → 10
+p.x = 10                # properties are assignable
+print p.x               # → 10
 ```
 
 `new` passes exactly one argument per constructor parameter (pass `null` for one you leave
-empty): `new Point [3]` is a compile error, `Class 'Point' takes 2 arguments, not 1`, and so is `new`
-of a class that is not defined. Where the compiler cannot tell which class `obj :: new Part [...]`
+empty): `new Point(3)` is a compile error, `Class 'Point' takes 2 arguments, not 1`, and so is `new`
+of a class that is not defined. Where the compiler cannot tell which class `obj.new Part(...)`
 makes, the wrong number of arguments is an `ArgumentError` when it runs.
 
-Inside a class, `@x` is shorthand for `this :: x`: `return sqrt [@x * @x + @y * @y]`. A lambda has
+Inside a class, `@x` is shorthand for `this.x`: `return sqrt(@x * @x + @y * @y)`. A lambda has
 no `this`, so `this` and `@x` cannot be used in one, and a class body cannot `yield` (it runs as the
 constructor; a function it calls still can).
 
@@ -656,11 +656,11 @@ that `a` and `b` are the instance's globals; at the top level it is an error (se
 field: use `@x`.
 
 The **fields** of a class are its constructor parameters, the names its body assigns (bare or as
-`@x = ...`) and the fields of its base classes. `@x` / `this :: x` in a method or the class body is
+`@x = ...`) and the fields of its base classes. `@x` / `this.x` in a method or the class body is
 checked against them when the script compiles: `'shield' is not a field of class 'Unit'`. A method
 cannot add a field. An instance has one field per name, shared by every class of its inheritance
 chain, so two base classes may not bind parameters of the same name to different arguments:
-`class C [p, q] : Sub [q, p], Mul [p, q]` with `Sub [a, b]` and `Mul [a, b]` is a compile error
+`class C(p, q) : Sub(q, p), Mul(p, q)` with `Sub(a, b)` and `Mul(a, b)` is a compile error
 (`'a' is bound twice in class 'C'`); name the base parameters differently. This holds for base
 classes defined in an imported file too. *(v2 in progress: when a base class comes from a
 bytecode import, or is registered by the host, the field check is skipped and the binding error is
@@ -668,10 +668,10 @@ a rescuable TypeError at `new`.)*
 
 ```ruby
 g = 5
-class Unit [hp]
+class Unit(hp)
     armor = 2                  # a field
     seen = g                   # reads the global g
-    fun hit [d]
+    fun hit(d)
         @hp = @hp - (d - @armor)
         return @hp
     end
@@ -681,38 +681,38 @@ end
 #### Inheritance
 
 ```ruby
-class Animal [name]
-    fun speak []
-        return this :: name + " makes a sound"
+class Animal(name)
+    fun speak()
+        return this.name + " makes a sound"
     end
 end
 
-class Dog [name] : Animal [name]
-    fun speak []
-        return this :: name + " says woof"
+class Dog(name) : Animal(name)
+    fun speak()
+        return this.name + " says woof"
     end
 end
 
-d = new Dog ["Rex"]
-print d :: speak []   # → Rex says woof
-print d :: name       # → Rex
+d = new Dog("Rex")
+print d.speak()   # → Rex says woof
+print d.name       # → Rex
 ```
 
 Multiple inheritance is supported — list each base with the arguments to forward:
 
 ```ruby
-class User [email]
-    fun get_email [] return this :: email end
+class User(email)
+    fun get_email() return this.email end
 end
-class Person [name]
-    fun get_name [] return this :: name end
+class Person(name)
+    fun get_name() return this.name end
 end
-class Student [email, name] : User [email], Person [name]
+class Student(email, name) : User(email), Person(name)
 end
 
-s = new Student ["a@b.c", "Ann"]
-print s :: get_email []   # → a@b.c
-print s :: get_name []    # → Ann
+s = new Student("a@b.c", "Ann")
+print s.get_email()   # → a@b.c
+print s.get_name()    # → Ann
 ```
 
 #### Type tests and casts
@@ -721,7 +721,7 @@ print s :: get_name []    # → Ann
 print d is Dog       # → true
 print d is Animal    # → true
 a = d as Animal      # cast, or null if incompatible
-print a :: name      # → Rex
+print a.name      # → Rex
 ```
 
 The class after `is` or `as` must be a class of the script, its imports or the host: `d is Dgo`
@@ -783,7 +783,7 @@ suspends it; the host's next `TickCoroutines(dt)` call continues from exactly th
 local variables intact.
 
 ```ruby
-fun patrol []
+fun patrol()
     print "moving to point A"
     yield wait 2.0            # resume ~2 seconds later
     print "moving to point B"
@@ -807,22 +807,22 @@ end
 nested function and lambda calls, because the whole VM state is suspended:
 
 ```ruby
-fun do_step [n]
+fun do_step(n)
     print "step {n}"
     yield
     print "step {n} done"
 end
 
-fun main_routine []
-    do_step [1]
-    do_step [2]
+fun main_routine()
+    do_step(1)
+    do_step(2)
 end
 ```
 
 `begin`/`rescue` survives a suspension, so this catches normally:
 
 ```ruby
-fun risky []
+fun risky()
     begin
         yield
         raise "boom"
@@ -837,23 +837,23 @@ Coroutines read and write the script's globals, so a coroutine and the host see 
 #### Starting coroutines from script
 
 ```ruby
-fun patrol [] print "go" yield print "stop" end
+fun patrol() print "go" yield print "stop" end
 
-id = start_coroutine ["patrol", {}]         # the args array is REQUIRED, even when empty
-loop_id = start_coroutine_loop ["patrol", {}]   # restarts automatically when it finishes
-stop_coroutine [id]
-stop_all_coroutines []
+id = start_coroutine("patrol", [])         # the args array is REQUIRED, even when empty
+loop_id = start_coroutine_loop("patrol", [])   # restarts automatically when it finishes
+stop_coroutine(id)
+stop_all_coroutines()
 ```
 
-> `start_coroutine ["patrol"]` — with only one argument — does not compile:
+> `start_coroutine("patrol")` — with only one argument — does not compile:
 > `Function 'start_coroutine' takes 2 arguments, not 1`, because native functions are matched on
-> exact arity. Always pass the second argument: `start_coroutine ["patrol", {}]`.
+> exact arity. Always pass the second argument: `start_coroutine("patrol", [])`.
 
 Arguments are passed as an array and bound to the coroutine function's parameters:
 
 ```ruby
-fun greet [name] print "hi {name}" yield print "bye {name}" end
-start_coroutine ["greet", {"hero"}]
+fun greet(name) print "hi {name}" yield print "bye {name}" end
+start_coroutine("greet", ["hero"])
 ```
 
 **A coroutine started from script (or from C#) does nothing further until the host calls
@@ -940,28 +940,28 @@ naming: **Math and Utility functions are unprefixed, Array and Text functions ca
 ### Math
 
 Fixed-point implementations from FixPointCS — deterministic across platforms, but approximate
-compared with real arithmetic (`pow [2, 10]` is `1023.999994755`).
+compared with real arithmetic (`pow(2, 10)` is `1023.999994755`).
 
 | Function | Description |
 |---|---|
-| `pow [base, exp]` | `base` raised to `exp` |
-| `sqrt [n]` | square root |
-| `floor [n]` / `ceil [n]` / `round [n]` | rounding (`round` is half-up) |
-| `abs [n]` | absolute value |
-| `min [a, b]` / `max [a, b]` | smaller / larger |
-| `clamp [n, lo, hi]` | clamp `n` to the range |
-| `sign [n]` | `-1`, `0`, or `1` |
-| `lerp [a, b, t]` | linear interpolation |
-| `sin [radians]` / `cos [radians]` / `tan [radians]` | trigonometry |
-| `asin [n]` / `acos [n]` / `atan2 [y, x]` | inverse trigonometry |
-| `deg_to_rad [degrees]` / `rad_to_deg [radians]` | angle conversion |
-| `pi []` | π — note the empty argument list |
+| `pow(base, exp)` | `base` raised to `exp` |
+| `sqrt(n)` | square root |
+| `floor(n)` / `ceil(n)` / `round(n)` | rounding (`round` is half-up) |
+| `abs(n)` | absolute value |
+| `min(a, b)` / `max(a, b)` | smaller / larger |
+| `clamp(n, lo, hi)` | clamp `n` to the range |
+| `sign(n)` | `-1`, `0`, or `1` |
+| `lerp(a, b, t)` | linear interpolation |
+| `sin(radians)` / `cos(radians)` / `tan(radians)` | trigonometry |
+| `asin(n)` / `acos(n)` / `atan2(y, x)` | inverse trigonometry |
+| `deg_to_rad(degrees)` / `rad_to_deg(radians)` | angle conversion |
+| `pi()` | π — note the empty argument list |
 
 ```ruby
-print floor [1.7]        # → 1
-print clamp [10, 0, 5]   # → 5
-print lerp [0, 10, 0.5]  # → 5
-print pi []              # → 3.141592653701082
+print floor(1.7)        # → 1
+print clamp(10, 0, 5)   # → 5
+print lerp(0, 10, 0.5)  # → 5
+print pi()              # → 3.141592653701082
 ```
 
 There are deliberately **no random functions** — `System.Random` is a lockstep desync source.
@@ -971,21 +971,21 @@ Deterministic randomness is supplied by the host as its own module.
 
 | Function | Description |
 |---|---|
-| `Array_length [arr]` | element count |
-| `Array_contains [arr, value]` | `true` if present |
-| `Array_index_of [arr, value]` | index of first occurrence, or `-1` |
-| `Array_insert [arr, index, value]` | insert at index |
-| `Array_remove_at [arr, index]` | remove at index, return the removed element |
-| `Array_remove [arr, value]` | remove first occurrence, return `true` if found |
-| `Array_pop [arr]` | remove and return the last element |
-| `Array_clear [arr]` | remove all elements |
-| `Array_copy [arr]` | shallow copy |
+| `Array_length(arr)` | element count |
+| `Array_contains(arr, value)` | `true` if present |
+| `Array_index_of(arr, value)` | index of first occurrence, or `-1` |
+| `Array_insert(arr, index, value)` | insert at index |
+| `Array_remove_at(arr, index)` | remove at index, return the removed element |
+| `Array_remove(arr, value)` | remove first occurrence, return `true` if found |
+| `Array_pop(arr)` | remove and return the last element |
+| `Array_clear(arr)` | remove all elements |
+| `Array_copy(arr)` | shallow copy |
 
 ```ruby
-arr = {10, 20, 30, 40}
-print Array_contains [arr, 20]   # → true
-print Array_index_of [arr, 30]   # → 2
-print Array_pop [arr]            # → 40
+arr = [10, 20, 30, 40]
+print Array_contains(arr, 20)   # → true
+print Array_index_of(arr, 30)   # → 2
+print Array_pop(arr)            # → 40
 print arr                        # → [10, 20, 30]
 ```
 
@@ -993,26 +993,26 @@ print arr                        # → [10, 20, 30]
 
 | Function | Description |
 |---|---|
-| `Text_remove [s, sub]` | `s` without any occurrence of `sub` (ordinal); an empty `sub` returns `s` |
+| `Text_remove(s, sub)` | `s` without any occurrence of `sub` (ordinal); an empty `sub` returns `s` |
 
 ```ruby
-print Text_remove ["banana", "na"]   # → ba
+print Text_remove("banana", "na")   # → ba
 ```
 
 ### Coroutine
 
 | Function | Description |
 |---|---|
-| `start_coroutine [name, args]` | start a coroutine, returns its id |
-| `start_coroutine_loop [name, args]` | start a coroutine that restarts when it completes |
-| `stop_coroutine [id]` | stop one coroutine |
-| `stop_all_coroutines []` | stop every coroutine |
+| `start_coroutine(name, args)` | start a coroutine, returns its id |
+| `start_coroutine_loop(name, args)` | start a coroutine that restarts when it completes |
+| `stop_coroutine(id)` | stop one coroutine |
+| `stop_all_coroutines()` | stop every coroutine |
 
 ### Utility
 
 | Function | Description |
 |---|---|
-| `is_null [object]` | `true` if the value is null |
+| `is_null(object)` | `true` if the value is null |
 
 ### Built-in statements
 
@@ -1066,7 +1066,7 @@ Every error is reported, not just the first. After a syntax error the parser ski
 and goes on with the next one; a file with syntax errors lists them all and is then not compiled,
 so the code skipped causes no errors of its own. Otherwise the compiler goes on with the next
 statement after an error, and the checks that need the whole script and its imports (an unknown
-function, class, `::` name or variable, a write to a constant) report every error they find; the
+function, class, `.` name or variable, a write to a constant) report every error they find; the
 `CompileError` result of `Run()`/`Call()` carries the first.
 
 A successful compile can also carry warnings (`Severity` `Warning`), such as
@@ -1174,7 +1174,7 @@ have the script write a global and read it from the host:
 
 ```csharp
 // script:  result = 0
-//          fun compute [a, b] global result result = a + b return result end
+//          fun compute(a, b) global result result = a + b return result end
 script.Call(script.GetFunction("compute", 2)!,
             WarValue.FromNumeric(F64.FromInt(3)),
             WarValue.FromNumeric(F64.FromInt(4)));
@@ -1208,7 +1208,7 @@ if (v.IsArray)   { var list = v.ArrayValue; }
 
 **Values from another instance.** A value one instance returned may be passed to another (a room
 handing a unit to a map script, say). Plain data crosses freely: numbers, text, arrays, and class
-instances whose fields the other script reads and writes (`u :: hp = 0`). Code does not: calling a
+instances whose fields the other script reads and writes (`u.hp = 0`). Code does not: calling a
 method of a class instance another instance created, instantiating one of its nested classes, or
 calling a function value (a lambda, a `FunctionValue` in a `NativeObject`) another instance compiled
 raises a rescuable `TypeError` "Cannot call method 'heal': it belongs to another script instance".
@@ -1319,7 +1319,7 @@ public static partial class CombatModule
 ```
 
 Run **WarScript → Generate Bindings** in Unity. The generator emits a `Register(script, scope)` that
-wires up functions (with marshaling), enums (as `::`-accessible class instances with `name[]`,
+wires up functions (with marshaling), enums (as class instances whose members are read with `.`, with `name()`,
 `values`, `names`, `count`), and consts (as immutable globals). Function names are **not** prefixed
 with the module name.
 
@@ -1365,7 +1365,7 @@ global player
 const MAX_UNITS number              # optional type: number, logical, text or array
 enum Team Red=0 Blue=1
 class Unit kind                     # constructor parameters
-fields Unit hp                      # optional: without it any `u :: x` is accepted
+fields Unit hp                      # optional: without it any `u.x` is accepted
 method Unit move 2 x y
 ```
 
@@ -1437,9 +1437,9 @@ diagnostics. The old definitions are gone at that point, so the next entry retur
 `CompileError` result until a `Reload` with source that compiles.
 
 ```
-counter = 5; bump[] → 6         # before reload
+counter = 5; bump() → 6         # before reload
 # reload with `counter += 100`
-bump[] → 106                    # global preserved, new body
+bump() → 106                    # global preserved, new body
 ```
 
 ### Bytecode serialization
@@ -1483,7 +1483,7 @@ always one of the following.
 A coroutine only makes progress when **the host resumes it**. There are exactly two required
 ingredients:
 
-1. Start it with `StartCoroutine(...)` (C#) or `start_coroutine ["name", {}]` (script).
+1. Start it with `StartCoroutine(...)` (C#) or `start_coroutine("name", [])` (script).
 2. Call `script.TickCoroutines(dt)` once per tick, forever.
 
 ### Troubleshooting table
@@ -1494,7 +1494,7 @@ ingredients:
 | Code up to the first `yield` runs, then nothing ever happens again | The host never calls `TickCoroutines(dt)`. | Call `script.TickCoroutines(dt)` every tick |
 | `yield` advances but `yield wait N` never completes | `dt` is zero (paused game), or is not in seconds. | Pass real elapsed seconds as `F64` — e.g. `F64.Ratio(1, 60)` |
 | `StartCoroutine` returns `-1` and nothing runs | The function name/arity does not resolve: wrong argument count, or the name is a **class method** (only top-level functions can be coroutines). The result's `Error` says which (a `NameError`). Like any error at a host entry, it also halts the instance. | Match the arity; move the body to a top-level function; `ClearFault()` |
-| Compile error `Function 'start_coroutine' takes 2 arguments, not 1` | Native functions match on exact arity. | `start_coroutine ["name", {}]` — pass the args array even when empty |
+| Compile error `Function 'start_coroutine' takes 2 arguments, not 1` | Native functions match on exact arity. | `start_coroutine("name", [])` — pass the args array even when empty |
 | A `loop`+`yield` coroutine only advances one iteration per tick | Correct by design: one resume per coroutine per `TickCoroutines` call, regardless of how large `dt` is. | Tick more often, or don't `yield` in the inner loop |
 | A looping coroutine seems to skip a tick between repetitions | Also by design: `loop: true` restarts the function on the *next* tick after it completes. | — |
 | Every coroutine stopped, and nothing runs any more | An uncaught error inside a coroutine ended it, and — because `TickCoroutines` is a host entry — halted the instance, which clears all coroutines. `TickCoroutines` returned that error, `IsHalted` is true and `Fault` holds it. | Check the logger output or the result; `ClearFault()` and restart them |
@@ -1505,7 +1505,7 @@ ingredients:
 
 ```ruby
 # patrol.ws
-fun patrol [waypoints]
+fun patrol(waypoints)
     loop wp in waypoints
         print "moving to {wp}"
         yield wait 1.0
@@ -1539,10 +1539,11 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 
 **Syntax**
 
-- `{` and `}` are **array** delimiters, not block delimiters. Blocks end with `end`.
-- Array indexing is `arr{i}`; function arguments use `[` and `]`; property access is `::`.
-- `grid{0}{1}` does not chain — assign the inner array to a temporary first.
-- There is no postfix call on an index expression (`arr{0}[args]`) — use a temporary.
+- Blocks end with `end`. Arrays are `[1, 2]`; `{` and `}` appear only in text interpolation (`"{x}"`).
+- Array indexing is `arr[i]` (and chains: `grid[0][1]`); calls and parameter lists use `(` and `)`; members are `obj.x`.
+- A `(` right after a name is a call, even with a space between (`f (x)` is `f(x)`); `f [x]` indexes a variable `f`.
+- Only a name can be called: `arr[0](args)` and `f(x)(y)` are syntax errors — put the value in a variable first.
+- Compound assignment evaluates its target twice: `g()[0] += 1` calls `g` twice.
 - A `fun` nested inside another `fun` is not callable from the outer body; use a lambda value.
 - `this` (or `@x`) outside every class is a compile error (`'this' and '@' fields can only be used
   inside a class`).
@@ -1565,12 +1566,12 @@ Output: `moving to A`, then `moving to B` about a second later, then `patrol com
 - Functions are keyed by `(name, arity)`; native functions require an exact arity match.
 - Operators do not coerce: mixed types raise a `TypeError` (except `text + anything`, which
   concatenates), and `==` across types is `false`, so `1 == "1"` is `false`.
-- Text subtraction is gone; use `Text_remove [s, sub]`.
-- Booleans print as `true`/`false`, and arrays print as `[1, 2, 3]` even though the literal is `{1, 2, 3}`.
+- Text subtraction is gone; use `Text_remove(s, sub)`.
+- Booleans print as `true`/`false`, and arrays print as `[1, 2, 3]`, like their literal.
 
 **Numerics**
 
-- Every number is `F64` fixed point. `sqrt [25]` is `5.000000085681677`, not `5`; compare with a
+- Every number is `F64` fixed point. `sqrt(25)` is `5.000000085681677`, not `5`; compare with a
   tolerance in tests.
 - Integer part range ±2147483647; fractional digits past 9 are truncated.
 

@@ -16,8 +16,16 @@ Every rule here that can be shown by running a script has a golden test under
 - **Lines.** A statement ends at the end of its line. `\r\n`, `\n` and a lone
   `\r` each end one line. Columns count from 1 in UTF-16 code units, so a tab is
   one column.
-- **Blocks** end with `end`. `{ }` are array delimiters (literals and indexing),
-  never blocks; `[ ]` delimit parameter and argument lists.
+- **Blocks** end with `end`. `[ ]` are array delimiters (literals and indexing),
+  never blocks. `( )` delimit parameter and argument lists, and group
+  expressions: a `(` right after a name or `fun` (on the same line, blanks
+  allowed) opens a list (`f(a)`, `fun f(a)`, `fun(x)`, `new P(1)`, `obj.m()`),
+  any other `(` groups (T3.12), as does one after `yield wait` or
+  `yield until` (`yield until (x > 0)`). `{ }` appear only in text interpolation; `{` or
+  `}` elsewhere is a syntax error.
+- **Members** are `obj.name`, `obj.method(args)` and `obj.new Nested(args)`.
+  A `.` right after a number followed by a name is a member (`5.x`), not a
+  decimal point.
 - **Numbers**: `'-'? digit+ ('.' digit+)?`, with `_` allowed as a digit separator
   (`1_000_000`). See section 2.
 - **Text literals**: `"..."` and `$"..."` (identical: escapes and interpolation)
@@ -28,7 +36,7 @@ Every rule here that can be shown by running a script has a golden test under
   interpolation, may span lines (the line breaks right after the opening and
   right before the closing delimiter are dropped), closes on the last three
   quotes of a run, and cannot contain `"""`. `$"""` is rejected.
-- **`@name`** is lexed as `this :: name`, all three tokens at the `@`'s column.
+- **`@name`** is lexed as `this.name`, all three tokens at the `@`'s column.
   `@` followed by anything but a name (a keyword, a literal, a space) is a syntax
   error.
 - **Reserved words** include `fun`, `class`, `new`, `this`, `return`, `if`, `elif`,
@@ -73,7 +81,7 @@ Precedence follows the usual arithmetic rules; parentheses group.
 | `text + x`, `x + text` | Concatenation, `x` formatted as in section 10 (`"b=" + true` is `b=true`) |
 | `array + array` | A new array, the left elements then the right |
 | `array + x`, `x + array` (`x` neither array nor text) | TypeError (PROP-6) |
-| `n - n` | Subtraction. Text has no `-`: use `Text_remove [s, sub]` (PROP-7) |
+| `n - n` | Subtraction. Text has no `-`: use `Text_remove(s, sub)` (PROP-7) |
 | `n * n` | Multiplication |
 | `text * n`, `n * text` | Repetition. The count truncates toward zero; a count of 0 or less gives `""` |
 | `n / n`, `n % n` | Division and remainder (the remainder has the sign of the left operand: `-7 % 3` is `-1`). A zero right operand raises DivisionByZero (`Division by zero`, `Modulo by zero`, D4) |
@@ -100,7 +108,7 @@ Results longer than `MaxTextLength` (text `+` and `*`) or `MaxArrayLength`
 (array `+`, `<<`, array literals) raise LimitExceeded (`Text too long`,
 `Array too long`), checked before anything is allocated.
 
-Compound assignment `x += e` (`-=`, `*=`, `/=`) means `x = x + e`.
+Compound assignment `x += e` (`-=`, `*=`, `/=`) means `x = x + e`, so the target is evaluated twice: `g()[0] += 1` calls `g` twice, and `a[i()] += 1` calls `i` twice.
 
 [Goldens: `language/operator_types.ws`, `language/operator_table.ws`,
 `language/text_length_limit.ws`, `errors/division_by_zero.ws`,
@@ -127,25 +135,28 @@ Compound assignment `x += e` (`-=`, `*=`, `/=`) means `x = x + e`.
 
 ## 5. Indexing, text and properties
 
-**Arrays.** `arr{i}` needs a number `i`, truncated toward zero (D1); any other
+**Arrays.** `arr[i]` needs a number `i`, truncated toward zero (D1); any other
 index type is a TypeError (`Index must be a number, not text`), and an index
 below 0 or not below the length is an IndexError
-(`Index 3 is out of bounds (length 3)`). `arr{i} = v` follows the same rules.
+(`Index 3 is out of bounds (length 3)`). `arr[i] = v` follows the same rules.
 Arrays never grow on assignment: append with `<<`.
 
-**Text.** `text{i}` is a one-character text, with the same rules. `text{i} = v`
+**Text.** `text[i]` is a one-character text, with the same rules. `text[i] = v`
 is a TypeError (`Cannot assign to an index of text: text is immutable`, DEC-10).
 Indexing anything else is a TypeError (`Cannot index number`).
 
-Only a name can be indexed (`arr{0}`, `obj :: items{0}`); there is no postfix
-call (`arr{0} [args]`): put the value in a variable first.
+Any operand can be indexed, and indexes chain (T3.12): `grid[0][1]`,
+`f(x)[0]`, `obj.items[0][1]`, `"abc"[1]`, `(a + b)[0]`; each of them can also
+be assigned to (`grid[0][1] = v`). A member binds tighter than an index, so
+`obj.items[0]` indexes `obj.items`. There is no call of a call's or an
+index's result: `arr[0](args)` and `f(x)(y)` are syntax errors (`only a name can be called`); put the value in a variable first.
 
 **Iteration.** `loop v in x` iterates the elements of an array, or the
 constructor parameters of an instance in order. Anything else is a TypeError
 (`Unable to iterate ...`).
 
-**Properties.** `obj :: name` reads a property of an instance and
-`obj :: name = v` writes one. On anything that is not an instance both are a
+**Properties.** `obj.name` reads a property of an instance and
+`obj.name = v` writes one. On anything that is not an instance both are a
 TypeError (`Cannot access property 'p' on non-class value`,
 `Cannot set property 'p' on non-class value`). A property the instance's classes
 do not declare is a NameError (`'z' is not a field of class 'P'`, PROP-15). The
@@ -171,15 +182,15 @@ loop i in a..b ... end        # i = a, a+1, ... while i < b
 loop i in a..b by s ... end   # step s, which must be greater than 0
 loop v in arr ... end         # each element (or each constructor parameter of an instance)
 break / next                  # leave / continue the innermost loop
-fun name [a, b = 1] ... end   # function; trailing parameters may have defaults
-return [value]
+fun name(a, b = 1) ... end    # function; trailing parameters may have defaults
+return value                  # the value is optional
 begin ... rescue e ... ensure ... end
 raise value
 yield / yield wait seconds / yield until condition
 print value / assert condition
 const NAME = value
 enum Name ... end
-class Name [params] : Base [args] ... end
+class Name(params) : Base(args) ... end
 import "path"
 global a, b
 ```
@@ -199,14 +210,14 @@ is omitted *or* passed as `null`: there is no way to tell the two apart. A
 function with defaults can be called with any number of arguments from its
 required ones to all of them.
 
-**Named arguments.** `f [team: "Red", hp: 100]` passes arguments by parameter
+**Named arguments.** `f(team: "Red", hp: 100)` passes arguments by parameter
 name. Naming a parameter twice, or one the function does not have, is a compile
 error when the function is known at compile time.
 
-**Lambdas.** `fun [x] return x * 2 end` in expression position is a function
+**Lambdas.** `fun(x) return x * 2 end` in expression position is a function
 value. A lambda sees its own parameters and locals and the globals; reading a
 local of the code around it is a compile error (`closures are not supported`).
-Call one held in a variable with `f [args]`. Function values print as
+Call one held in a variable with `f(args)`. Function values print as
 `<fun lambda>`.
 
 ### Top level
@@ -237,14 +248,14 @@ needs no declaration.
 ```ruby
 count = 0                 # global
 
-fun bump [n]
+fun bump(n)
     global count          # required to write the global
     total = n * 2         # local to bump
     count = count + total
     return total
 end
 
-fun peek []
+fun peek()
     return count          # reading a global needs no declaration
 end
 ```
@@ -256,7 +267,7 @@ parameter or local; a global, looked up at run time. A global no one has
 assigned is a NameError (`undefined variable 'x'`); a global assigned `null` is
 defined.
 
-**Calls.** In `f [args]`: if `f` is a local or parameter, the call goes through
+**Calls.** In `f(args)`: if `f` is a local or parameter, the call goes through
 the function value it holds. Otherwise the function named `f` that takes that
 many arguments is called, searched in the module's definitions (in a method,
 the class's methods first) and the natives. Otherwise a global holding a
@@ -273,46 +284,46 @@ function is a TypeError (`Value is not callable`).
 ## 7. Classes, fields and enums
 
 ```ruby
-class Unit [name, hp]
+class Unit(name, hp)
     armor = 0                     # a field
-    fun hit [n]
-        @hp -= n - @armor         # @x is this :: x
+    fun hit(n)
+        @hp -= n - @armor         # @x is this.x
     end
 end
 
-class Archer [name, hp] : Unit [name, hp]
+class Archer(name, hp) : Unit(name, hp)
 end
 
-a = new Archer ["robin", 50]
-a :: hit [10]
-print a :: hp
+a = new Archer("robin", 50)
+a.hit(10)
+print a.hp
 ```
 
 **Fields** are the constructor parameters plus every name the class body assigns
 (bare or as `@x = ...`) and does not declare `global`, plus the fields of the
 base classes. All class parts of one instance share one set of fields. A class
 passes base classes their arguments by naming its own constructor parameters
-(`: Unit [name, hp]`), one base or several (multiple inheritance).
+(`: Unit(name, hp)`), one base or several (multiple inheritance).
 
-**`new C [args]`** first allocates the whole instance, then runs the constructor
+**`new C(args)`** first allocates the whole instance, then runs the constructor
 bodies: the base classes depth-first in declaration order, then the class
 itself. The number of arguments must equal the number of constructor parameters
 (compile error when the class is known, else an ArgumentError). A class that
 inherits from itself is an error at `new`. A base parameter bound to two
-different arguments (`class C [p, q] : A [q, p], B [p, q]` where `A` and `B`
+different arguments (`class C(p, q) : A(q, p), B(p, q)` where `A` and `B`
 both name their parameters `a, b`) is an error.
 
 **The class body** runs as the constructor. In it, a bare name reads a field of
 the instance and falls back to a global; a bare assignment declares (and
-writes) a field unless the name is declared `global`; `@x` and `this :: x` may
+writes) a field unless the name is declared `global`; `@x` and `this.x` may
 also be used; `yield` is a compile error (PROP-21).
 
 **Methods.** Bare names follow the function rules (section 6): a method never
 reads a field by its bare name. `@x` reads or writes field `x` of `this` and is
 checked at compile time against the fields of the class and its bases.
-`obj :: x` on another instance is checked at run time (NameError for an unknown
+`obj.x` on another instance is checked at run time (NameError for an unknown
 property); a name that is a field or method of no class at all is already a
-compile error (PROP-29). `obj :: m [args]` calls a method (`Method 'm' with 0
+compile error (PROP-29). `obj.m(args)` calls a method (`Method 'm' with 0
 args not found` when the class has none of that arity).
 
 **Lambdas** cannot use `this` or `@x` (PROP-16); neither can code outside every
@@ -328,11 +339,11 @@ enum DamageType
     MAGICAL           # 1
     TRUE = 5
 end
-DamageType :: PHYSICAL      # 0
-DamageType :: name [5]      # "TRUE"
-DamageType :: values        # {0, 1, 5}
-DamageType :: names         # {"PHYSICAL", "MAGICAL", "TRUE"}
-DamageType :: count         # 3
+DamageType.PHYSICAL      # 0
+DamageType.name(5)      # "TRUE"
+DamageType.values        # {0, 1, 5}
+DamageType.names         # {"PHYSICAL", "MAGICAL", "TRUE"}
+DamageType.count         # 3
 ```
 
 An enum is a constant holding a single instance whose fields are its members.
@@ -429,7 +440,7 @@ Errors:
   the same message the run time would raise;
 - `new` of an unknown class or with the wrong number of arguments; `is`/`as` of
   an unknown class; a repeated parameter or enum member; a named argument given
-  twice or naming no parameter; `obj :: x` where no class has `x`; an unknown
+  twice or naming no parameter; `obj.x` where no class has `x`; an unknown
   enum member; `this` or `@x` outside a class or in a lambda; `@x` that is not a
   field of the class (PROP-29);
 - the scope errors of section 6 and the definition errors of section 8;
