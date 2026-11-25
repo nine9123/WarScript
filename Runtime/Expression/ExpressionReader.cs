@@ -494,8 +494,23 @@ namespace WarScript.Expression
             var array = new VariableExpression(_script, token.Value) { Line = token.RowNumber, Column = token.Column };
             var brace = Tokens.Next(TokenType.GroupDivider, "[");
             var arrayIndex = ReadExpression(_script, this);
-            Tokens.Next(TokenType.GroupDivider, "]");
+            CloseIndex(token.Value);
             return (ArrayValueOperator)At(new ArrayValueOperator(_script, array, arrayIndex), brace);
+        }
+
+        /// <summary>
+        /// Reads an index's closing <c>]</c>. A <c>,</c> instead is most likely
+        /// the legacy call syntax, <c>f [a, b]</c> (T3.12): say how a call is
+        /// written now rather than that a <c>]</c> was expected.
+        /// </summary>
+        private void CloseIndex(string name)
+        {
+            if (Tokens.TryPeek(out var next) && next.Type == TokenType.GroupDivider && next.Value == ",")
+                throw new SyntaxException(
+                    System.FormattableString.Invariant($"Unexpected ',' in an index at line {next.RowNumber}: an index takes one value")
+                    + (name != null ? " (calls are written " + name + "(a, b))" : " (calls are written f(a, b))"),
+                    next.RowNumber, next.Column);
+            Tokens.Next(TokenType.GroupDivider, "]");
         }
 
         /// <summary>
@@ -515,7 +530,7 @@ namespace WarScript.Expression
 
             var target = _operands.Pop();
             var index = ReadExpression(_script, this);
-            Tokens.Next(TokenType.GroupDivider, "]");
+            CloseIndex(null);
             var element = At(new ArrayValueOperator(_script, target, index), bracket);
             var spans = _script.ExpressionSpans;
             Span(element, spans != null && spans.TryGetValue(target, out var targetSpan) ? targetSpan.First : first,
