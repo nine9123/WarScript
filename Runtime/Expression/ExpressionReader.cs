@@ -493,18 +493,28 @@ namespace WarScript.Expression
         {
             var array = new VariableExpression(_script, token.Value) { Line = token.RowNumber, Column = token.Column };
             var brace = Tokens.Next(TokenType.GroupDivider, "[");
+            var indexStart = Tokens.Position;
             var arrayIndex = ReadExpression(_script, this);
-            CloseIndex(token.Value);
+            CloseIndex(token.Value, brace, indexStart);
             return (ArrayValueOperator)At(new ArrayValueOperator(_script, array, arrayIndex), brace);
         }
 
         /// <summary>
         /// Reads an index's closing <c>]</c>. A <c>,</c> instead is most likely
         /// the legacy call syntax, <c>f [a, b]</c> (T3.12): say how a call is
-        /// written now rather than that a <c>]</c> was expected.
+        /// written now rather than that a <c>]</c> was expected. An empty index,
+        /// <c>a[]</c>, is a syntax error too (it used to compile to a null
+        /// index, a TypeError only once it ran); the v1 frontend of the
+        /// migration tool still reads it.
         /// </summary>
-        private void CloseIndex(string name)
+        private void CloseIndex(string name, Token.Token bracket, int indexStart)
         {
+            if (Tokens.Position == indexStart && !_script.ParsingV1
+                && Tokens.TryPeek(out var close) && close.Type == TokenType.GroupDivider && close.Value == "]")
+                throw new SyntaxException(
+                    System.FormattableString.Invariant($"Empty index at line {bracket.RowNumber}: an index takes one value")
+                    + (name != null ? " (" + name + "[0])" : ""),
+                    bracket.RowNumber, bracket.Column);
             if (Tokens.TryPeek(out var next) && next.Type == TokenType.GroupDivider && next.Value == ",")
                 throw new SyntaxException(
                     System.FormattableString.Invariant($"Unexpected ',' in an index at line {next.RowNumber}: an index takes one value")
@@ -532,8 +542,9 @@ namespace WarScript.Expression
             if (_operands.Count == 0)
                 throw new SyntaxException("Malformed expression: '[' has nothing to index", bracket.RowNumber, bracket.Column);
             var target = _operands.Pop();
+            var indexStart = Tokens.Position;
             var index = ReadExpression(_script, this);
-            CloseIndex(null);
+            CloseIndex(null, bracket, indexStart);
             var element = At(new ArrayValueOperator(_script, target, index), bracket);
             var spans = _script.ExpressionSpans;
             Span(element, spans != null && spans.TryGetValue(target, out var targetSpan) ? targetSpan.First : first,

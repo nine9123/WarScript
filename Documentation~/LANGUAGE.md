@@ -150,7 +150,8 @@ the compound targets `CompoundAssignmentTests`.]
 index type is a TypeError (`Index must be a number, not text`), and an index
 below 0 or not below the length is an IndexError
 (`Index 3 is out of bounds (length 3)`). `arr[i] = v` follows the same rules.
-Arrays never grow on assignment: append with `<<`.
+Arrays never grow on assignment: append with `<<`. An index takes exactly one
+value: `arr[]` and `arr[0, 1]` are syntax errors.
 
 **Text.** `text[i]` is a one-character text, with the same rules. `text[i] = v`
 is a TypeError (`Cannot assign to an index of text: text is immutable`, DEC-10).
