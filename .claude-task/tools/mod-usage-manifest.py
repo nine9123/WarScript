@@ -17,6 +17,11 @@ root = pathlib.Path(sys.argv[1])
 defined = set()          # functions the mod defines itself
 calls = {}               # name -> list of (positional count, [named])
 
+# Lexer keywords and word operators (LexicalParser.ClassifyWord): never a callee.
+KEYWORDS = {'if', 'elif', 'else', 'end', 'print', 'class', 'fun', 'return', 'loop', 'in', 'by',
+            'break', 'next', 'assert', 'raise', 'begin', 'rescue', 'ensure', 'import', 'yield',
+            'const', 'enum', 'global', 'new', 'and', 'or', 'as', 'is', 'true', 'false', 'null', 'this'}
+
 def scan(src):
     i, n = 0, len(src)
     out = []             # tokens: ('id', name, pos) / ('str',) / ('p', ch)
@@ -51,7 +56,11 @@ def analyse(src):
         if tok[0] != 'id': continue
         if k > 0 and t[k-1] == ('id', 'fun'):
             defined.add(tok[1]); continue
-        if k + 1 < len(t) and t[k+1] == ('p', '['):
+        # A call is a name followed by '(' (T3.12; the legacy syntax used '['). A
+        # keyword before '(' groups (`if (a)`, `return (a)`), as do `yield wait`/`until`.
+        if tok[1] in KEYWORDS or (tok[1] in ('wait', 'until') and k > 0 and t[k-1] == ('id', 'yield')):
+            continue
+        if k + 1 < len(t) and t[k+1] == ('p', '('):
             depth, args, named, cur_empty = 0, 0, [], True
             m = k + 1
             while m < len(t):
@@ -89,7 +98,7 @@ for f in sorted(root.rglob('*.wroom.json')):
     walk(json.loads(f.read_text(encoding='utf-8')))
 for f in sorted(root.rglob('*.ws')):
     # The same pattern as check-mod.sh, the argument's escapes decoded.
-    for m in re.finditer(r'npc_add_script_option\s*\[[^\]\n]*?"((?:[^"\\\n]|\\.)*)"\s*\]', f.read_text(encoding='utf-8')):
+    for m in re.finditer(r'npc_add_script_option\s*\([^)\n]*?"((?:[^"\\\n]|\\.)*)"\s*\)', f.read_text(encoding='utf-8')):
         snippets.append((str(f.relative_to(root)), 'npc_add_script_option', json.loads('"' + m.group(1) + '"')))
 for _, _, s in snippets:
     analyse(s)

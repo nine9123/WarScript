@@ -4,7 +4,7 @@
 # resolving imports from the mod's root as the game does. Also compiles the
 # scripts a warman-style mod holds as text: the CustomText of every
 # attach_script object in its *.wroom.json files, and the script argument of
-# npc_add_script_option[...] calls. Nothing runs.
+# npc_add_script_option(...) calls. Nothing runs.
 #
 # Usage: .claude-task/tools/check-mod.sh <mod folder> <manifest>
 # Prints one FAIL line (the runner's JSON) per script that does not compile
@@ -40,7 +40,7 @@ def walk(o, where):
 for f in sorted(mod.rglob('*.wroom.json')):
     walk(json.loads(f.read_text(encoding='utf-8')), str(f.relative_to(mod)))
 for f in sorted(mod.rglob('*.ws')):
-    for m in re.finditer(r'npc_add_script_option\s*\[[^\]\n]*?"((?:[^"\\\n]|\\.)*)"\s*\]', f.read_text(encoding='utf-8')):
+    for m in re.finditer(r'npc_add_script_option\s*\([^)\n]*?"((?:[^"\\\n]|\\.)*)"\s*\)', f.read_text(encoding='utf-8')):
         found.append((f"{f.relative_to(mod)} npc_add_script_option", json.loads('"' + m.group(1) + '"')))
 for i, (label, text) in enumerate(found):
     (tmp / f"snippet_{i}.ws").write_text(text + "\n", encoding='utf-8')

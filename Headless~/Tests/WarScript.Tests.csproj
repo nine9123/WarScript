@@ -19,6 +19,7 @@
     <ProjectReference Include="../Runner/WarScript.Runner.csproj" ReferenceOutputAssembly="false" />
     <!-- The migration tool (T3.2, temporary): its analysis and tests are compiled here; the console app is built so it keeps compiling. -->
     <Compile Include="$(WarScriptRoot)/Tools~/WarScript.Migrate/Migrator.cs" />
+    <Compile Include="$(WarScriptRoot)/Tools~/WarScript.Migrate/SyntaxRewriter.cs" />
     <Compile Include="$(WarScriptRoot)/Tools~/WarScript.Migrate/Tests/*.cs" />
     <ProjectReference Include="$(WarScriptRoot)/Tools~/WarScript.Migrate/WarScript.Migrate.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>

@@ -196,7 +196,7 @@ namespace WarScript
         // (CheckInstantiations); null otherwise.
         private List<(string Class, int Arguments, bool Nested, string? File, string? Source, int Line, int Column)>? _instantiations;
 
-        // While Compile() runs: every `obj :: x` / `obj :: m [...]` the
+        // While Compile() runs: every `obj.x` / `obj.m(...)` the
         // compiler emitted (T3.8, PROP-29; Enum: the left operand's name when
         // it is a bare global read), and the members of every enum declared
         // at the top level of a file of the module set; checked by
@@ -228,8 +228,8 @@ namespace WarScript
         // Null otherwise.
         private List<(string Name, string? File, string? Source, int Line, int Column)>? _constantWrites;
 
-        // While Compile() runs: every operator or `::` check whose operand
-        // reads a global or an `E :: x` of one (T3.8, PROP-28; the check
+        // While Compile() runs: every operator or `.` check whose operand
+        // reads a global or an `E.x` of one (T3.8, PROP-28; the check
         // gets the type of such a read and returns the error message or
         // null), and the type of every `const`'s value; checked by
         // CheckTypedOperands once the module set is compiled. Null otherwise.
@@ -1058,7 +1058,7 @@ namespace WarScript
         /// <summary>
         /// Records a <c>new <paramref name="className"/></c> with
         /// <paramref name="arguments"/> arguments (<paramref name="nested"/>:
-        /// <c>obj :: new C [...]</c>; -1: the class of an <c>is</c> or
+        /// <c>obj.new C(...)</c>; -1: the class of an <c>is</c> or
         /// <c>as</c>, which only has to exist) at <paramref name="line"/>,
         /// <paramref name="column"/> of <paramref name="file"/> (T3.8,
         /// PROP-29), checked by <see cref="CheckInstantiations"/> once every
@@ -1069,7 +1069,7 @@ namespace WarScript
             _instantiations?.Add((className, arguments, nested, file, ParsingSource, line, column));
 
         /// <summary>
-        /// The compile errors for every recorded <c>new C [...]</c> (T3.8,
+        /// The compile errors for every recorded <c>new C(...)</c> (T3.8,
         /// PROP-29) whose class is no class of the module set or the host
         /// (<c>Class 'C' is not defined</c>, as the VM would raise), or that
         /// takes another number of arguments than every class named
@@ -1079,11 +1079,11 @@ namespace WarScript
         /// are those of the top level of each file, nested in them, and in
         /// the host's definition scopes; a class defined inside a function or
         /// a block is never found by <c>new</c> at runtime, so it does not
-        /// count. A nested <c>obj :: new C [...]</c> naming no such class is
+        /// count. A nested <c>obj.new C(...)</c> naming no such class is
         /// left to the VM, which reports a foreign <c>obj</c> as such (6.7).
         /// The class of an <c>is</c> or <c>as</c> must exist too, at any
         /// arity (T3.8), though the VM would only answer false or null: like
-        /// a <c>::</c> name, a class of another script instance's value
+        /// a <c>.</c> name, a class of another script instance's value
         /// (6.7) must be known to the script that tests for it.
         /// </summary>
         private void CheckInstantiations()
@@ -1152,7 +1152,7 @@ namespace WarScript
         }
 
         /// <summary>
-        /// Records <c>obj :: <paramref name="name"/></c> (a read, a write or
+        /// Records <c>obj.<paramref name="name"/></c> (a read, a write or
         /// a method call) at <paramref name="line"/>, <paramref name="column"/>
         /// of <paramref name="file"/> (T3.8, PROP-29);
         /// <paramref name="enumName"/> is <c>obj</c> when it is a bare name
@@ -1164,15 +1164,15 @@ namespace WarScript
             _propertyUses?.Add((name, enumName, file, ParsingSource, line, column));
 
         /// <summary>
-        /// The compile errors for every recorded <c>::</c> (T3.8, PROP-29)
+        /// The compile errors for every recorded <c>.</c> (T3.8, PROP-29)
         /// that can only fail at runtime:
         /// <list type="bullet">
-        /// <item><c>E :: X</c> or <c>E :: X [...]</c> where <c>E</c> is an
+        /// <item><c>E.X</c> or <c>E.X(...)</c> where <c>E</c> is an
         /// enum declared at the top level of a file of the module set (a
         /// constant, so the global is that enum) and <c>X</c> is none of its
         /// members, <c>values</c>, <c>names</c>, <c>count</c> or
         /// <c>name</c>: <c>'X' is not a member of enum 'E'</c>;</item>
-        /// <item><c>obj :: x</c> or <c>obj :: x [...]</c> where <c>x</c> is
+        /// <item><c>obj.x</c> or <c>obj.x(...)</c> where <c>x</c> is
         /// neither a field nor a method of any class of the module set or the
         /// host: <c>'x' is not a field or method of any class</c>. Not
         /// checked when a host class's fields are unknown (it was registered
@@ -1180,8 +1180,8 @@ namespace WarScript
         /// (<c>[WsEnum]</c>): a host constant named like its class, whose
         /// fields are what that instance holds.</item>
         /// </list>
-        /// <c>this :: x</c> and <c>@x</c> are checked against the class
-        /// itself by the compiler; a nested <c>obj :: new C</c> by
+        /// <c>this.x</c> and <c>@x</c> are checked against the class
+        /// itself by the compiler; a nested <c>obj.new C</c> by
         /// <see cref="CheckInstantiations"/>.
         /// </summary>
         private void CheckProperties()
@@ -1258,6 +1258,7 @@ namespace WarScript
         {
             if (_globalReads == null || _globalReads.Count == 0 || _globalWritesUnknown) return;
             HashSet<string>? fields = null;
+            HashSet<string>? functions = null;
             foreach (var (name, classBody, file, source, line, column) in _globalReads)
             {
                 if (_globalWrites!.Contains(name) || UserMemoryScope.TryGet(name, out _)) continue;
@@ -1274,9 +1275,33 @@ namespace WarScript
                     }
                     if (fields.Contains(name)) continue;
                 }
-                ReportCompileError(new Exception.CompileError(Bytecode.WarVM.UndefinedVariableMessage(name), file, line, column)
+                // `f [1]`, the legacy call syntax, now indexes a variable `f` (T3.12).
+                functions ??= ModuleSetFunctionNames();
+                var message = Bytecode.WarVM.UndefinedVariableMessage(name);
+                if (functions.Contains(name))
+                    message += " ('" + name + "' is a function: call it as " + name + "(...))";
+                ReportCompileError(new Exception.CompileError(message, file, line, column)
                     .LocateIn(file, source));
             }
+        }
+
+        /// <summary>
+        /// The names of the functions a call by name finds from anywhere: the
+        /// module set's top-level functions and the host's (not its classes'
+        /// methods, which only code in the class reaches by bare name).
+        /// </summary>
+        private HashSet<string> ModuleSetFunctionNames()
+        {
+            var names = new HashSet<string>(System.StringComparer.Ordinal);
+            void Add(DefinitionScope scope)
+            {
+                foreach (var f in scope.Functions) names.Add(f.Details.Name);
+            }
+            Add(_definitionScope);
+            if (_parsingImports != null)
+                foreach (var imported in _parsingImports) Add(imported);
+            for (var host = _definitionScope.Parent; host != null; host = host.Parent) Add(host);
+            return names;
         }
 
         /// <summary>
@@ -1387,10 +1412,10 @@ namespace WarScript
         internal bool CollectsTypedOperands => _typedOperands != null;
 
         /// <summary>
-        /// Records a check of an operator or <c>::</c> at
+        /// Records a check of an operator or <c>.</c> at
         /// <paramref name="line"/>, <paramref name="column"/> of
         /// <paramref name="file"/> whose operand reads a global, or an
-        /// <c>E :: x</c> of one (T3.8, PROP-28), for
+        /// <c>E.x</c> of one (T3.8, PROP-28), for
         /// <see cref="CheckTypedOperands"/>. Ignored outside <see cref="Compile"/>.
         /// </summary>
         internal void CheckTypedOperand(System.Func<System.Func<string, Compiler.StaticType>, string?> check, string? file, int line, int column) =>
@@ -1432,12 +1457,12 @@ namespace WarScript
 
         /// <summary>
         /// PROP-28 for constants and enum members (T3.8): every recorded
-        /// operator or <c>::</c> check is run again with the type of each
+        /// operator or <c>.</c> check is run again with the type of each
         /// global it reads that is a <c>const</c> of the module set (the type
-        /// of its declared value) or of each <c>E :: x</c> where <c>E</c> is
+        /// of its declared value) or of each <c>E.x</c> where <c>E</c> is
         /// an enum declared at a file's top level (a member or <c>count</c>:
         /// a number; <c>values</c>, <c>names</c>: an array;
-        /// <c>E :: name [...]</c>: a text), and its error is reported at the
+        /// <c>E.name(...)</c>: a text), and its error is reported at the
         /// operator. Such a global holds nothing else whenever it is read
         /// without an error: no other write compiles (<see cref="CheckConstantWrites"/>),
         /// and a read before the declaration runs is a NameError. So a name
@@ -1457,7 +1482,7 @@ namespace WarScript
             {
                 if (known.TryGetValue(key, out var type)) return type;
                 type = Compiler.StaticType.Unknown;
-                var separator = key.IndexOf("::", System.StringComparison.Ordinal);
+                var separator = key.IndexOf('.');
                 var global = separator < 0 ? key : key.Substring(0, separator);
                 if (!ConstantNames.Contains(global) || UserMemoryScope.HasLocal(global))
                 {
@@ -1469,7 +1494,7 @@ namespace WarScript
                     // name (a host global it is read from until then).
                     if (_constantsBeforeCompile!.Contains(global) && !_constantTypes!.ContainsKey(global)
                         && !(_enumMembers?.ContainsKey(global) ?? false))
-                        type = HostConstantType(global, hostValue, separator < 0 ? null : key.Substring(separator + 2));
+                        type = HostConstantType(global, hostValue, separator < 0 ? null : key.Substring(separator + 1));
                 }
                 else
                 {
@@ -1485,10 +1510,10 @@ namespace WarScript
                     }
                     else if (_enumMembers != null && _enumMembers.TryGetValue(global, out var members))
                     {
-                        var member = key.Substring(separator + 2);
-                        if (member == "name[]") type = Compiler.StaticType.Text;
+                        var member = key.Substring(separator + 1);
+                        if (member == "name()") type = Compiler.StaticType.Text;
                         else if (member == "values" || member == "names") type = Compiler.StaticType.Array;
-                        // `E :: name` without a call reads the method `name`
+                        // `E.name` without a call reads the method `name`
                         // as a field: a NameError, unless a member is named so.
                         else if (member == "count" || (member != "name" && members.Contains(member))) type = Compiler.StaticType.Number;
                     }
@@ -1509,8 +1534,8 @@ namespace WarScript
         /// The type of a read of the host constant <paramref name="name"/>
         /// (T3.8, PROP-28), which holds <paramref name="value"/> when
         /// <see cref="Compile"/> runs; <paramref name="member"/> is
-        /// <c>x</c> for <c>name :: x</c>, <c>m[]</c> for
-        /// <c>name :: m [a]</c>, null for the bare read. A script cannot
+        /// <c>x</c> for <c>name.x</c>, <c>m()</c> for
+        /// <c>name.m(a)</c>, null for the bare read. A script cannot
         /// write a constant (<see cref="CheckConstantWrites"/>), and the host
         /// is trusted to keep a constant's type:
         /// <list type="bullet">
@@ -1519,9 +1544,9 @@ namespace WarScript
         /// if any;</item>
         /// <item>a host enum (an instance of the enum class of its name,
         /// <see cref="ClassDefinition.IsEnum"/>, whose members a script
-        /// cannot assign): <c>E :: x</c> has the type of its field
+        /// cannot assign): <c>E.x</c> has the type of its field
         /// <c>x</c> (a member or <c>count</c>: a number; <c>values</c>,
-        /// <c>names</c>: an array), and <c>E :: name [a]</c> is a text (the
+        /// <c>names</c>: an array), and <c>E.name(a)</c> is a text (the
         /// generated <c>name</c> method).</item>
         /// </list>
         /// </summary>
@@ -1537,10 +1562,10 @@ namespace WarScript
             var data = value.ClassValue;
             if (!data.Definition.IsEnum || data.Root != data || data.Definition.ClassDetails.Name != name)
                 return Compiler.StaticType.Unknown;
-            if (member == "name[]")
+            if (member == "name()")
                 return data.Definition.GetDefinitionScope().GetFunction("name", 1) is NativeFunctionDefinition
                     ? Compiler.StaticType.Text : Compiler.StaticType.Unknown;
-            // `E :: name` without a call reads the method `name` as a field.
+            // `E.name` without a call reads the method `name` as a field.
             if (member == "name" || !data.MemoryScope.HasLocal(member)) return Compiler.StaticType.Unknown;
             return Compiler.TypeOfValue(data.MemoryScope.GetLocal(member));
         }
@@ -1663,7 +1688,7 @@ namespace WarScript
             {
                 // `global` was a name in v1 (T3.3 made it a keyword). The
                 // cached list is shared, so the renamed tokens are a copy.
-                var lexed = LexicalParser.Parse(_sourceCode);
+                var lexed = LexicalParser.ParseLegacy(_sourceCode);
                 var tokens = new List<Token.Token>(lexed.Count);
                 foreach (var t in lexed)
                     tokens.Add(t.Type == Token.TokenType.Keyword && t.Value == "global"

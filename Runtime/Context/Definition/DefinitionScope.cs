@@ -145,8 +145,8 @@ namespace WarScript.Context.Definition
             _functionIndex[(functionDefinition.Details.Name, functionDefinition.Details.Arguments.Count)] = functionDefinition;
 
             // Register at reduced arities for default parameters.
-            // A function `fun f [a, b = 1, c = 2]` with MinArity=1
-            // is also reachable as f[a] and f[a, b].
+            // A function `fun f(a, b = 1, c = 2)` with MinArity=1
+            // is also reachable as f(a) and f(a, b).
             var details = functionDefinition.Details;
             for (int arity = details.MinArity; arity < details.Arguments.Count; arity++)
             {

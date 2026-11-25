@@ -8,14 +8,14 @@ namespace WarScript.Expression
 {
     /// <summary>
     /// A lambda (anonymous function) expression.
-    /// Parsed from: <c>fun [params] body end</c> in expression position.
+    /// Parsed from: <c>fun(params) body end</c> in expression position.
     ///
     /// At compile time, the body is compiled into a standalone CompiledFunction
     /// and stored as a NativeObject constant. At runtime, the value is pushed
     /// onto the stack and can be stored in variables or passed as arguments.
     ///
     /// Calling a lambda uses the same syntax as calling a named function:
-    /// <c>callback [args]</c>. The VM falls back to variable lookup when
+    /// <c>callback(args)</c>. The VM falls back to variable lookup when
     /// no function definition is found for the name.
     /// </summary>
     public class LambdaExpression : IExpression

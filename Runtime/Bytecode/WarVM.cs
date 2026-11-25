@@ -1174,7 +1174,7 @@ namespace WarScript.Bytecode
                             {
                                 // A bare name in a method is a local or a
                                 // global (T3.4, DEC-6, PROP-20; NameScope);
-                                // fields are `@x` / `this :: x`.
+                                // fields are `@x` / `this.x`.
                                 if (_frameCount >= FramesMax)
                                 {
                                     RuntimeError(ScriptErrorKind.LimitExceeded, "Stack overflow");
@@ -2045,7 +2045,7 @@ namespace WarScript.Bytecode
         }
 
         /// <summary>
-        /// Checks <c>target{index}</c> (plan 5.5, DEC-10, T3.6): the target
+        /// Checks <c>target[index]</c> (plan 5.5, DEC-10, T3.6): the target
         /// must be an array, or text when reading (text is immutable, so a
         /// write raises TypeError); the index must be a number, truncated
         /// toward zero (D1), and inside the bounds, else IndexError. On
@@ -2394,7 +2394,7 @@ namespace WarScript.Bytecode
             value.IsNativeObject ? value.Ref as FunctionValue : null;
 
         /// <summary>
-        /// Allocation step for <c>new className [args]</c>: the class and its
+        /// Allocation step for <c>new className(args)</c>: the class and its
         /// base classes are looked up from <paramref name="scope"/> (the
         /// definitions of the frame executing <c>new</c>, or the parent
         /// instance's class for a nested class), and must take

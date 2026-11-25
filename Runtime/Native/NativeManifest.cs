@@ -90,7 +90,7 @@ namespace WarScript
 
         /// <summary>
         /// A host class: its constructor parameters, its fields (null when
-        /// unknown: the compiler then accepts any <c>obj :: x</c>) and its
+        /// unknown: the compiler then accepts any <c>obj.x</c>) and its
         /// methods.
         /// </summary>
         public sealed class ClassEntry

@@ -46,10 +46,26 @@ namespace WarScript
 
             // Lex outside the lock: a SyntaxException caches nothing, and
             // threads lexing different sources don't wait for each other.
-            var parser = new LexicalParser(sourceCode);
+            var parser = new LexicalParser(sourceCode, false);
             parser.Scan();
 
             return Cache.Add(sourceCode, parser._tokens.AsReadOnly());
+        }
+
+        /// <summary>
+        /// The tokens of <paramref name="sourceCode"/> written in the legacy
+        /// syntax (before T3.12): <c>f [a]</c> calls and parameter lists,
+        /// <c>{1, 2}</c> arrays and <c>a{i}</c> indexes, <c>obj :: x</c>
+        /// members. They come out as the current syntax's tokens (<c>[</c>
+        /// as a call <c>(</c>, <c>{</c> as <c>[</c>, <c>::</c> as
+        /// <c>.</c>), at the old characters' positions, so the parser reads
+        /// both. Only the migration tools use it; nothing is cached.
+        /// </summary>
+        internal static IReadOnlyList<Token.Token> ParseLegacy(string sourceCode)
+        {
+            var parser = new LexicalParser(sourceCode, true);
+            parser.Scan();
+            return parser._tokens.AsReadOnly();
         }
 
         public static void ClearCache() => Cache.Clear();
@@ -57,8 +73,20 @@ namespace WarScript
         /// <summary>Number of sources in the token cache (tests).</summary>
         internal static int CachedCount => Cache.Count;
 
-        private LexicalParser(string source)
+        /// <summary>Lexing the legacy syntax (<see cref="ParseLegacy"/>).</summary>
+        private readonly bool _legacy;
+
+        /// <summary>
+        /// For each <c>(</c> still open: whether it opened an argument or
+        /// parameter list (a <see cref="TokenType.GroupDivider"/>) rather
+        /// than a parenthesized expression (an <see cref="TokenType.Operator"/>),
+        /// so its <c>)</c> gets the same type (T3.12).
+        /// </summary>
+        private readonly Stack<bool> _parens = new Stack<bool>();
+
+        private LexicalParser(string source, bool legacy)
         {
+            _legacy = legacy;
             _source = source;
             _tokens = new List<Token.Token>();
             _pos = 0;
@@ -198,23 +226,10 @@ namespace WarScript
                         _pos += 2;
                         return;
                     case "::":
-                        // Check for :: new
-                        var rest = _pos + 2;
-                        while (rest < _source.Length && (_source[rest] == ' ' || _source[rest] == '\t'))
-                            rest++;
-                        if (rest + 3 <= _source.Length
-                            && _source.Substring(rest, 3) == "new"
-                            && (rest + 3 >= _source.Length || !IsIdentChar(_source[rest + 3])))
-                        {
-                            var full = _source.Substring(_pos, rest + 3 - _pos);
-                            Add(TokenType.Operator, full, _row, col);
-                            _pos = rest + 3;
-                        }
-                        else
-                        {
-                            Add(TokenType.Operator, "::", _row, col);
-                            _pos += 2;
-                        }
+                        if (!_legacy)
+                            throw new SyntaxException(
+                                System.FormattableString.Invariant($"Unexpected '::' at line {_row}: members are written obj.name"), _row, col);
+                        AddMember(col, 2);
                         return;
                 }
             }
@@ -224,17 +239,54 @@ namespace WarScript
             {
                 case '+': case '-': case '*': case '/': case '%':
                 case '>': case '<': case '!': case '=':
-                case '(': case ')':
                     Add(TokenType.Operator, c.ToString(), _row, col);
                     _pos++;
+                    return;
+                case '(':
+                    if (_legacy)
+                        Add(TokenType.Operator, "(", _row, col);
+                    else
+                        OpenParen(col);
+                    _pos++;
+                    return;
+                case ')':
+                    if (_legacy)
+                        Add(TokenType.Operator, ")", _row, col);
+                    else
+                        CloseParen(col);
+                    _pos++;
+                    return;
+                case '.':
+                    // Not '..' (a range) nor '.5' (a number): both handled above.
+                    if (_legacy)
+                        break;
+                    AddMember(col, 1);
                     return;
             }
 
             // ── Group dividers ──
+            // The legacy syntax's '[' ']' are an argument list's '(' ')',
+            // its '{' '}' an array's or index's '[' ']'.
             switch (c)
             {
-                case '[': case ']': case '{': case '}': case ',':
-                    Add(TokenType.GroupDivider, c.ToString(), _row, col);
+                case ',':
+                    Add(TokenType.GroupDivider, ",", _row, col);
+                    _pos++;
+                    return;
+                case '[':
+                    Add(TokenType.GroupDivider, _legacy ? "(" : "[", _row, col);
+                    _pos++;
+                    return;
+                case ']':
+                    Add(TokenType.GroupDivider, _legacy ? ")" : "]", _row, col);
+                    _pos++;
+                    return;
+                case '{':
+                case '}':
+                    if (!_legacy)
+                        throw new SyntaxException(
+                            System.FormattableString.Invariant($"Unexpected '{c}' at line {_row}: arrays are written [1, 2, 3] and indexed a[i]"), _row, col);
+                    Add(TokenType.GroupDivider, c == '{' ? "[" : "]", _row, col);
                     _pos++;
                     return;
                 case ':':
@@ -251,7 +303,7 @@ namespace WarScript
                 return;
             }
 
-            // ── Field access: @name is `this :: name` (T3.3, DEC-6) ──
+            // ── Field access: @name is `this.name` (T3.3, DEC-6) ──
             if (c == '@')
             {
                 ScanField(col);
@@ -259,6 +311,70 @@ namespace WarScript
             }
 
             throw new SyntaxException(System.FormattableString.Invariant($"Unexpected character '{c}' at line {_row}"), _row, col);
+        }
+
+        /// <summary>
+        /// A <c>(</c> right after a name or <c>fun</c> opens an argument or
+        /// parameter list (<c>f(a)</c>, <c>fun f(a)</c>, <c>fun(x)</c>,
+        /// <c>new P(1)</c>, <c>obj.m()</c>): a <see cref="TokenType.GroupDivider"/>.
+        /// Any other one groups an expression: an <see cref="TokenType.Operator"/>
+        /// (also after <c>yield wait</c> / <c>yield until</c>).
+        /// A line break between the name and the <c>(</c> ends the statement
+        /// instead (T3.12).
+        /// </summary>
+        private void OpenParen(int col)
+        {
+            var call = false;
+            if (_tokens.Count > 0)
+            {
+                var prev = _tokens[_tokens.Count - 1];
+                call = prev.Type == TokenType.Variable && !IsYieldWord(prev)
+                    || prev.Type == TokenType.Keyword && prev.Value == "fun";
+            }
+            _parens.Push(call);
+            Add(call ? TokenType.GroupDivider : TokenType.Operator, "(", _row, col);
+        }
+
+        /// <summary>
+        /// <c>wait</c> or <c>until</c> right after <c>yield</c>: lexed as
+        /// names (they are reserved nowhere else), but a <c>(</c> after them
+        /// groups the duration or condition (<c>yield until (x > 0)</c>).
+        /// </summary>
+        private bool IsYieldWord(Token.Token word)
+        {
+            if (word.Value != "wait" && word.Value != "until" || _tokens.Count < 2) return false;
+            var before = _tokens[_tokens.Count - 2];
+            return before.Type == TokenType.Keyword && before.Value == "yield";
+        }
+
+        private void CloseParen(int col)
+        {
+            var call = _parens.Count > 0 && _parens.Pop();
+            Add(call ? TokenType.GroupDivider : TokenType.Operator, ")", _row, col);
+        }
+
+        /// <summary>
+        /// The member operator: <c>.</c> (or the legacy <c>::</c>, whose
+        /// <paramref name="length"/> is 2), or <c>.new</c> when the word
+        /// <c>new</c> follows it: a nested class's instance.
+        /// </summary>
+        private void AddMember(int col, int length)
+        {
+            var rest = _pos + length;
+            while (rest < _source.Length && (_source[rest] == ' ' || _source[rest] == '\t'))
+                rest++;
+            if (rest + 3 <= _source.Length
+                && string.CompareOrdinal(_source, rest, "new", 0, 3) == 0
+                && (rest + 3 >= _source.Length || !IsIdentChar(_source[rest + 3])))
+            {
+                Add(TokenType.Operator, ".new", _row, col);
+                _pos = rest + 3;
+            }
+            else
+            {
+                Add(TokenType.Operator, ".", _row, col);
+                _pos += length;
+            }
         }
         
         /// <summary>
@@ -337,7 +453,7 @@ namespace WarScript
                     Add(TokenType.Operator, "(", exprRow, holeCol);
 
                     // Recursively lex the expression
-                    var innerParser = new LexicalParser(exprSource);
+                    var innerParser = new LexicalParser(exprSource, _legacy);
                     innerParser._row = exprRow;
                     innerParser._lineStart = exprLineStart - exprStart;
                     innerParser.Scan();
@@ -519,7 +635,7 @@ namespace WarScript
         /// <summary>
         /// Reads the source of a <c>{...}</c> interpolation, starting just
         /// after the opening brace and leaving the position after the matching
-        /// closing brace. Braces nest (so <c>{arr{0}}</c> works) and braces
+        /// closing brace. Braces nest (so <c>{arr[0]}</c> works) and braces
         /// inside a nested text literal are ignored.
         /// </summary>
         private string ReadInterpolatedExpression(int openRow, int openCol)
@@ -617,8 +733,9 @@ namespace WarScript
             while (!AtEnd && (char.IsDigit(Current) || Current == '_'))
                 _pos++;
 
-            // Decimal part (but not .. range operator) — allow _ separators here too
-            if (!AtEnd && Current == '.' && Peek() != '.')
+            // Decimal part (but not the .. range operator, nor a member: `5.x`)
+            // — allow _ separators here too (`1._5`; `1.` is 1).
+            if (!AtEnd && Current == '.' && Peek() != '.' && (_legacy || !StartsMember(_pos + 1)))
             {
                 _pos++;
                 while (!AtEnd && (char.IsDigit(Current) || Current == '_'))
@@ -648,7 +765,7 @@ namespace WarScript
         }
 
         /// <summary>
-        /// Scans <c>@name</c> into the tokens <c>this</c>, <c>::</c> and
+        /// Scans <c>@name</c> into the tokens <c>this</c>, <c>.</c> and
         /// <c>name</c>, all at the column of the <c>@</c> (5.7), so errors
         /// about the access point at it. The name follows the <c>@</c>
         /// directly and must be an identifier, not a keyword or literal word.
@@ -665,7 +782,7 @@ namespace WarScript
                     System.FormattableString.Invariant($"'@' must be followed by a field name at line {_row}"), _row, col);
 
             Add(TokenType.This, "this", _row, col);
-            Add(TokenType.Operator, "::", _row, col);
+            Add(TokenType.Operator, ".", _row, col);
             Add(TokenType.Variable, word, _row, col);
             _pos = end;
         }
@@ -711,8 +828,8 @@ namespace WarScript
         /// rather than a subtraction operator.
         /// Negative if preceded by: nothing, operator, group divider, or keyword —
         /// except tokens that themselves end an operand: a closing paren, or a
-        /// closing array/argument bracket, after which `-` is subtraction
-        /// (e.g. `(1+2)-3`, `arr{0}-1`, `f[x]-1`).
+        /// closing index/array bracket or argument list, after which `-` is
+        /// subtraction (e.g. `(1+2)-3`, `arr[0]-1`, `f(x)-1`).
         /// </summary>
         private bool IsNegativeSign()
         {
@@ -725,13 +842,27 @@ namespace WarScript
                 case Token.TokenType.Operator:
                     return prev.Value != ")";
                 case Token.TokenType.GroupDivider:
-                    return prev.Value != "}" && prev.Value != "]";
+                    return prev.Value != ")" && prev.Value != "]";
                 case Token.TokenType.Keyword:
                 case Token.TokenType.LineBreak:
                     return true;
                 default:
                     return false;
             }
+        }
+
+        /// <summary>
+        /// Whether a name starts at <paramref name="i"/>, just after a number's
+        /// '.': then the '.' is the member operator (<c>5.x</c>), not a
+        /// decimal point. <c>_</c> followed by a digit is a separator (<c>1._5</c>).
+        /// </summary>
+        private bool StartsMember(int i)
+        {
+            if (i >= _source.Length || !IsIdentStart(_source[i])) return false;
+            if (_source[i] != '_') return true;
+            var j = i;
+            while (j < _source.Length && _source[j] == '_') j++;
+            return j >= _source.Length || !char.IsDigit(_source[j]);
         }
 
         private static bool IsIdentStart(char c)

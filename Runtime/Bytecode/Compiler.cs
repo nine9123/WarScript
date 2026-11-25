@@ -135,7 +135,7 @@ namespace WarScript.Bytecode
         /// <summary>
         /// The fields of the class whose method or body is being compiled:
         /// constructor parameters, names assigned in the class body and the
-        /// fields of its base classes (5.7). <c>@x</c> / <c>this :: x</c> is
+        /// fields of its base classes (5.7). <c>@x</c> / <c>this.x</c> is
         /// checked against it at compile time (DEC-6). Null outside a class,
         /// or when a base class is not known at compile time (one from an
         /// import, until static imports, T3.7): then nothing is checked.
@@ -301,7 +301,7 @@ namespace WarScript.Bytecode
         /// <summary>
         /// The fields of <paramref name="classDef"/> (5.7): its constructor
         /// parameters, the names its body assigns (bare, or as <c>@x</c> /
-        /// <c>this :: x</c>) and not declared <c>global</c>, and the fields
+        /// <c>this.x</c>) and not declared <c>global</c>, and the fields
         /// of its base classes. Null when a class is not known here (a base
         /// defined nowhere this compile sees, or one without source:
         /// registered by the host or loaded from bytecode, a bytecode
@@ -334,7 +334,7 @@ namespace WarScript.Bytecode
         /// <summary>
         /// The fields <paramref name="classDef"/> declares itself: its
         /// constructor parameters and the names its body assigns (bare, or
-        /// as <c>@x</c> / <c>this :: x</c>) and does not declare
+        /// as <c>@x</c> / <c>this.x</c>) and does not declare
         /// <c>global</c>. Needs the class's source.
         /// </summary>
         private static HashSet<string> OwnFields(ClassDefinition classDef)
@@ -349,7 +349,7 @@ namespace WarScript.Bytecode
         /// not bind a parameter to an argument other than the one a field of
         /// that name is already bound to: <c>class C [p, q] : A [p, q], B [q, p]</c>
         /// with <c>A [a, b]</c> and <c>B [a, b]</c> is a compile error, while
-        /// passing the same parameter on (<c>class Bird [name] : Animal [name]</c>,
+        /// passing the same parameter on (<c>class Bird(name) : Animal(name)</c>,
         /// or a diamond) is one field. A binding is a parameter of
         /// <paramref name="classDef"/> or nothing (an argument that is not a
         /// parameter of the deriving class, or none). Only called when every
@@ -902,7 +902,7 @@ namespace WarScript.Bytecode
                 return false;
             }
 
-            // ── Array index assignment: arr{i} = expr ──
+            // ── Array index assignment: arr[i] = expr ──
             if (assign.Left is ArrayValueOperator av)
             {
                 // If the target is a simple variable, use IndexSetLocal/Global
@@ -927,7 +927,7 @@ namespace WarScript.Bytecode
                     return false;
                 }
 
-                // Generic case: target is an expression (e.g. obj::prop{i} = val)
+                // Generic case: target is an expression (e.g. obj.prop[i] = val)
                 CompileExpression(av.Left);       // target
                 CompileExpression(av.Right);      // index
                 CompileExpression(assign.Right);  // value
@@ -935,12 +935,12 @@ namespace WarScript.Bytecode
                 return false;
             }
 
-            // ── Property assignment: obj::prop = expr ──
+            // ── Property assignment: obj.prop = expr ──
             if (assign.Left is ClassPropertyOperator cp)
             {
                 if (cp.Right is VariableExpression propName)
                 {
-                    // Superinstruction: this :: prop = val → ThisSetProperty
+                    // Superinstruction: this.prop = val → ThisSetProperty
                     if (cp.Left is ThisExpression)
                     {
                         CheckField(propName.Name, propName.Line, propName.Column);
@@ -962,7 +962,7 @@ namespace WarScript.Bytecode
                     Chunk.EmitU16(Chunk.AllocCacheSlot(), line);
                     return false;
                 }
-                // obj::arr{i} = expr  →  IndexSetProp
+                // obj.arr[i] = expr  →  IndexSetProp
                 if (cp.Right is ArrayValueOperator propArr && propArr.Left is VariableExpression arrName)
                 {
                     if (cp.Left is ThisExpression) CheckField(arrName.Name, arrName.Line, arrName.Column);
@@ -998,7 +998,7 @@ namespace WarScript.Bytecode
         private void CompileReturn(ReturnStatement stmt)
         {
             // Tail call optimization: when a function's last action is
-            // "return func[args]", emit TailCall instead of Call + Return.
+            // "return func(args)", emit TailCall instead of Call + Return.
             // This reuses the current frame, preventing stack growth on
             // deep recursion (state machines, tree traversal, mutual recursion).
             //
@@ -1147,7 +1147,7 @@ namespace WarScript.Bytecode
             // set is compiled, with the constant's literal value.
             var negatedStep = stmt.Step is NegateOperator;
             var stepName = TypedNameKey(stmt.Step is NegateOperator negate ? negate.Value : stmt.Step);
-            if (stepName != null && stepName.IndexOf("::", System.StringComparison.Ordinal) < 0 && _script.CollectsTypedOperands)
+            if (stepName != null && stepName.IndexOf('.') < 0 && _script.CollectsTypedOperands)
             {
                 var script = _script;
                 _script.CheckTypedOperand(_ =>
@@ -1552,7 +1552,7 @@ namespace WarScript.Bytecode
             _constructorParameters != null && System.Array.IndexOf(_constructorParameters, name) >= 0;
 
         /// <summary>
-        /// <c>@x</c> / <c>this :: x</c> in a method or class body must name a
+        /// <c>@x</c> / <c>this.x</c> in a method or class body must name a
         /// field of the class or its bases (5.7, DEC-6): a compile error
         /// otherwise. Not checked when the fields are not known
         /// (<see cref="_classFields"/>).
@@ -1565,8 +1565,8 @@ namespace WarScript.Bytecode
         }
 
         /// <summary>
-        /// <c>obj :: name</c> and <c>obj :: name [...]</c> must name a field or
-        /// a method of some class, and <c>E :: X</c> a member of the enum
+        /// <c>obj.name</c> and <c>obj.name(...)</c> must name a field or
+        /// a method of some class, and <c>E.X</c> a member of the enum
         /// <c>E</c> (T3.8, PROP-29): recorded for
         /// <see cref="WarScriptLanguage.CheckProperty"/>, checked once the
         /// module set is compiled. <paramref name="left"/> names an enum only
@@ -1921,7 +1921,7 @@ namespace WarScript.Bytecode
                 }
 
                 case NestedClassInstanceOperator nci:
-                    // obj :: new NestedClass[args]
+                    // obj.new NestedClass(args)
                     CompileExpression(nci.Left); // parent instance
                     if (nci.Right is ClassExpression nestedCe)
                     {
@@ -1951,7 +1951,7 @@ namespace WarScript.Bytecode
         /// <c>true</c>/<c>false</c>, or the result of an operator whose type
         /// follows from plan 5.3. No inference through variables or calls.
         /// Indexing is not checked: the grammar only indexes a name
-        /// (<c>x{i}</c>, <c>obj :: x{i}</c>), whose type is never known.
+        /// (<c>x[i]</c>, <c>obj.x[i]</c>), whose type is never known.
         /// A <c>const</c> and an enum member of the module set are typed
         /// once the module set is compiled (<see cref="DeferTypedCheck"/>).
         /// </summary>
@@ -1982,7 +1982,7 @@ namespace WarScript.Bytecode
         /// The type <paramref name="expr"/> evaluates to whenever it
         /// evaluates without an error (PROP-28), else
         /// <see cref="StaticType.Unknown"/>. <paramref name="names"/> types
-        /// a bare name or a <c>::</c> (a constant or an enum member, once
+        /// a bare name or a <c>.</c> (a constant or an enum member, once
         /// the module set is compiled); null: unknown.
         /// </summary>
         private static StaticType TypeOf(IExpression expr, System.Func<IExpression, StaticType>? names = null)
@@ -2096,7 +2096,7 @@ namespace WarScript.Bytecode
             operand != StaticType.Unknown && operand != StaticType.Number ? "Cannot apply '-' to " + StaticTypeName(operand) : null;
 
         /// <summary>
-        /// The compile error of a <c>::</c> whose left operand has a known
+        /// The compile error of a <c>.</c> whose left operand has a known
         /// type (PROP-28): none of them is a class instance.
         /// <paramref name="message"/> is the VM's.
         /// </summary>
@@ -2111,7 +2111,7 @@ namespace WarScript.Bytecode
         /// Records <paramref name="check"/> for
         /// <see cref="WarScriptLanguage.CheckTypedOperands"/> when one of
         /// <paramref name="operands"/> has a type that depends on a bare
-        /// global read or an <c>E :: x</c> of one (a <c>const</c> or an enum
+        /// global read or an <c>E.x</c> of one (a <c>const</c> or an enum
         /// member: the declaration may come later or in another file), at
         /// the operator's position (PROP-28). The check gets the type of
         /// such a read; it is run once the module set is compiled.
@@ -2151,8 +2151,8 @@ namespace WarScript.Bytecode
         }
 
         /// <summary>
-        /// <c>X</c> for a bare global read of <c>X</c>, <c>E::x</c> for
-        /// <c>E :: x</c> and <c>E::m[]</c> for <c>E :: m [a]</c> where
+        /// <c>X</c> for a bare global read of <c>X</c>, <c>E.x</c> for
+        /// <c>E.x</c> and <c>E.m()</c> for <c>E.m(a)</c> where
         /// <c>E</c> is a bare global read; else null. Not in a class body,
         /// where a bare read may find a field of the instance first (of any
         /// class part, Q-16).
@@ -2165,11 +2165,11 @@ namespace WarScript.Bytecode
                 case VariableExpression v:
                     return ResolveLocal(v.Name) == -1 ? v.Name : null;
                 case ClassPropertyOperator cp when cp.Left is VariableExpression enumName && ResolveLocal(enumName.Name) == -1:
-                    if (cp.Right is VariableExpression member) return enumName.Name + "::" + member.Name;
+                    if (cp.Right is VariableExpression member) return enumName.Name + "." + member.Name;
                     // Only a call with the one argument `name` takes (another
                     // count is an error of its own at runtime).
                     if (cp.Right is FunctionExpression method && method.ArgumentExpression.Count == 1)
-                        return enumName.Name + "::" + method.Name + "[]";
+                        return enumName.Name + "." + method.Name + "()";
                     return null;
                 default:
                     return null;
@@ -2240,7 +2240,7 @@ namespace WarScript.Bytecode
                 onThisLine ? call.Line : _line, onThisLine ? call.Column : _column);
         }
 
-        // ── Class instantiation: new ClassName[args] ──
+        // ── Class instantiation: new ClassName(args) ──
         private void CompileClassInstantiation(ClassExpression ce)
         {
             CheckInstantiation(ce, nested: false);
@@ -2254,7 +2254,7 @@ namespace WarScript.Bytecode
         }
 
         /// <summary>
-        /// <c>new C [...]</c> must name a class taking that many arguments
+        /// <c>new C(...)</c> must name a class taking that many arguments
         /// (T3.8, PROP-29): checked once the module set is compiled, at the
         /// class name.
         /// </summary>
@@ -2286,10 +2286,10 @@ namespace WarScript.Bytecode
             throw new CompileError("'" + keyword + "' must be followed by a class name", _source, _line, _column);
         }
 
-        // ── Class property access: obj::prop, obj::method[args], obj::arr{i} ──
+        // ── Class property access: obj.prop, obj.method(args), obj.arr[i] ──
         private void CompileClassProperty(ClassPropertyOperator cp)
         {
-            // ── Superinstruction: this :: prop → ThisGetProperty ──
+            // ── Superinstruction: this.prop → ThisGetProperty ──
             if (cp.Left is ThisExpression && cp.Right is VariableExpression thisVar)
             {
                 CheckField(thisVar.Name, thisVar.Line, thisVar.Column);
@@ -2299,7 +2299,7 @@ namespace WarScript.Bytecode
                 Chunk.EmitU16(Chunk.AllocCacheSlot(), _line);
                 return;
             }
-            // ── Superinstruction: this :: arr{i} → ThisGetProperty + IndexGet ──
+            // ── Superinstruction: this.arr[i] → ThisGetProperty + IndexGet ──
             if (cp.Left is ThisExpression && cp.Right is ArrayValueOperator thisArrOp
                 && thisArrOp.Left is VariableExpression thisArrVar)
             {
@@ -2326,7 +2326,7 @@ namespace WarScript.Bytecode
             }
             else if (cp.Right is FunctionExpression funcExpr)
             {
-                // Method call: obj::method[args]
+                // Method call: obj.method(args)
                 CheckInstanceOperand(cp.Left, "Cannot call method '" + funcExpr.Name + "' on non-class value");
                 CheckProperty(cp.Left, funcExpr.Name, funcExpr.Line, funcExpr.Column);
                 foreach (var arg in funcExpr.ArgumentExpression)
@@ -2338,7 +2338,7 @@ namespace WarScript.Bytecode
             }
             else if (cp.Right is ArrayValueOperator arrayOp && arrayOp.Left is VariableExpression arrayVar)
             {
-                // obj::arr{i}  →  GetProperty then IndexGet
+                // obj.arr[i]  →  GetProperty then IndexGet
                 CheckInstanceOperand(cp.Left, "Cannot access property '" + arrayVar.Name + "' on non-class value");
                 CheckProperty(cp.Left, arrayVar.Name, arrayVar.Line, arrayVar.Column);
                 var nameIdx = Chunk.AddConstant(WarValue.FromText(arrayVar.Name));

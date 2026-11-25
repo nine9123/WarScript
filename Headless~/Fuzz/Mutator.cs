@@ -103,11 +103,11 @@ namespace WarScript.Fuzz
         private static readonly string[] Boundaries =
         {
             "0", "-1", "2147483647", "-2147483648", "0.000000001", "\"\"",
-            "\"" + new string('x', 10_000) + "\"", "{}"
+            "\"" + new string('x', 10_000) + "\"", "[]"
         };
 
         private static readonly string[] MultiCharOperators =
-            { "::", "<<", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", ".." };
+            { "<<", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", ".." };
 
         /// <summary>
         /// Applies 1 to 3 mutations to <paramref name="source"/>; each applied
@@ -281,10 +281,10 @@ namespace WarScript.Fuzz
                 default:
                     var calls = rng.Pick(new[] { 2, 50, 1000 });
                     description = $"wrap lines {start + 1}-{end + 1} in a function that calls itself {calls} deep";
-                    wrapped = new List<string> { "fun fz_rec [fz_d]", "if fz_d > 0", "fz_rec [fz_d - 1]", "end" };
+                    wrapped = new List<string> { "fun fz_rec(fz_d)", "if fz_d > 0", "fz_rec(fz_d - 1)", "end" };
                     wrapped.AddRange(body);
                     wrapped.Add("end");
-                    wrapped.Add($"fz_rec [{calls}]");
+                    wrapped.Add($"fz_rec({calls})");
                     break;
             }
             lines.RemoveRange(start, end - start + 1);

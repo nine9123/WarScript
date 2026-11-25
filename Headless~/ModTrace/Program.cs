@@ -175,7 +175,7 @@ namespace WarScript.ModTrace
             if (v.IsLogical) return v.LogicalValue ? "true" : "false";
             if (v.IsNumeric) return FormatNumeric(v.Numeric.Raw);
             if (v.IsText) return Quote(v.TextValue);
-            if (v.IsArray) return "{" + string.Join(", ", v.ArrayValue.Select(Format)) + "}";
+            if (v.IsArray) return "[" + string.Join(", ", v.ArrayValue.Select(Format)) + "]";
             if (v.IsClass) return "<instance " + v.ClassValue.Definition.ClassDetails.Name + ">";
             return "<native object>";
         }
@@ -263,19 +263,19 @@ namespace WarScript.ModTrace
                     result.Imports.Add(tokens[i + 1].Value);
                     continue;
                 }
-                if (t.Type != TokenType.Variable || i + 1 >= tokens.Count || !IsDivider(tokens[i + 1], "["))
+                if (t.Type != TokenType.Variable || i + 1 >= tokens.Count || !IsDivider(tokens[i + 1], "("))
                     continue;
 
                 var previous = i > 0 ? tokens[i - 1] : default;
                 var call = ReadArguments(tokens, i + 1, out var close);
                 if (previous.Type == TokenType.Keyword && previous.Value == "fun")
                     result.Functions.Add((t.Value, call.Positional + call.Named.Count));
-                else if (!(previous.Value == "new" || previous.Value == "::"))
+                else if (!(previous.Value == "new" || previous.Value == "."))
                 {
                     call.Name = t.Value;
                     result.Calls.Add(call);
                 }
-                // Nested calls inside the arguments are found by continuing from '['.
+                // Nested calls inside the arguments are found by continuing from '('.
             }
 
             // Names the mod defines itself are not natives.
@@ -297,8 +297,8 @@ namespace WarScript.ModTrace
             for (close = open; close < tokens.Count; close++)
             {
                 var t = tokens[close];
-                var opens = IsDivider(t, "[") || IsDivider(t, "{") || IsDivider(t, "(");
-                var closes = IsDivider(t, "]") || IsDivider(t, "}") || IsDivider(t, ")");
+                var opens = IsDivider(t, "[") || IsDivider(t, "(");
+                var closes = IsDivider(t, "]") || IsDivider(t, ")");
                 if (opens) { depth++; if (depth == 1) continue; }
                 if (closes) depth--;
                 if (depth == 0 || (depth == 1 && IsDivider(t, ",")))

@@ -33,7 +33,7 @@ namespace WarScript.Audit
         IndexWriteInvalid,
         /// <summary>An index write into text (v1 writes a new text back). v2: TypeError, text is immutable. Not raised since T3.6, which raises those errors.</summary>
         TextIndexAssign,
-        /// <summary><c>x :: name = ...</c> where <c>x</c> is not an instance (v1 ignores it). v2: TypeError. Not raised since T3.6, which raises those errors.</summary>
+        /// <summary><c>x.name = ...</c> where <c>x</c> is not an instance (v1 ignores it). v2: TypeError. Not raised since T3.6, which raises those errors.</summary>
         PropertyWriteOnNonInstance,
         /// <summary>A property write outside the class body that creates a field the class never declared. v2: NameError (PROP-15). Not raised since T3.6, which raises that NameError.</summary>
         DynamicPropertyCreated,

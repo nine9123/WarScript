@@ -123,7 +123,7 @@ namespace WarScript
 
         /// <summary>
         /// Parse a lambda body from the shared token stream.
-        /// Called by ExpressionReader when it encounters <c>fun [params]</c>
+        /// Called by ExpressionReader when it encounters <c>fun(params)</c>
         /// in expression position. Parses statements until <c>end</c> and
         /// consumes the <c>end</c> keyword.
         /// </summary>
@@ -215,7 +215,7 @@ namespace WarScript
         {
             int blocks = 0, brackets = 0, row = 0;
             var first = true;
-            var continues = false; // the last token skipped was ',', '[' or '{'
+            var continues = false; // the last token skipped was ',', a call's '(' or '['
             while (Tokens.TryPeek(out var token))
             {
                 var isKeyword = token.Type == TokenType.Keyword;
@@ -233,7 +233,7 @@ namespace WarScript
                 first = false;
                 row = token.RowNumber;
                 continues = token.Type == TokenType.GroupDivider
-                    && (token.Value == "," || token.Value == "[" || token.Value == "{");
+                    && (token.Value == "," || token.Value == "(" || token.Value == "[");
                 if (isKeyword)
                 {
                     switch (token.Value)
@@ -255,12 +255,12 @@ namespace WarScript
                 {
                     switch (token.Value)
                     {
+                        case "(":
                         case "[":
-                        case "{":
                             brackets++;
                             break;
+                        case ")":
                         case "]":
-                        case "}":
                             if (brackets > 0) brackets--;
                             break;
                     }
@@ -498,20 +498,35 @@ namespace WarScript
         }
 
         /// <summary>
-        /// Reads <c>Name [a, b]</c>: a class's name and constructor
+        /// A <c>[</c> after a definition's name is the legacy parameter list
+        /// (<c>fun f [a]</c>, <c>class C [x]</c>; T3.12): say how it is
+        /// written now rather than report a missing <c>end</c>.
+        /// </summary>
+        internal static void RejectLegacyParameters(TokensStack tokens, Token.Token name, string what)
+        {
+            if (tokens.TryPeekSameLine(out var next) && next.Type == TokenType.GroupDivider && next.Value == "[")
+                throw new SyntaxException("Parameters are written in parentheses: " + what, next.RowNumber, next.Column);
+        }
+
+        private void RejectLegacyParameters(Token.Token name) =>
+            RejectLegacyParameters(Tokens, name, name.Value + "(...)");
+
+        /// <summary>
+        /// Reads <c>Name(a, b)</c>: a class's name and constructor
         /// parameters (<paramref name="declaration"/>: each named once), or a
         /// base type and the parameters passed on to it.
         /// </summary>
         private ClassDetails ReadClassDetails(bool declaration)
         {
             var className = Tokens.Next(TokenType.Variable);
+            RejectLegacyParameters(className);
             var classArguments = new List<string>();
 
-            if (Tokens.Peek(TokenType.GroupDivider, "["))
+            if (Tokens.Peek(TokenType.GroupDivider, "("))
             {
-                Tokens.Next(); // skip open square bracket
+                Tokens.Next(); // skip open parenthesis
 
-                while (!Tokens.Peek(TokenType.GroupDivider, "]"))
+                while (!Tokens.Peek(TokenType.GroupDivider, ")"))
                 {
                     var argumentToken = Tokens.Next(TokenType.Variable);
                     if (declaration) CheckParameter(_script, classArguments, argumentToken);
@@ -521,7 +536,7 @@ namespace WarScript
                         Tokens.Next();
                 }
 
-                Tokens.Next(TokenType.GroupDivider, "]"); // skip close square bracket
+                Tokens.Next(TokenType.GroupDivider, ")"); // skip close parenthesis
             }
 
             return new ClassDetails(className.Value, classArguments);
@@ -530,15 +545,16 @@ namespace WarScript
         private void ParseFunctionDefinition(Token.Token rowToken)
         {
             var name = Tokens.Next(TokenType.Variable);
+            RejectLegacyParameters(name);
             var arguments = new List<string>();
             var defaults = new List<(string Name, IExpression DefaultExpr)>();
             var minArity = -1;
 
-            if (Tokens.Peek(TokenType.GroupDivider, "["))
+            if (Tokens.Peek(TokenType.GroupDivider, "("))
             {
-                Tokens.Next(TokenType.GroupDivider, "["); // skip open square bracket
+                Tokens.Next(TokenType.GroupDivider, "("); // skip open parenthesis
 
-                while (!Tokens.Peek(TokenType.GroupDivider, "]"))
+                while (!Tokens.Peek(TokenType.GroupDivider, ")"))
                 {
                     var argumentToken = Tokens.Next(TokenType.Variable);
                     CheckParameter(_script, arguments, argumentToken);
@@ -562,7 +578,7 @@ namespace WarScript
                         Tokens.Next();
                 }
 
-                Tokens.Next(TokenType.GroupDivider, "]"); // skip close square bracket
+                Tokens.Next(TokenType.GroupDivider, ")"); // skip close parenthesis
             }
 
             // build block name — prefix with class name if inside a class
@@ -847,7 +863,7 @@ namespace WarScript
         }
 
         /// <summary>
-        /// Desugars an enum into a class with numeric properties and a name[] method,
+        /// Desugars an enum into a class with numeric properties and a name() method,
         /// plus a singleton instance assigned to the enum name.
         ///
         /// <code>
@@ -865,7 +881,7 @@ namespace WarScript
         ///     PHYSICAL = 0
         ///     MAGICAL = 1
         ///     TRUE = 5
-        ///     fun name [value]
+        ///     fun name(value)
         ///         if value == 0 return "PHYSICAL" end
         ///         if value == 1 return "MAGICAL" end
         ///         if value == 5 return "TRUE" end
@@ -875,8 +891,8 @@ namespace WarScript
         /// DamageType = new DamageType
         /// </code>
         ///
-        /// Access: <c>DamageType :: PHYSICAL</c> → 0
-        /// Reverse: <c>DamageType :: name [DamageType :: PHYSICAL]</c> → "PHYSICAL"
+        /// Access: <c>DamageType.PHYSICAL</c> → 0
+        /// Reverse: <c>DamageType.name(DamageType.PHYSICAL)</c> → "PHYSICAL"
         /// </summary>
         private void ParseEnumStatement(Token.Token rowToken)
         {
@@ -964,7 +980,7 @@ namespace WarScript
                         new VariableExpression(_script, "count"),
                         new ConstantExpression(WarValue.FromNumeric(members.Count))) { Desugared = true }));
 
-            // Build name[] method: maps numeric value → string name
+            // Build name() method: maps numeric value → string name
             var nameMethodBody = new FunctionStatement(_script, line, enumName.Value + "#name");
             var nameMethodScope = _script.DefinitionContext.NewScope();
 
@@ -981,7 +997,7 @@ namespace WarScript
                 _script.DefinitionContext.EndScope();
             }
 
-            // Body of name[]: chain of if value == N return "NAME" end
+            // Body of name(): chain of if value == N return "NAME" end
             foreach (var (memberName, memberValue) in members)
             {
                 var condition = new ConditionStatement(_script, line, enumName.Value + "#name");
@@ -1017,7 +1033,7 @@ namespace WarScript
             // Protect the enum variable from reassignment
             _script.ConstantNames.Add(enumName.Value);
 
-            // Its members, for `E :: X` (T3.8, PROP-29): only an enum at the
+            // Its members, for `E.X` (T3.8, PROP-29): only an enum at the
             // top level of a file is a global the compiler can name.
             if (_script.ParsingBody == ParseBody.TopLevel && _script.ParsingClassDepth == 0 && !_script.ParsingV1)
                 _script.DeclareEnum(enumName.Value, memberNames);

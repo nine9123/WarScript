@@ -15,6 +15,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="Migrator.cs" />
+    <Compile Include="SyntaxRewriter.cs" />
     <ProjectReference Include="../../Headless~/Runtime/WarScript.Runtime.csproj" />
   </ItemGroup>
 </Project>

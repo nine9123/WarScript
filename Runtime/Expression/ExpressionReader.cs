@@ -111,7 +111,7 @@ namespace WarScript.Expression
                 case TokenType.Text:
                     return true;
                 case TokenType.GroupDivider:
-                    return token.Value == "{";   // array literal
+                    return token.Value == "[";   // array literal, or an index after an operand
                 case TokenType.Keyword:
                     return token.Value == "fun";  // lambda in expression position
                 default:
@@ -139,6 +139,15 @@ namespace WarScript.Expression
                         switch (op)
                         {
                             case Operator.Operator.LeftParen:
+                                // A '(' after an operand is not a call (the lexer
+                                // made it a grouping one): `f(x)(y)`, `arr[0](y)`,
+                                // `x (1)` after a literal. Pushing it would drop the
+                                // operand on its left without a word (T3.12 review).
+                                if (lastWasOperand)
+                                    throw new SyntaxException(
+                                        System.FormattableString.Invariant($"Unexpected `(` at line {token.RowNumber}: expected an operator or end of expression") +
+                                        " (only a name can be called: put a call's or an element's result in a variable first)",
+                                        token.RowNumber, token.Column);
                                 _operators.Push(op);
                                 _operatorTokens.Push(token);
                                 _operatorIndexes.Push(Tokens.Position - 1);
@@ -172,6 +181,15 @@ namespace WarScript.Expression
                         break;
 
                     default:
+                        // `[` after an operand indexes it (T3.12): `grid[0][1]`,
+                        // `f(x)[0]`, `(a + b)[0]`, `obj.items[0][1]`. (A name's
+                        // own first index is read with the name, below.)
+                        if (lastWasOperand && token.Type == TokenType.GroupDivider && token.Value == "[")
+                        {
+                            ReadPostfixIndex(token);
+                            break;
+                        }
+
                         // Two operands in a row means an operator is missing
                         // (`x = 1 2`, `print a b`). Without this check the first
                         // operand would be silently discarded.
@@ -195,16 +213,8 @@ namespace WarScript.Expression
                                 break;
                             case TokenType.Text:
                                 operand = new ConstantExpression(WarValue.FromText(value));
-                                // allow indexing on string literals: "hello"{0}
-                                if (Tokens.PeekSameLine(TokenType.GroupDivider, "{"))
-                                {
-                                    var brace = Tokens.Next(TokenType.GroupDivider, "{");
-                                    var textIndex = ReadExpression(_script, this);
-                                    Tokens.Next(TokenType.GroupDivider, "}");
-                                    operand = At(new ArrayValueOperator(_script, operand, textIndex), brace);
-                                }
                                 break;
-                            case TokenType.GroupDivider when token.Value == "{":
+                            case TokenType.GroupDivider when token.Value == "[":
                                 operand = ReadArrayInstance();
                                 break;
                             case TokenType.Null:
@@ -213,7 +223,7 @@ namespace WarScript.Expression
                                 operand = new ConstantExpression(WarValue.Null);
                                 break;
                             case TokenType.This:
-                                // A lambda has no `this` (T3.3, PROP-16); `@x` is lexed as `this :: x`.
+                                // A lambda has no `this` (T3.3, PROP-16); `@x` is lexed as `this.x`.
                                 if (_script.ParsingBody == ParseBody.Lambda && !_script.ParsingV1)
                                     throw new SyntaxException("'this' and '@' fields cannot be used in a lambda", token.RowNumber, token.Column);
                                 // Nor has code outside every class (T3.8, PROP-29).
@@ -227,9 +237,9 @@ namespace WarScript.Expression
                                     { Operator.Operator.ClassInstance, Operator.Operator.NestedClassInstance };
                                 if (_operators.Count > 0 && classInstanceOps.Contains(_operators.Peek()))
                                     operand = ReadClassInstance(token);
-                                else if (Tokens.PeekSameLine(TokenType.GroupDivider, "["))
+                                else if (Tokens.PeekSameLine(TokenType.GroupDivider, "("))
                                     operand = ReadFunctionInvocation(token);
-                                else if (Tokens.PeekSameLine(TokenType.GroupDivider, "{"))
+                                else if (Tokens.PeekSameLine(TokenType.GroupDivider, "["))
                                     operand = ReadArrayValue(token);
                                 else
                                     operand = new VariableExpression(_script, value) { Line = token.RowNumber, Column = token.Column };
@@ -324,18 +334,18 @@ namespace WarScript.Expression
         private ClassExpression ReadClassInstance(Token.Token token)
         {
             var properties = new List<IExpression>();
-            if (Tokens.PeekSameLine(TokenType.GroupDivider, "["))
+            if (Tokens.PeekSameLine(TokenType.GroupDivider, "("))
             {
-                Tokens.Next(TokenType.GroupDivider, "[");
-                while (!Tokens.Peek(TokenType.GroupDivider, "]"))
+                Tokens.Next(TokenType.GroupDivider, "(");
+                while (!Tokens.Peek(TokenType.GroupDivider, ")"))
                 {
                     var before = Tokens.Position;
                     properties.Add(ReadExpression(_script, this));
-                    RequireProgress(before, "]");
+                    RequireProgress(before, ")");
                     if (Tokens.Peek(TokenType.GroupDivider, ","))
                         Tokens.Next();
                 }
-                Tokens.Next(TokenType.GroupDivider, "]");
+                Tokens.Next(TokenType.GroupDivider, ")");
             }
             return new ClassExpression(_script, token.Value, properties) { Line = token.RowNumber, Column = token.Column };
         }
@@ -343,9 +353,9 @@ namespace WarScript.Expression
         private FunctionExpression ReadFunctionInvocation(Token.Token token)
         {
             var arguments = new List<IExpression>();
-            if (Tokens.PeekSameLine(TokenType.GroupDivider, "["))
+            if (Tokens.PeekSameLine(TokenType.GroupDivider, "("))
             {
-                Tokens.Next(TokenType.GroupDivider, "[");
+                Tokens.Next(TokenType.GroupDivider, "(");
 
                 // Detect whether arguments are named (first non-whitespace arg is `name:`)
                 // Allocated lazily — only if an argument turns out to be named.
@@ -355,10 +365,10 @@ namespace WarScript.Expression
                 var isNamed = false;
                 var checkedNaming = false;
 
-                while (!Tokens.Peek(TokenType.GroupDivider, "]"))
+                while (!Tokens.Peek(TokenType.GroupDivider, ")"))
                 {
                     // Trailing comma guard: if the next real token is ], stop
-                    if (Tokens.Peek(TokenType.GroupDivider, "]"))
+                    if (Tokens.Peek(TokenType.GroupDivider, ")"))
                         break;
 
                     if (!checkedNaming)
@@ -386,13 +396,13 @@ namespace WarScript.Expression
                     {
                         arguments.Add(ReadExpression(_script, this));
                     }
-                    RequireProgress(before, "]");
+                    RequireProgress(before, ")");
 
                     // Consume comma, then re-check for trailing comma before ]
                     if (Tokens.Peek(TokenType.GroupDivider, ","))
                         Tokens.Next();
                 }
-                Tokens.Next(TokenType.GroupDivider, "]");
+                Tokens.Next(TokenType.GroupDivider, ")");
 
                 // Reorder named args to match declared parameter positions
                 if (isNamed && namedArgs is { Count: > 0 })
@@ -449,15 +459,15 @@ namespace WarScript.Expression
         private ArrayExpression ReadArrayInstance()
         {
             var values = new List<IExpression>();
-            while (!Tokens.Peek(TokenType.GroupDivider, "}"))
+            while (!Tokens.Peek(TokenType.GroupDivider, "]"))
             {
                 var before = Tokens.Position;
                 values.Add(ReadExpression(_script, this));
-                RequireProgress(before, "}");
+                RequireProgress(before, "]");
                 if (Tokens.Peek(TokenType.GroupDivider, ","))
                     Tokens.Next();
             }
-            Tokens.Next(TokenType.GroupDivider, "}");
+            Tokens.Next(TokenType.GroupDivider, "]");
             return new ArrayExpression(_script, values);
         }
 
@@ -482,14 +492,39 @@ namespace WarScript.Expression
         private ArrayValueOperator ReadArrayValue(Token.Token token)
         {
             var array = new VariableExpression(_script, token.Value) { Line = token.RowNumber, Column = token.Column };
-            var brace = Tokens.Next(TokenType.GroupDivider, "{");
+            var brace = Tokens.Next(TokenType.GroupDivider, "[");
             var arrayIndex = ReadExpression(_script, this);
-            Tokens.Next(TokenType.GroupDivider, "}");
+            Tokens.Next(TokenType.GroupDivider, "]");
             return (ArrayValueOperator)At(new ArrayValueOperator(_script, array, arrayIndex), brace);
         }
 
         /// <summary>
-        /// Parse a lambda expression: <c>fun [params] body end</c>.
+        /// Reads <c>[index]</c> after a complete operand and replaces the
+        /// operand on the stack with its element. The member operators still
+        /// pending on its left bind tighter (<c>obj.items[0][1]</c> indexes
+        /// <c>obj.items[0]</c>), so they are applied first; nothing else is.
+        /// </summary>
+        private void ReadPostfixIndex(Token.Token bracket)
+        {
+            var first = Tokens.Position - 1;
+            while (_operators.Count > 0
+                   && (_operators.Peek() == Operator.Operator.ClassProperty
+                       || _operators.Peek() == Operator.Operator.NestedClassInstance
+                       || _operators.Peek() == Operator.Operator.ClassInstance))
+                ApplyTopOperator();
+
+            var target = _operands.Pop();
+            var index = ReadExpression(_script, this);
+            Tokens.Next(TokenType.GroupDivider, "]");
+            var element = At(new ArrayValueOperator(_script, target, index), bracket);
+            var spans = _script.ExpressionSpans;
+            Span(element, spans != null && spans.TryGetValue(target, out var targetSpan) ? targetSpan.First : first,
+                Tokens.Position - 1);
+            _operands.Push(element);
+        }
+
+        /// <summary>
+        /// Parse a lambda expression: <c>fun(params) body end</c>.
         /// The <c>fun</c> keyword has already been consumed.
         /// </summary>
         private LambdaExpression ReadLambda(Token.Token funToken)
@@ -497,8 +532,9 @@ namespace WarScript.Expression
             var parameters = new List<string>();
 
             // Parse parameter list
-            Tokens.Next(TokenType.GroupDivider, "[");
-            while (!Tokens.Peek(TokenType.GroupDivider, "]"))
+            StatementParser.RejectLegacyParameters(Tokens, funToken, "fun(...)");
+            Tokens.Next(TokenType.GroupDivider, "(");
+            while (!Tokens.Peek(TokenType.GroupDivider, ")"))
             {
                 var param = Tokens.Next(TokenType.Variable);
                 StatementParser.CheckParameter(_script, parameters, param);
@@ -506,7 +542,7 @@ namespace WarScript.Expression
                 if (Tokens.Peek(TokenType.GroupDivider, ","))
                     Tokens.Next();
             }
-            Tokens.Next(TokenType.GroupDivider, "]");
+            Tokens.Next(TokenType.GroupDivider, ")");
 
             // Parse body statements until 'end'
             var body = new FunctionStatement(_script, funToken.RowNumber, "<lambda>");

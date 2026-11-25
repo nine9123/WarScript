@@ -927,15 +927,15 @@ namespace WarScript.Migrate
             {
                 if (file.Tokens[i].Type != TokenType.Variable) return null;
                 var afterName = file.NextToken(i);
-                if (afterName >= 0 && IsDivider(file.Tokens[afterName], "[")) i = afterName;
+                if (afterName >= 0 && IsDivider(file.Tokens[afterName], "(")) i = afterName;
             }
-            if (IsDivider(file.Tokens[i], "["))
+            if (IsDivider(file.Tokens[i], "("))
             {
                 var depth = 0;
                 for (; i < file.Tokens.Count; i++)
                 {
-                    if (IsDivider(file.Tokens[i], "[")) depth++;
-                    else if (IsDivider(file.Tokens[i], "]") && --depth == 0) break;
+                    if (IsDivider(file.Tokens[i], "(")) depth++;
+                    else if (IsDivider(file.Tokens[i], ")") && --depth == 0) break;
                 }
                 if (i >= file.Tokens.Count) return null;
             }

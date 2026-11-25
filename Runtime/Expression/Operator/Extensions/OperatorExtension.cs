@@ -9,7 +9,8 @@ namespace WarScript.Expression.Operator.Extensions
         {
             { "!",    Operator.Not },
             { "new",  Operator.ClassInstance },
-            { "::",   Operator.ClassProperty },
+            { ".",    Operator.ClassProperty },
+            { ".new", Operator.NestedClassInstance },
             { "as",   Operator.ClassCast },
             { "is",   Operator.ClassInstanceOf },
             { "*",    Operator.Multiplication },
@@ -39,10 +40,6 @@ namespace WarScript.Expression.Operator.Extensions
         {
             if (OperatorMap.TryGetValue(value, out var op))
                 return op;
-
-            var trimmed = value.Trim();
-            if (trimmed == ":: new" || (trimmed.StartsWith("::", System.StringComparison.Ordinal) && trimmed.EndsWith("new", System.StringComparison.Ordinal)))
-                return Operator.NestedClassInstance;
 
             throw new SyntaxException($"Cannot parse '{value}' to an operator");
         }

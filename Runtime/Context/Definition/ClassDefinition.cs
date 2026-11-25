@@ -40,7 +40,7 @@ namespace WarScript.Context.Definition
         /// <summary>
         /// The fields this class declares itself (5.7): its constructor
         /// parameters and the names its class body assigns (bare, or as
-        /// <c>@x</c> / <c>this :: x</c>) without declaring them <c>global</c>.
+        /// <c>@x</c> / <c>this.x</c>) without declaring them <c>global</c>.
         /// An instance's fields are those of every class part it has (5.5).
         /// Set by the compiler, and by the loader from the file; null for a
         /// class the host registered, whose fields are not known, so that
@@ -65,7 +65,7 @@ namespace WarScript.Context.Definition
         /// the file since format 12). Its members are constant (T3.8,
         /// PROP-28): a script's property write to an instance of it is a
         /// TypeError (<c>WarVM</c>'s <c>SetProperty</c>), so the compiler
-        /// may type <c>E :: X</c> from the declaration.
+        /// may type <c>E.X</c> from the declaration.
         /// </summary>
         internal bool IsEnum { get; set; }
 

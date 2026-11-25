@@ -11,7 +11,7 @@ namespace WarScript.Statement
     /// import "lib/vectors.ws"
     ///
     /// v = new Vector2[3, 4]
-    /// print v::magnitude[]
+    /// print v.magnitude()
     /// </code>
     ///
     /// Imports are static (T3.7, 5.8): <see cref="WarScriptLanguage.Compile"/>
