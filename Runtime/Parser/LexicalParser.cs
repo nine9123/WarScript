@@ -458,7 +458,7 @@ namespace WarScript
             }
 
             // An interpolation is one operand: ( "x" + (a) + "y" ), so
-            // "x{a}" * 2 repeats the whole text and "{a}{b}"{0} indexes it
+            // "x{a}" * 2 repeats the whole text and "{a}{b}"[0] indexes it
             // rather than binding to the last part (T3.6 review).
             if (hasHole)
             {

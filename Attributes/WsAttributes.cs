@@ -124,7 +124,7 @@ namespace WarScript.Attributes
     /// {
     ///     [WsEnum] public enum DamageType { Physical, Magical, True = 5 }
     /// }
-    /// // In WarScript: DamageType :: Physical → 0, DamageType :: name [0] → "Physical"
+    /// // In WarScript: DamageType.Physical → 0, DamageType.name(0) → "Physical"
     /// </code>
     /// </summary>
     [AttributeUsage(AttributeTargets.Enum)]

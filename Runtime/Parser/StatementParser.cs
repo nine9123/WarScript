@@ -203,11 +203,11 @@ namespace WarScript
         /// (<c>end</c>, <c>elif</c>, <c>else</c>, <c>rescue</c>,
         /// <c>ensure</c>). A block the statement opens (<c>if</c>,
         /// <c>loop</c>, <c>begin</c>, <c>fun</c>, <c>class</c>,
-        /// <c>enum</c>) is skipped to its <c>end</c>, a <c>[</c> or <c>{</c>
+        /// <c>enum</c>) is skipped to its <c>end</c>, a <c>(</c> or <c>[</c>
         /// (an argument list or array literal, which may span lines; a line
         /// break ends anything else, parentheses included) to the one
         /// closing it, unless a line inside it starts after anything but
-        /// <c>,</c>, <c>[</c> or <c>{</c>, or with a keyword other than
+        /// <c>,</c>, <c>(</c> or <c>[</c>, or with a keyword other than
         /// <c>fun</c>, outside every block: the bracket was left unclosed.
         /// A block never closed is skipped to the end of the file.
         /// </summary>

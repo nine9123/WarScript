@@ -182,7 +182,7 @@ namespace WarScript.Expression.Value
         /// <summary>
         /// Equality with a memo of the array pairs already found
         /// equal, so that arrays shared inside a value (a DAG such as
-        /// <c>a = {a, a}</c> repeated) are compared once per pair instead of
+        /// <c>a = [a, a]</c> repeated) are compared once per pair instead of
         /// once per path, which is exponential (BUDGET-3). The memo is created
         /// on the first pair worth remembering, so flat values allocate
         /// nothing. <paramref name="height"/> is the number of array
@@ -376,7 +376,7 @@ namespace WarScript.Expression.Value
         /// Formatting an array stops adding elements once the text reaches
         /// this many characters and writes <c>...</c> in place of the rest
         /// (BUDGET-3): arrays shared inside an array format once per path, so
-        /// 40 levels of <c>a = {a, a}</c> would otherwise format 2^40
+        /// 40 levels of <c>a = [a, a]</c> would otherwise format 2^40
         /// elements. The same value as the default
         /// <see cref="WarScriptLanguage.MaxTextLength"/>; a constant because
         /// formatting has no instance to read a setting from.
