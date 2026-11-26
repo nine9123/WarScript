@@ -6,6 +6,10 @@
   A lightweight, embeddable, deterministic scripting language with a bytecode VM written in C#.
 </p>
 
+<p align="center">
+  <a href="https://github.com/nine9123/WarScript/actions/workflows/test.yml"><img src="https://github.com/nine9123/WarScript/actions/workflows/test.yml/badge.svg" alt="tests"></a>
+</p>
+
 ---
 
 WarScript is a custom scripting language designed to be embedded into C# applications and Unity

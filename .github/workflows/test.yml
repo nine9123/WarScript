@@ -1,0 +1,84 @@
+# Headless test suite on Linux, Windows and macOS (IMPROVEMENTS.md A1, plan 9.8).
+# Every platform runs `dotnet test` over Headless~/ (Benchmarks excluded) and
+# uploads Headless~/out/, which holds golden-hashes.<os>-<arch>.txt; the
+# compare-hashes job then requires every platform's golden state hashes to be
+# identical (lockstep determinism across x64/arm64 and operating systems).
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu/windows: x64; macos-latest: arm64.
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash   # Git Bash on Windows, for fetch-fixpointcs.sh
+    steps:
+      # Keep LF line endings on Windows: CRLF would change raw multi-line text
+      # literals (and their state hashes) and break the shell scripts.
+      - name: Disable autocrlf
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Read the pinned FixPointCS commit
+        id: fixpointcs
+        run: echo "commit=$(sed -n 's/^COMMIT=//p' 'Headless~/fetch-fixpointcs.sh')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache FixPointCS
+        uses: actions/cache@v4
+        with:
+          path: Headless~/external/FixPointCS
+          key: fixpointcs-${{ steps.fixpointcs.outputs.commit }}
+
+      - name: Fetch FixPointCS
+        run: ./Headless~/fetch-fixpointcs.sh
+
+      - name: Test
+        run: dotnet test 'Headless~/Tests/WarScript.Tests.csproj' --filter 'TestCategory!=Benchmark'
+
+      - name: Upload Headless~/out
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: headless-out-${{ matrix.os }}
+          path: Headless~/out/
+          if-no-files-found: warn
+
+  compare-hashes:
+    name: compare golden hashes
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: headless-out-*
+          path: hashes
+
+      - name: Compare every platform's golden state hashes
+        run: |
+          shopt -s nullglob
+          files=(hashes/*/golden-hashes.*.txt)
+          printf '%s\n' "${files[@]}"
+          if [ "${#files[@]}" -ne 3 ]; then
+            echo "Expected 3 golden-hashes files (one per platform), found ${#files[@]}." >&2
+            exit 1
+          fi
+          ./Headless~/compare-hashes.sh "${files[@]}"
