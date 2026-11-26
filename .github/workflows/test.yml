@@ -27,8 +27,13 @@ jobs:
     steps:
       # Keep LF line endings on Windows: CRLF would change raw multi-line text
       # literals (and their state hashes) and break the shell scripts.
-      - name: Disable autocrlf
-        run: git config --global core.autocrlf false
+      # .gitattributes marks everything `text=auto`, and for such files Git
+      # checks out core.eol endings (native: CRLF on Windows) when autocrlf is
+      # off, so core.eol has to be set as well.
+      - name: Check out with LF line endings
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
 
       - uses: actions/checkout@v4
 
@@ -49,8 +54,17 @@ jobs:
       - name: Fetch FixPointCS
         run: ./Headless~/fetch-fixpointcs.sh
 
+      # NUnit runs the tests on its own worker threads, which get the runtime's
+      # default stack (512 KB pthread default on macOS). The tests of the host
+      # nesting limit (32 nested entries) and of 1000-deep lambda constants need
+      # about 640 KB in a Debug build, so give every thread 8 MB, as on Linux.
+      # The value is hexadecimal; .NET 8 reads DOTNET_DefaultStackSize, .NET 9+
+      # DOTNET_Thread_DefaultStackSize. --blame names the test a crash happened in.
       - name: Test
-        run: dotnet test 'Headless~/Tests/WarScript.Tests.csproj' --filter 'TestCategory!=Benchmark'
+        env:
+          DOTNET_DefaultStackSize: '800000'
+          DOTNET_Thread_DefaultStackSize: '800000'
+        run: dotnet test 'Headless~/Tests/WarScript.Tests.csproj' --filter 'TestCategory!=Benchmark' --blame
 
       - name: Upload Headless~/out
         if: always()
