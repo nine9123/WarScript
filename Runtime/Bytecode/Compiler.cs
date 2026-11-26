@@ -347,8 +347,8 @@ namespace WarScript.Bytecode
         /// <summary>
         /// Q-16: an instance has one field per name (5.7), so a base class may
         /// not bind a parameter to an argument other than the one a field of
-        /// that name is already bound to: <c>class C [p, q] : A [p, q], B [q, p]</c>
-        /// with <c>A [a, b]</c> and <c>B [a, b]</c> is a compile error, while
+        /// that name is already bound to: <c>class C(p, q) : A(p, q), B(q, p)</c>
+        /// with <c>A(a, b)</c> and <c>B(a, b)</c> is a compile error, while
         /// passing the same parameter on (<c>class Bird(name) : Animal(name)</c>,
         /// or a diamond) is one field. A binding is a parameter of
         /// <paramref name="classDef"/> or nothing (an argument that is not a

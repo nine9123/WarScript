@@ -77,7 +77,7 @@ Recommended order, top to bottom. Tracks can be interleaved.
 
 **A. Housekeeping**
 - [ ] A1 — CI: headless tests on Linux, Windows and macOS (S)
-- [ ] A2 — Fix stale v1 syntax in the docs (S)
+- [x] ~~A2 — Fix stale v1 syntax in the docs~~ (done)
 - [ ] A3 — Test that compiles the code samples in the docs (S)
 - [ ] A4 — CHANGELOG and version policy (S)
 - [ ] A5 — Slim down `CLAUDE.md` (M)
@@ -143,16 +143,11 @@ Recommended order, top to bottom. Tracks can be interleaved.
 - **Done when.** The workflow runs on push and PR, all three platforms pass, and a deliberate hash
   difference (tested locally) makes the cross-platform job fail. The README gets a status badge.
 
-### A2 — Fix stale v1 syntax in the docs
-- **Size** S · **Format bump** no · **Owner decision** no
-- **Why.** DEC-22 (T3.12) changed calls to `f(x)` and arrays to `[1, 2]`, but some text still uses
-  the old forms. Examples: `README.md:92` (`tick[dt]`), and F-LANG-4 in the v2 plan
-  (`WARSCRIPT_V2_PLAN.md:1829`, `this :: method [args]`). Both are still present after T3.14.
-- **Scope.** Grep `README.md`, `CLAUDE.md`, `Documentation~/*.md` and the XML doc comments in
-  `Runtime/` for `name [args]` calls, `{1, 2}` arrays and `::` members. Fix every hit that describes
-  current behavior. Leave the history alone: `Documentation~/migration/`, the v2 plan's findings and
-  repro sections, and the error messages that hint at the new syntax when they see the old one.
-- **Done when.** The grep finds only intentional legacy references. No code changes.
+### A2 — Done
+Stale v1 syntax fixed in `README.md`, `CLAUDE.md`, the v2 plan (sections 6.7, 9.2, 11.4 and Q-17;
+section 5 now says its examples keep the pre-T3.12 syntax) and the XML doc comments in `Runtime/`.
+What remains is intentional: the v2 plan's history, findings and repro sections, `migration/`, and
+the legacy-syntax hints in the parser.
 
 ### A3 — Test that compiles the code samples in the docs
 - **Size** S · **Format bump** no · **Owner decision** no

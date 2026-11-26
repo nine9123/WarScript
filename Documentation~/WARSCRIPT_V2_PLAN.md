@@ -279,6 +279,8 @@ This section is the normative target for the language after Phase 3. Anything no
 - string interpolation, escapes and raw strings;
 - the numeric-literal grammar and CLAUDE.md D1 to D7.
 
+The surface syntax listed above was changed afterwards by DEC-22 (T3.12): calls and parameter lists are written `f(a, b)`, array literals `[1, 2]`, indexes `a[i]` and members `obj.x`. This section keeps the pre-T3.12 syntax in its examples as the record of the decisions; `Documentation~/LANGUAGE.md` has the current syntax.
+
 When T3.10 is done, this section becomes `Documentation~/LANGUAGE.md`, and every row of the operator table gets a golden test. (T3.10 first slice: `LANGUAGE.md` exists and is the reference for the implemented language; this section stays as the record of the decisions and the v1 → v2 differences.)
 
 ### 5.1 Values
@@ -668,7 +670,7 @@ Instances share no mutable runtime state (R1, T1.9). What a room or map does whe
 - Plain data may cross instances: numbers, text, arrays, and reading or writing fields of a foreign instance.
 - Calling a method of, or a function value owned by, another instance raises TypeError with the message "belongs to another script instance".
 
-Implementing it requires an owner reference on each `ClassData` and a small function-value wrapper that holds the owning instance. Done in T3.5 (eighth slice): `ClassData.Owner`, `FunctionValue` (`Function`, `Owner`); the message is `Cannot call <what>: it belongs to another script instance`. Instantiating a nested class through another instance's class instance (`u :: new Part [...]`) runs that instance's constructor code and raises the same error (implementer's addition). An instance the host builds without an owner (a generated `[WsEnum]`) may be used from any instance.
+Implementing it requires an owner reference on each `ClassData` and a small function-value wrapper that holds the owning instance. Done in T3.5 (eighth slice): `ClassData.Owner`, `FunctionValue` (`Function`, `Owner`); the message is `Cannot call <what>: it belongs to another script instance`. Instantiating a nested class through another instance's class instance (`u.new Part(...)`) runs that instance's constructor code and raises the same error (implementer's addition). An instance the host builds without an owner (a generated `[WsEnum]`) may be used from any instance.
 
 ### 6.8 Logging
 
@@ -1541,7 +1543,7 @@ Example:
 x = 1 + 2
 print x               # expect: 3
 print "a{x}b"         # expect: a3b
-y = {1, 2}{5}         # expect-error: IndexError
+y = [1, 2][5]         # expect-error: IndexError
 ```
 
 ### 9.3 Invariants checked after every entry
@@ -1826,7 +1828,7 @@ These were not discussed in depth; they are possibilities to revisit.
 | F-LANG-1 | Closures (upvalues). They become feasible once locals are stack slots (T3.5). |
 | F-LANG-2 | Structured error objects for `rescue e`, carrying the kind, message, line and stack |
 | F-LANG-3 | Numeric overflow detection. Today `F64` addition and subtraction wrap silently, multiplication overflow is unchecked, and division saturates. Decide whether overflow should raise an error. |
-| F-LANG-4 | `@method [args]` as sugar for `this :: method [args]` |
+| F-LANG-4 | `@method(args)` as sugar for `this.method(args)` |
 | F-LANG-5 | An isolated host call that lets a native suppress a callback's error, if event dispatch needs it (6.5) |
 
 ### 11.5 Simulation
@@ -1867,7 +1869,7 @@ Implementation proceeds with the default until the owner answers. The "Blocks" c
 | Q-14 | Leaving a rescue body by `return`, `raise` or a runtime error skips the `ensure` block (SEM-13), while `break`/`next` out of it run it (Q-12). Section 5.9 says ensure semantics are unchanged; should every way out of a rescue body run the ensure block? | Yes: when the rescue body is entered with an ensure block, the VM keeps an ensure-only handler for it until the rescue body ends. This needs a compiler change too (the rescue body's normal exit and a `break`/`next` out of it remove that handler), so bytecode compiled before it would leave the handler behind; land it with the format change in T1.7. Golden A.28 is written against this default. Done in T1.7 as proposed (version 4). | T1.7 (done) |
 | Q-15 | A `yield` reached outside a coroutine in a function, method or constructor called from the script body ends `Run()` with that frame's contexts still pushed and the rest of the script not run (SEM-14). What should it do? | Proposed: a rescuable error "yield outside a coroutine" at the `yield` when the VM is not running a coroutine and the frame is not the entry's own script body (a top-level `yield` keeps its v1 meaning); a compile error where the compiler can prove it (DEC-21). Not implemented, except inside an import: owner's decision (T3.7), a `yield` while an import's top-level code runs (in it or in a function it calls) is the rescuable TypeError `Cannot yield while importing 'path'`. | Done 2026-11-25 (the proposed answer, runtime part): the rescuable TypeError `Cannot yield outside a coroutine` at the `yield` when the VM was not started for a coroutine and the frame is not the script body `Run` entered (frame 0); this also covers a function the host `Call`s and a callback a native makes from inside a coroutine (its VM cannot be resumed by a tick). TypeError as for imports (no new public kind). No compile error: a function's `yield` cannot be proven outside a coroutine, since any function may be started as one. `WarVM.CannotYield`; golden `errors/yield_outside_coroutine.ws`, `language/yield_outside_coroutine_rescue.ws`; `CoroutineHostApiTests`. |
 | Q-16 | One field list per instance (5.7, T3.4) gives an instance one field per name, but v1 lets two class parts each have a constructor parameter of the same name bound to different arguments: `Tests/resources/calculator.ws` has `class Calculator [p, q]: Add [p, q], Sub [q, p], Mul [p, q], Div [q, p], Exp [p, q], Fib [ q ]`, where `Sub [a, b]` and `Mul [a, b]` (and `Div`, `Exp` and `Fib`, which share `m`/`n`) need different values in `a`, `b`, `m` and `n`. What should a name bound twice do? | Decided (owner): a compile error. A base-class parameter whose name is already a field bound to another argument is rejected, `'a' is bound twice in class 'Calculator': base class 'Mul' binds its parameter 'a' to a different argument`, at the deriving class's line. A binding is a parameter of the class being checked, or nothing (an argument that is not a parameter of the deriving class, or a missing one); passing the same parameter on (`class Bird [name] : Animal [name]`, a diamond) and two parameters that both get nothing are one field. Where the compiler does not know every base class (an import's until T3.7 — since its fourth slice only a bytecode import's —, host-registered, bytecode-loaded, a base named like a nested class) the VM raises the same message as a rescuable TypeError at `new` (implementer's addition: the instance layout needs the check either way). `Tests/resources/calculator.ws` was rewritten (each base names its parameters differently). Done in T3.4 (rest). | T3.4 (done) |
-| Q-17 | Text length. v1 scripts find a text's length by probing `s{n}` until it reads null (`Tests/Golden~/deep/test_deep_string_algos.ws` does); since T3.6 that read is an IndexError (5.5) and no native returns a text's length (`Array_length` takes arrays only). Should the stdlib get `Text_length [s]` (named like `Text_remove`, PROP-7)? | None added: a script probes with `begin`/`rescue` around the read. The migration tool does not report the probe pattern. | T3.6 (stdlib), T3.9 |
+| Q-17 | Text length. v1 scripts find a text's length by probing `s{n}` until it reads null (`Tests/Golden~/deep/test_deep_string_algos.ws` does); since T3.6 that read is an IndexError (5.5) and no native returns a text's length (`Array_length` takes arrays only). Should the stdlib get `Text_length(s)` (named like `Text_remove`, PROP-7)? | None added: a script probes with `begin`/`rescue` around the read. The migration tool does not report the probe pattern. | T3.6 (stdlib), T3.9 |
 
 ---
 

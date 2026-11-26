@@ -89,7 +89,7 @@ ScriptResult run = script.Run();
 if (!run.IsOk) Debug.LogError(run.Error);    // "example:3:0: DivisionByZero: Division by zero"
 
 // 4. Call into the script. Functions are looked up by (name, argument count).
-FunctionHandle tick = script.GetFunction("tick", 1);   // null if there is no tick[dt]
+FunctionHandle tick = script.GetFunction("tick", 1);   // null if there is no tick(dt)
 ScriptResult r = script.Call(tick, WarValue.FromNumeric(F64.Ratio(1, 60)));
 // r.Value is tick's return value when r.IsOk
 
